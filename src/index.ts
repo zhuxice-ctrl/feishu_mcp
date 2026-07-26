@@ -1,8 +1,12 @@
 /**
- * aily-local-file-mcp — Phase 1: HTTP MCP Server skeleton
+ * aily-local-file-mcp — Main entry point
  *
- * Provides a Streamable HTTP MCP server with a health-check tool,
- * ready for Phase 2 (file system tools) and Phase 3 (security layer).
+ * Streamable HTTP MCP server with:
+ *   Phase 1: HTTP skeleton + ping tool
+ *   Phase 2: 9 filesystem tools (read/write/edit/list/move/search/info/allowed_dirs)
+ *   Phase 3: Security layer (Bearer auth, rate limit, path guard, file guard, audit log, soft-delete)
+ *   Phase 4: Cloudflare Tunnel configuration support
+ *   Phase 5: End-to-end test harness
  */
 
 import { McpServer, createMcpHandler } from "@modelcontextprotocol/server";
@@ -10,26 +14,35 @@ import { createMcpExpressApp } from "@modelcontextprotocol/express";
 import type { Express, Request, Response } from "express";
 import { z } from "zod";
 
+import {
+  PORT,
+  HOST,
+  MCP_ENDPOINT,
+  AUTH_ENABLED,
+  MCP_AUTH_TOKEN,
+} from "./config.js";
+import { authMiddleware } from "./security/auth.js";
+import { cleanupTrash } from "./security/trash.js";
+import { registerFilesystemTools } from "./tools/filesystem.js";
+
 // ---------------------------------------------------------------------------
-// Configuration
+// Token extraction — passed to tool registrations for audit logging
 // ---------------------------------------------------------------------------
 
-const PORT = parseInt(process.env.PORT || "3000", 10);
-const HOST = process.env.HOST || "0.0.0.0";
-const MCP_ENDPOINT = process.env.MCP_ENDPOINT || "/mcp";
+let currentToken = "";
+
+function getToken(): string {
+  return currentToken;
+}
 
 // ---------------------------------------------------------------------------
-// MCP server factory
-//
-// createMcpHandler calls this factory once per HTTP request, producing a fresh
-// McpServer instance. Define tools / resources / prompts here — they will be
-// available on every request.
+// MCP server factory — one fresh instance per request
 // ---------------------------------------------------------------------------
 
 function createMcpServer(): McpServer {
   const server = new McpServer({
     name: "aily-local-file-mcp",
-    version: "0.1.0",
+    version: "0.2.0",
   });
 
   // --- Phase 1: ping tool (health verification) ---------------------------
@@ -58,28 +71,43 @@ function createMcpServer(): McpServer {
     }
   );
 
+  // --- Phase 2+3: Filesystem tools (with built-in security) -------------
+  registerFilesystemTools(server, getToken);
+
   return server;
 }
 
 // ---------------------------------------------------------------------------
-// Create MCP HTTP handler (web-standard fetch shape)
+// Create MCP HTTP handler
 // ---------------------------------------------------------------------------
 
 const handler = createMcpHandler(createMcpServer);
 
 // ---------------------------------------------------------------------------
-// Express app with security middleware (DNS rebinding / origin validation)
+// Express app
 // ---------------------------------------------------------------------------
 
 const app: Express = createMcpExpressApp({ host: HOST });
 
-// ---------------------------------------------------------------------------
-// MCP route — bridges Express ↔ Web Standard Request/Response
-// ---------------------------------------------------------------------------
+// --- Auth + rate-limit middleware (Phase 3) ------------------------------
+// Applied only to the MCP endpoint; /health remains open for monitoring.
+
+app.all(MCP_ENDPOINT, (req: Request, _res: Response, next) => {
+  // Extract token for audit logging (the authMiddleware validates it)
+  const authHeader = req.headers.authorization;
+  if (authHeader) {
+    const match = authHeader.match(/^Bearer\s+(.+)$/i);
+    if (match) currentToken = match[1].trim();
+  }
+  next();
+});
+
+app.all(MCP_ENDPOINT, authMiddleware);
+
+// --- MCP route handler ---------------------------------------------------
 
 app.all(MCP_ENDPOINT, async (req: Request, res: Response) => {
   try {
-    // Build a Web Standard Request from the Express request
     const protocol = req.protocol;
     const host = req.headers.host || `${HOST}:${PORT}`;
     const url = new URL(req.originalUrl || req.url, `${protocol}://${host}`);
@@ -100,28 +128,19 @@ app.all(MCP_ENDPOINT, async (req: Request, res: Response) => {
       body: hasBody && req.body !== undefined ? JSON.stringify(req.body) : undefined,
     });
 
-    // Forward to the MCP handler
     const response = await handler.fetch(request, {
       parsedBody: hasBody ? req.body : undefined,
     });
 
-    // Write status + headers back to Express
     res.status(response.status);
     response.headers.forEach((value, key) => {
-      // Express manages transfer-encoding itself
       if (key.toLowerCase() !== "transfer-encoding") {
         res.setHeader(key, value);
       }
     });
 
-    // Stream the body (handles both JSON and SSE responses)
     if (response.body) {
-      // Flush headers immediately for SSE
-      if (
-        response.headers
-          .get("content-type")
-          ?.includes("text/event-stream")
-      ) {
+      if (response.headers.get("content-type")?.includes("text/event-stream")) {
         res.flushHeaders();
       }
 
@@ -133,7 +152,7 @@ app.all(MCP_ENDPOINT, async (req: Request, res: Response) => {
           res.write(Buffer.from(value));
         }
       } catch {
-        // Stream interrupted — client likely disconnected
+        // client disconnected
       }
       res.end();
     } else {
@@ -154,26 +173,55 @@ app.all(MCP_ENDPOINT, async (req: Request, res: Response) => {
 });
 
 // ---------------------------------------------------------------------------
-// Health check endpoint (non-MCP)
+// Health check endpoint (non-MCP, always open)
 // ---------------------------------------------------------------------------
 
 app.get("/health", (_req: Request, res: Response) => {
   res.json({
     status: "ok",
     service: "aily-local-file-mcp",
-    version: "0.1.0",
+    version: "0.2.0",
     mcpEndpoint: MCP_ENDPOINT,
+    authEnabled: AUTH_ENABLED,
+    tools: [
+      "ping",
+      "read_file",
+      "write_file",
+      "edit_file",
+      "create_directory",
+      "list_directory",
+      "move_file",
+      "search_files",
+      "get_file_info",
+      "list_allowed_directories",
+    ],
     timestamp: new Date().toISOString(),
   });
 });
 
 // ---------------------------------------------------------------------------
-// Start
+// Trash cleanup — runs every hour
+// ---------------------------------------------------------------------------
+
+setInterval(() => {
+  const purged = cleanupTrash();
+  if (purged > 0) {
+    console.log(`[trash] Purged ${purged} expired entries`);
+  }
+}, 60 * 60 * 1000); // 1 hour
+
+// Initial cleanup on startup
+setTimeout(() => cleanupTrash(), 5000);
+
+// ---------------------------------------------------------------------------
+// Start server
 // ---------------------------------------------------------------------------
 
 app.listen(PORT, HOST, () => {
   console.log(`[aily-local-file-mcp] Server running on http://${HOST}:${PORT}`);
   console.log(`[aily-local-file-mcp] MCP endpoint: http://${HOST}:${PORT}${MCP_ENDPOINT}`);
   console.log(`[aily-local-file-mcp] Health check: http://${HOST}:${PORT}/health`);
-  console.log(`[aily-local-file-mcp] Phase 1 skeleton ready — ping tool registered`);
+  console.log(`[aily-local-file-mcp] Auth: ${AUTH_ENABLED ? "ENABLED (Bearer token required)" : "DISABLED (no token set)"}`);
+  console.log(`[aily-local-file-mcp] Phase 1-3 ready — 10 tools registered (ping + 9 filesystem tools)`);
+  console.log(`[aily-local-file-mcp] Security: path guard, file guard, rate limit, audit log, soft-delete`);
 });
