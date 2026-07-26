@@ -1,0 +1,40 @@
+# Cloudflare Tunnel Configuration
+#
+# This file configures a named (permanent) Cloudflare Tunnel that exposes
+# the local MCP server to the internet via a fixed domain.
+#
+# Setup steps:
+#   1. Install cloudflared: https://developers.cloudflare.com/cloudflare-one/connections/connect-networks/get-started/
+#   2. Authenticate: cloudflared tunnel login
+#   3. Create tunnel: cloudflared tunnel create aily-mcp
+#   4. Copy the tunnel ID (UUID) from the output
+#   5. Replace <TUNNEL_ID> below with your tunnel ID
+#   6. Configure DNS: cloudflared tunnel route dns aily-mcp yourdomain.com
+#   7. Run: cloudflared tunnel run --config cloudflared/config.yml
+
+# Tunnel UUID — replace with your actual tunnel ID
+tunnel: <TUNNEL_ID>
+
+# Path to the credentials file (created by `cloudflared tunnel create`)
+credentials-file: /home/user/.cloudflared/<TUNNEL_ID>.json
+
+# Logging
+loglevel: info
+transport-loglevel: warn
+
+# Ingress rules — route traffic to the local MCP server
+ingress:
+  # Route the MCP domain to the local server
+  - hostname: aily-mcp.yourdomain.com
+    service: http://localhost:3000
+    originRequest:
+      # Disable TLS verification for localhost (the local server uses HTTP)
+      noTLSVerify: true
+      # Connection pooling
+      connectTimeout: 10s
+      tcpKeepAlive: 30s
+      keepAliveTimeout: 90s
+      keepAliveConnections: 10
+
+  # Catch-all rule (must be last)
+  - service: http_status:404
