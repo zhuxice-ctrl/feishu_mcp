@@ -1,0 +1,25 @@
+{
+  "name": "aily-local-file-mcp",
+  "version": "0.1.0",
+  "description": "Feishu Aily local file MCP server — secure file system tools via Streamable HTTP transport",
+  "type": "module",
+  "main": "dist/index.js",
+  "scripts": {
+    "build": "tsc",
+    "start": "node dist/index.js",
+    "dev": "tsx watch src/index.ts",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/express": "^2.0.0-beta.5",
+    "@modelcontextprotocol/server": "^2.0.0-beta.5",
+    "express": "^4.21.2",
+    "zod": "^4.2.0"
+  },
+  "devDependencies": {
+    "@types/express": "^5.0.0",
+    "@types/node": "^22.10.0",
+    "tsx": "^4.19.0",
+    "typescript": "^5.7.0"
+  }
+}
