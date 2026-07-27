@@ -8,9 +8,14 @@
  */
 
 import fs from "node:fs";
-import path from "node:path";
 import crypto from "node:crypto";
-import { LOG_DIR, LOG_FILE } from "../config.js";
+import {
+  LOG_DIR,
+  LOG_FILE,
+  LOG_FORMAT,
+  LOG_LEVEL,
+  type LogLevel,
+} from "../config.js";
 
 // Ensure log directory exists
 try {
@@ -39,6 +44,86 @@ export interface LogEntry {
   result: "success" | "denied" | "error";
   detail?: string;
 }
+
+const LEVEL_PRIORITY: Record<LogLevel, number> = {
+  error: 0,
+  warn: 1,
+  info: 2,
+  debug: 3,
+  trace: 4,
+};
+
+function isSecretField(key: string): boolean {
+  const normalized = key.replace(/[^a-z0-9]/gi, "").toLowerCase();
+  return (
+    [
+      "authorization",
+      "cookie",
+      "credential",
+      "credentials",
+      "password",
+      "passwd",
+      "pin",
+      "secret",
+      "token",
+      "apikey",
+    ].includes(normalized) ||
+    normalized.endsWith("password") ||
+    normalized.endsWith("secret") ||
+    normalized.endsWith("token")
+  );
+}
+
+function redactValue(value: unknown, seen: WeakSet<object>): unknown {
+  if (value instanceof Error) {
+    return { name: value.name, message: value.message, stack: value.stack };
+  }
+  if (Array.isArray(value)) return value.map((item) => redactValue(item, seen));
+  if (value === null || typeof value !== "object") return value;
+  if (seen.has(value)) return "[Circular]";
+  seen.add(value);
+  const redacted: Record<string, unknown> = {};
+  for (const [key, nestedValue] of Object.entries(value)) {
+    redacted[key] = isSecretField(key)
+      ? "[REDACTED]"
+      : redactValue(nestedValue, seen);
+  }
+  return redacted;
+}
+
+export function redactSecrets(fields: Record<string, unknown>): Record<string, unknown> {
+  return redactValue(fields, new WeakSet()) as Record<string, unknown>;
+}
+
+function logEvent(level: LogLevel, event: string, fields: Record<string, unknown> = {}): void {
+  if (LEVEL_PRIORITY[level] > LEVEL_PRIORITY[LOG_LEVEL]) return;
+  try {
+    const redactedFields = redactSecrets(fields);
+    const entry = {
+      ...redactedFields,
+      timestamp: new Date().toISOString(),
+      level,
+      event,
+    };
+    const line =
+      LOG_FORMAT === "json"
+        ? JSON.stringify(entry)
+        : `${entry.timestamp} ${level.toUpperCase()} ${event}${
+            Object.keys(redactedFields).length ? ` ${JSON.stringify(redactedFields)}` : ""
+          }`;
+    process.stderr.write(`${line}\n`);
+  } catch {
+    // Event logging is best-effort and must never interrupt request handling.
+  }
+}
+
+export const logger = {
+  error: (event: string, fields?: Record<string, unknown>) => logEvent("error", event, fields),
+  warn: (event: string, fields?: Record<string, unknown>) => logEvent("warn", event, fields),
+  info: (event: string, fields?: Record<string, unknown>) => logEvent("info", event, fields),
+  debug: (event: string, fields?: Record<string, unknown>) => logEvent("debug", event, fields),
+  trace: (event: string, fields?: Record<string, unknown>) => logEvent("trace", event, fields),
+};
 
 /**
  * Hash a token for logging — never log the raw token.

@@ -8,6 +8,36 @@
 
 import path from "node:path";
 
+function envEnum<const T extends readonly string[]>(
+  name: string,
+  allowed: T,
+  defaultValue: T[number]
+): T[number] {
+  const value = process.env[name];
+  if (value === undefined || value === "") return defaultValue;
+  if ((allowed as readonly string[]).includes(value)) return value as T[number];
+  throw new Error(`${name} must be one of: ${allowed.join(", ")}`);
+}
+
+function envBoolean(name: string, defaultValue: boolean): boolean {
+  const value = process.env[name];
+  if (value === undefined || value === "") return defaultValue;
+  if (value === "true") return true;
+  if (value === "false") return false;
+  throw new Error(`${name} must be true or false`);
+}
+
+function envPositiveInt(name: string, defaultValue: number): number {
+  const value = process.env[name];
+  if (value === undefined || value === "") return defaultValue;
+  if (!/^\d+$/.test(value)) throw new Error(`${name} must be a positive integer`);
+  const parsed = Number(value);
+  if (!Number.isSafeInteger(parsed) || parsed <= 0) {
+    throw new Error(`${name} must be a positive integer`);
+  }
+  return parsed;
+}
+
 // ---------------------------------------------------------------------------
 // Server identity — single source of truth (was duplicated across index.ts,
 // /health endpoint, and the e2e test prior to the refactor).
@@ -56,6 +86,24 @@ export const MCP_AUTH_TOKEN = process.env.MCP_AUTH_TOKEN || "";
  */
 export const AUTH_ENABLED = MCP_AUTH_TOKEN.length > 0;
 
+export type AuthMode = "pin" | "header" | "none";
+
+export const AUTH_MODE: AuthMode = envEnum(
+  "AUTH_MODE",
+  ["pin", "header", "none"] as const,
+  "pin"
+);
+export const AUTH_PIN = process.env.AUTH_PIN || "";
+export const AUTH_USER_HEADER = process.env.AUTH_USER_HEADER?.trim() || "x-aily-user";
+export const AUTH_EMAIL_HEADER = process.env.AUTH_EMAIL_HEADER?.trim() || "x-aily-email";
+export const AUTH_USER_QUERY_PARAM = process.env.AUTH_USER_QUERY_PARAM?.trim() || "";
+export const AUTH_MULTI_USER = envBoolean("AUTH_MULTI_USER", false);
+export const AUTH_MAX_USERS = envPositiveInt("AUTH_MAX_USERS", 8);
+
+if (AUTH_PIN && AUTH_PIN.length < 8) {
+  throw new Error("AUTH_PIN must be at least 8 characters when configured");
+}
+
 // ---------------------------------------------------------------------------
 // File size limits (Phase 3)
 // ---------------------------------------------------------------------------
@@ -94,6 +142,20 @@ export const TRASH_RETENTION_DAYS = parseInt(
 
 export const LOG_DIR = process.env.LOG_DIR || "logs";
 export const LOG_FILE = path.join(LOG_DIR, "mcp-operations.log");
+
+export type LogLevel = "error" | "warn" | "info" | "debug" | "trace";
+export type LogFormat = "pretty" | "json";
+
+export const LOG_LEVEL: LogLevel = envEnum(
+  "LOG_LEVEL",
+  ["error", "warn", "info", "debug", "trace"] as const,
+  "info"
+);
+export const LOG_FORMAT: LogFormat = envEnum(
+  "LOG_FORMAT",
+  ["pretty", "json"] as const,
+  "pretty"
+);
 
 // ---------------------------------------------------------------------------
 // ngrok tunnel (optional — used by start scripts, not by the server itself)

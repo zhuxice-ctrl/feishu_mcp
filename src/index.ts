@@ -18,15 +18,24 @@ import type { Express, Request, Response } from "express";
 import { z } from "zod";
 
 import {
+  ALLOWED_DIRS,
+  AUTH_EMAIL_HEADER,
   AUTH_ENABLED,
+  AUTH_MODE,
+  AUTH_USER_HEADER,
+  AUTH_USER_QUERY_PARAM,
   HOST,
   MCP_ENDPOINT,
   PORT,
   SERVER_NAME,
   SERVER_VERSION,
 } from "./config.js";
-import { authMiddleware } from "./security/auth.js";
-import { runWithToken } from "./security/requestContext.js";
+import { registerAuthTool } from "./auth/authTool.js";
+import { getPin, initPin, summary as authSummary } from "./auth/pinAuth.js";
+import { authMiddleware, corsPreflight } from "./security/auth.js";
+import { logger } from "./security/logger.js";
+import { runWithRequestContext } from "./security/requestContext.js";
+import { authorizeToolCall } from "./security/toolAccess.js";
 import { cleanupTrash } from "./security/trash.js";
 import { registerFilesystemTools } from "./tools/filesystem.js";
 
@@ -54,18 +63,23 @@ function createMcpServer(): McpServer {
           .describe("Optional message to echo back in the response"),
       },
     },
-    async (args) => ({
-      content: [
-        {
-          type: "text" as const,
-          text: `pong${args.message ? `: ${args.message}` : ""}`,
-        },
-      ],
-    })
+    async (args) => {
+      const accessError = authorizeToolCall("ping", args);
+      if (accessError) return accessError;
+      return {
+        content: [
+          {
+            type: "text" as const,
+            text: `pong${args.message ? `: ${args.message}` : ""}`,
+          },
+        ],
+      };
+    }
   );
 
   // --- Filesystem tools (9 tools, token read from AsyncLocalStorage) ---
   registerFilesystemTools(server);
+  registerAuthTool(server);
 
   return server;
 }
@@ -82,17 +96,25 @@ const handler = createMcpHandler(createMcpServer);
 
 const app: Express = createMcpExpressApp({ host: HOST });
 
+app.all(MCP_ENDPOINT, corsPreflight);
+
 // --- Auth + rate-limit middleware (Phase 3) ------------------------------
 // Applied only to the MCP endpoint; /health remains open for monitoring.
 // The middleware stashes the validated token on the request object, and the
-// route handler below wraps the MCP fetch call in runWithToken() so every
-// tool handler sees the right token via AsyncLocalStorage.
+// route handler below wraps the MCP fetch call in runWithRequestContext() so
+// every tool handler sees the right transport credential and identity.
 app.all(MCP_ENDPOINT, authMiddleware);
 
 // --- MCP route handler ---------------------------------------------------
 
 app.all(MCP_ENDPOINT, async (req: Request, res: Response) => {
   const token = (req as Request & { authToken?: string }).authToken ?? "";
+  const headerUserId = readIdentityValue(req.get(AUTH_USER_HEADER));
+  const queryUserId = AUTH_USER_QUERY_PARAM
+    ? readIdentityValue(req.query[AUTH_USER_QUERY_PARAM])
+    : null;
+  const userId = headerUserId ?? queryUserId;
+  const email = readIdentityValue(req.get(AUTH_EMAIL_HEADER));
 
   try {
     const protocol = req.protocol;
@@ -115,10 +137,8 @@ app.all(MCP_ENDPOINT, async (req: Request, res: Response) => {
       body: hasBody && req.body !== undefined ? JSON.stringify(req.body) : undefined,
     });
 
-    // Propagate the validated token into the async context for the duration
-    // of this request.  The MCP handler and every tool it calls will read
-    // it via getRequestToken().
-    const response = await runWithToken(token, () =>
+    // Keep transport credentials and identity scoped to this handler call.
+    const response = await runWithRequestContext({ token, userId, email }, () =>
       handler.fetch(request, {
         parsedBody: hasBody ? req.body : undefined,
       })
@@ -151,7 +171,7 @@ app.all(MCP_ENDPOINT, async (req: Request, res: Response) => {
       res.end();
     }
   } catch (error) {
-    console.error("[MCP] Handler error:", error);
+    logger.error("mcp_handler_error", { error, userId, email });
     if (!res.headersSent) {
       res.status(500).json({
         jsonrpc: "2.0",
@@ -164,6 +184,13 @@ app.all(MCP_ENDPOINT, async (req: Request, res: Response) => {
   }
 });
 
+function readIdentityValue(value: unknown): string | null {
+  const firstValue = Array.isArray(value) ? value[0] : value;
+  if (typeof firstValue !== "string") return null;
+  const trimmed = firstValue.trim();
+  return trimmed || null;
+}
+
 // ---------------------------------------------------------------------------
 // Health check endpoint (non-MCP, always open)
 // ---------------------------------------------------------------------------
@@ -175,6 +202,7 @@ app.get("/health", (_req: Request, res: Response) => {
     version: SERVER_VERSION,
     mcpEndpoint: MCP_ENDPOINT,
     authEnabled: AUTH_ENABLED,
+    authMode: AUTH_MODE,
     tools: [
       "ping",
       "read_file",
@@ -186,7 +214,9 @@ app.get("/health", (_req: Request, res: Response) => {
       "search_files",
       "get_file_info",
       "list_allowed_directories",
+      "auth",
     ],
+    auth: authSummary(),
     timestamp: new Date().toISOString(),
   });
 });
@@ -198,7 +228,7 @@ app.get("/health", (_req: Request, res: Response) => {
 setInterval(() => {
   const purged = cleanupTrash();
   if (purged > 0) {
-    console.log(`[trash] Purged ${purged} expired entries`);
+    logger.info("trash_cleanup_completed", { purged });
   }
 }, 60 * 60 * 1000); // 1 hour
 
@@ -209,13 +239,20 @@ setTimeout(() => cleanupTrash(), 5000);
 // Start server
 // ---------------------------------------------------------------------------
 
+initPin();
+
 app.listen(PORT, HOST, () => {
-  console.log(`[${SERVER_NAME}] Server running on http://${HOST}:${PORT}`);
-  console.log(`[${SERVER_NAME}] MCP endpoint: http://${HOST}:${PORT}${MCP_ENDPOINT}`);
-  console.log(`[${SERVER_NAME}] Health check: http://${HOST}:${PORT}/health`);
-  console.log(
-    `[${SERVER_NAME}] Auth: ${AUTH_ENABLED ? "ENABLED (Bearer token required)" : "DISABLED (no token set)"}`
-  );
-  console.log(`[${SERVER_NAME}] 10 tools registered (ping + 9 filesystem tools)`);
-  console.log(`[${SERVER_NAME}] Security: path guard, file guard, rate limit, audit log, soft-delete`);
+  const lines = [
+    `${SERVER_NAME} v${SERVER_VERSION}`,
+    `Server: http://${HOST}:${PORT}`,
+    `MCP endpoint: http://${HOST}:${PORT}${MCP_ENDPOINT}`,
+    `Health check: http://${HOST}:${PORT}/health`,
+    `Allowed directories: ${ALLOWED_DIRS.join(", ") || "none"}`,
+    `Bearer transport auth: ${AUTH_ENABLED ? "enabled" : "disabled"}`,
+    `Tool auth mode: ${AUTH_MODE}`,
+    "Tools: 11 (ping, 9 filesystem tools, auth)",
+  ];
+  const pin = getPin();
+  if (AUTH_MODE === "pin" && pin) lines.push(`PIN: ${pin}`);
+  process.stderr.write(`${lines.join("\n")}\n`);
 });

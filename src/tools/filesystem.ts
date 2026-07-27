@@ -24,6 +24,7 @@ import { atomicWriteFile } from "./atomicWrite.js";
 import {
   checkReadSize,
   checkWriteSize,
+  authorizeToolCall,
   errorResult,
   formatBytes,
   isLikelyTextFile,
@@ -67,6 +68,8 @@ function registerReadFile(server: McpServer): void {
       },
     },
     async (args) => {
+      const accessError = authorizeToolCall("read_file", args);
+      if (accessError) return accessError;
       const guard = resolveAndGuard(args.path, "read");
       if (!guard.ok) return errorResult(guard.error);
 
@@ -131,6 +134,8 @@ function registerWriteFile(server: McpServer): void {
       },
     },
     async (args) => {
+      const accessError = authorizeToolCall("write_file", args);
+      if (accessError) return accessError;
       const guard = resolveAndGuard(args.path, "write");
       if (!guard.ok) return errorResult(guard.error);
 
@@ -181,6 +186,8 @@ function registerEditFile(server: McpServer): void {
       },
     },
     async (args) => {
+      const accessError = authorizeToolCall("edit_file", args);
+      if (accessError) return accessError;
       const guard = resolveAndGuard(args.path, "write");
       if (!guard.ok) return errorResult(guard.error);
 
@@ -245,6 +252,8 @@ function registerCreateDirectory(server: McpServer): void {
       },
     },
     async (args) => {
+      const accessError = authorizeToolCall("create_directory", args);
+      if (accessError) return accessError;
       const guard = resolveAndGuard(args.path, "write");
       if (!guard.ok) return errorResult(guard.error);
 
@@ -276,6 +285,8 @@ function registerListDirectory(server: McpServer): void {
       },
     },
     async (args) => {
+      const accessError = authorizeToolCall("list_directory", args);
+      if (accessError) return accessError;
       const guard = resolveAndGuard(args.path, "read");
       if (!guard.ok) return errorResult(guard.error);
 
@@ -316,6 +327,8 @@ function registerMoveFile(server: McpServer): void {
       },
     },
     async (args) => {
+      const accessError = authorizeToolCall("move_file", args);
+      if (accessError) return accessError;
       const srcGuard = resolveAndGuard(args.source, "write");
       if (!srcGuard.ok) return errorResult(`Source: ${srcGuard.error}`);
       const dstGuard = resolveAndGuard(args.destination, "write");
@@ -417,6 +430,8 @@ function registerSearchFiles(server: McpServer): void {
       },
     },
     async (args) => {
+      const accessError = authorizeToolCall("search_files", args);
+      if (accessError) return accessError;
       const guard = resolveAndGuard(args.path, "read");
       if (!guard.ok) return errorResult(guard.error);
 
@@ -490,6 +505,8 @@ function registerGetFileInfo(server: McpServer): void {
       },
     },
     async (args) => {
+      const accessError = authorizeToolCall("get_file_info", args);
+      if (accessError) return accessError;
       const guard = resolveAndGuard(args.path, "read");
       if (!guard.ok) return errorResult(guard.error);
 
@@ -530,7 +547,9 @@ function registerListAllowedDirectories(server: McpServer): void {
         "All file operations are restricted to these roots.",
       inputSchema: {},
     },
-    async () => {
+    async (args) => {
+      const accessError = authorizeToolCall("list_allowed_directories", args);
+      if (accessError) return accessError;
       const dirs = getAllowedDirectories();
       if (dirs.length === 0) {
         return {

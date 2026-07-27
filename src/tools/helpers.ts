@@ -21,6 +21,7 @@ import { validatePath } from "../security/pathGuard.js";
 import { checkFileAccess } from "../security/fileGuard.js";
 import { getRequestToken } from "../security/requestContext.js";
 import { logOperation, type OperationType } from "../security/logger.js";
+export { authorizeToolCall } from "../security/toolAccess.js";
 
 // ---------------------------------------------------------------------------
 // MCP content builders
