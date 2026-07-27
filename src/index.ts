@@ -1,12 +1,8 @@
 /**
- * aily-local-file-mcp — Main entry point
+ * feishu_mcp — Main entry point
  *
- * Streamable HTTP MCP server with:
- *   Phase 1: HTTP skeleton + ping tool
- *   Phase 2: 9 filesystem tools (read/write/edit/list/move/search/info/allowed_dirs)
- *   Phase 3: Security layer (Bearer auth, rate limit, path guard, file guard, audit log, soft-delete)
- *   Phase 4: Cloudflare Tunnel configuration support
- *   Phase 5: End-to-end test harness
+ * Streamable HTTP MCP server that exposes local filesystem to Feishu Aily.
+ * Uses ngrok for public tunneling (replaces Cloudflare Tunnel).
  */
 
 import { McpServer, createMcpHandler } from "@modelcontextprotocol/server";
@@ -41,7 +37,7 @@ function getToken(): string {
 
 function createMcpServer(): McpServer {
   const server = new McpServer({
-    name: "aily-local-file-mcp",
+    name: "feishu-mcp",
     version: "0.2.0",
   });
 
@@ -179,7 +175,7 @@ app.all(MCP_ENDPOINT, async (req: Request, res: Response) => {
 app.get("/health", (_req: Request, res: Response) => {
   res.json({
     status: "ok",
-    service: "aily-local-file-mcp",
+    service: "feishu-mcp",
     version: "0.2.0",
     mcpEndpoint: MCP_ENDPOINT,
     authEnabled: AUTH_ENABLED,
@@ -218,10 +214,10 @@ setTimeout(() => cleanupTrash(), 5000);
 // ---------------------------------------------------------------------------
 
 app.listen(PORT, HOST, () => {
-  console.log(`[aily-local-file-mcp] Server running on http://${HOST}:${PORT}`);
-  console.log(`[aily-local-file-mcp] MCP endpoint: http://${HOST}:${PORT}${MCP_ENDPOINT}`);
-  console.log(`[aily-local-file-mcp] Health check: http://${HOST}:${PORT}/health`);
-  console.log(`[aily-local-file-mcp] Auth: ${AUTH_ENABLED ? "ENABLED (Bearer token required)" : "DISABLED (no token set)"}`);
-  console.log(`[aily-local-file-mcp] Phase 1-3 ready — 10 tools registered (ping + 9 filesystem tools)`);
-  console.log(`[aily-local-file-mcp] Security: path guard, file guard, rate limit, audit log, soft-delete`);
+  console.log(`[feishu-mcp] Server running on http://${HOST}:${PORT}`);
+  console.log(`[feishu-mcp] MCP endpoint: http://${HOST}:${PORT}${MCP_ENDPOINT}`);
+  console.log(`[feishu-mcp] Health check: http://${HOST}:${PORT}/health`);
+  console.log(`[feishu-mcp] Auth: ${AUTH_ENABLED ? "ENABLED (Bearer token required)" : "DISABLED (no token set)"}`);
+  console.log(`[feishu-mcp] 10 tools registered (ping + 9 filesystem tools)`);
+  console.log(`[feishu-mcp] Security: path guard, file guard, rate limit, audit log, soft-delete`);
 });

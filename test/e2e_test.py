@@ -18,7 +18,7 @@ BASE_URL = f"http://127.0.0.1:{SERVER_PORT}"
 MCP_URL = f"{BASE_URL}/mcp"
 TOKEN = "test-secret-token"
 WORKSPACE = "/tmp/mcp-test-workspace"
-PROJECT_DIR = "/home/gem/.aily/workdir/web_p2p/aily-local-file-mcp"
+PROJECT_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
 HEADERS = {
     "Content-Type": "application/json",

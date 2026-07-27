@@ -1,25 +1,25 @@
 # 飞书 Aily MCP 接入指南
 
-本指南将 aily-local-file-mcp 服务接入飞书 Aily 平台，实现通过 AI 助手远程读写本地文件。
+本指南将 feishu_mcp 服务接入飞书 Aily 平台，实现通过 AI 助手远程读写本地文件。
 
 ## 前置条件
 
-- [ ] Phase 1-3 完成：MCP 服务已编译，`/health` 返回正常
-- [ ] Phase 4 完成：Cloudflare Tunnel 已配置，公网域名可访问
+- [ ] MCP 服务已构建完成（`npm run build`），`/health` 返回正常
+- [ ] ngrok 已安装并配置了固定域名（见 README 中的 ngrok 设置步骤）
 - [ ] 拥有飞书 Aily 管理后台权限
 
 ## 接入步骤
 
 ### 1. 验证公网连通性
 
-确保 Cloudflare Tunnel 已启动，公网地址可访问：
+确保 ngrok 隧道已启动，公网地址可访问：
 
 ```bash
 # 测试健康检查端点
-curl https://aily-mcp.yourdomain.com/health
+curl https://your-domain.ngrok-free.app/health
 
 # 测试 MCP 端点（需要 Token）
-curl -X POST https://aily-mcp.yourdomain.com/mcp \
+curl -X POST https://your-domain.ngrok-free.app/mcp \
   -H "Content-Type: application/json" \
   -H "Accept: application/json, text/event-stream" \
   -H "Authorization: Bearer YOUR_TOKEN" \
@@ -46,7 +46,7 @@ curl -X POST https://aily-mcp.yourdomain.com/mcp \
 
 | 字段 | 值 |
 |------|------|
-| 请求地址 | `https://aily-mcp.yourdomain.com/mcp` |
+| 请求地址 | `https://your-domain.ngrok-free.app/mcp` |
 | Endpoint 类型 | **Streamable HTTP** |
 
 ### 4. 配置请求参数（鉴权 Token）
@@ -76,10 +76,10 @@ curl -X POST https://aily-mcp.yourdomain.com/mcp \
 请列出本地文件助手可以访问的目录
 
 # 读取文件
-请读取 /tmp/mcp-test-workspace/test.txt 文件
+请读取 /path/to/workspace/test.txt 文件
 
 # 列出目录
-请列出 /tmp/mcp-test-workspace 目录的内容
+请列出 /path/to/workspace 目录的内容
 ```
 
 ### 6. 端到端验证清单
@@ -108,9 +108,16 @@ curl -X POST https://aily-mcp.yourdomain.com/mcp \
 
 ## 故障排查
 
+### ngrok 隧道问题
+
+- **隧道无法启动**：检查 `ngrok config add-authtoken` 是否已执行
+- **域名不对**：确认使用 `--domain` 参数指定了你的固定域名
+- **连接被拒绝**：确认本地 MCP 服务正在运行（`curl http://localhost:3000/health`）
+- **ngrok 免费版限制**：有连接数和带宽限制，个人使用足够
+
 ### MCP 初始化失败
 
-- 检查 Cloudflare Tunnel 是否正常运行：`Get-Service cloudflared`（Windows）
+- 检查 ngrok 隧道是否正常运行
 - 检查本地 MCP 服务是否运行：`curl http://localhost:3000/health`
 - 检查 Token 是否正确：在 Aily 中重新输入 Token
 
@@ -120,9 +127,3 @@ curl -X POST https://aily-mcp.yourdomain.com/mcp \
 - 检查路径是否在 `ALLOWED_DIRS` 白名单内
 - 检查文件类型是否在黑名单中
 - 检查是否触发频率限制（默认 60 次/分钟）
-
-### Cloudflare Tunnel 断连
-
-- Quick Tunnel 的随机域名每次重启都会变，生产环境必须使用命名 Tunnel
-- 检查 `cloudflared` 服务状态和日志
-- 配置自动重连（命名 Tunnel 默认支持）

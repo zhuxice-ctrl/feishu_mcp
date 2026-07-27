@@ -82,13 +82,11 @@ export const LOG_DIR = process.env.LOG_DIR || "logs";
 export const LOG_FILE = path.join(LOG_DIR, "mcp-operations.log");
 
 // ---------------------------------------------------------------------------
-// Cloudflare Tunnel (Phase 4)
+// ngrok tunnel (optional — used by start scripts, not by the server itself)
 // ---------------------------------------------------------------------------
 
-export const CLOUDFLARE_TUNNEL_TOKEN =
-  process.env.CLOUDFLARE_TUNNEL_TOKEN || "";
-export const CLOUDFLARE_TUNNEL_DOMAIN =
-  process.env.CLOUDFLARE_TUNNEL_DOMAIN || "";
+export const NGROK_AUTHTOKEN = process.env.NGROK_AUTHTOKEN || "";
+export const NGROK_DOMAIN = process.env.NGROK_DOMAIN || "";
 
 // ---------------------------------------------------------------------------
 // File-type blacklist (Phase 3)

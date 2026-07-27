@@ -1,7 +1,7 @@
 {
-  "name": "aily-local-file-mcp",
-  "version": "0.1.0",
-  "description": "Feishu Aily local file MCP server — secure file system tools via Streamable HTTP transport",
+  "name": "feishu-mcp",
+  "version": "1.0.0",
+  "description": "Expose local filesystem to Feishu Aily AI assistant via MCP Streamable HTTP — secure, authenticated, and ngrok-ready",
   "type": "module",
   "main": "dist/index.js",
   "scripts": {

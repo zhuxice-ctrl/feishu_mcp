@@ -1,33 +1,39 @@
-# aily-local-file-mcp
+# feishu_mcp
 
-飞书 Aily 本地文件 MCP 服务 — 通过 Streamable HTTP 协议安全暴露本地文件系统给 AI 助手。
+将本地文件系统安全地暴露给飞书 Aily AI 助手的 MCP（Model Context Protocol）服务。
 
-## 架构
+通过 Streamable HTTP 协议，让飞书 Aily 中的 AI Agent 能够远程读写你本机的文件——读取文档、写入代码、搜索目录、编辑文件，全程经过 Bearer Token 鉴权和多层安全防护。
+
+## 为什么需要它
+
+飞书 Aily 的 AI 助手运行在云端，无法直接访问你本地电脑的文件。`feishu_mcp` 在你的本机启动一个 MCP 服务，通过 ngrok 内网穿透将服务暴露到公网，让 Aily 可以像调用普通 API 一样操作你的本地文件系统。
 
 ```
-飞书 Aily → HTTPS → Cloudflare Tunnel → 本地 HTTP MCP Server → 文件系统
-                ↑                         ↑
-          Bearer Token 鉴权        目录白名单 + 安全防护
+飞书 Aily (云端)  →  HTTPS  →  ngrok 隧道  →  本地 MCP Server  →  文件系统
+                        ↑                        ↑
+                  Bearer Token 鉴权       目录白名单 + 安全防护
 ```
 
 ## 功能
 
-10 个 MCP 工具，覆盖完整的文件系统操作：
+提供 10 个 MCP 工具，覆盖完整的文件系统操作：
 
-| 工具 | 功能 | 读写 |
-|------|------|------|
-| `ping` | 健康检查 | — |
-| `read_file` | 读取文件内容（文本/二进制） | 读 |
-| `write_file` | 写入/覆盖文件 | 写 |
-| `edit_file` | 精确文本替换（支持 dry-run） | 写 |
-| `create_directory` | 创建目录（递归） | 写 |
+| 工具 | 功能 | 读/写 |
+|------|------|-------|
+| `ping` | 健康检查，验证服务连通性 | — |
+| `read_file` | 读取文件内容（文本/二进制自动识别） | 读 |
+| `write_file` | 写入或覆盖文件 | 写 |
+| `edit_file` | 精确文本替换（支持 dry-run 预览） | 写 |
+| `create_directory` | 递归创建目录 | 写 |
 | `list_directory` | 列出目录内容 | 读 |
-| `move_file` | 移动/重命名文件 | 写 |
-| `search_files` | 递归搜索文件 | 读 |
-| `get_file_info` | 获取文件元数据 | 读 |
-| `list_allowed_directories` | 列出允许访问的目录 | 读 |
+| `move_file` | 移动或重命名文件 | 写 |
+| `search_files` | 递归搜索文件（支持排除模式） | 读 |
+| `get_file_info` | 获取文件元数据（大小、权限、修改时间） | 读 |
+| `list_allowed_directories` | 列出当前允许访问的目录 | 读 |
 
 ## 安全特性
+
+服务暴露在公网，安全是第一优先级：
 
 - **Bearer Token 鉴权** — 每个请求验证 Token，未授权返回 401
 - **目录白名单** — 仅允许 `ALLOWED_DIRS` 配置的目录，其余路径一律拒绝
@@ -41,102 +47,156 @@
 
 ## 快速开始
 
-### 安装
+### 1. 安装
 
 ```bash
-git clone https://github.com/zhuxice-ctrl/aily-local-file-mcp.git
-cd aily-local-file-mcp
+git clone https://github.com/zhuxice-ctrl/feishu_mcp.git
+cd feishu_mcp
 npm install
 ```
 
-### 配置
+### 2. 配置环境变量
 
 ```bash
 cp .env.example .env
-# 编辑 .env，设置 ALLOWED_DIRS 和 MCP_AUTH_TOKEN
 ```
 
-关键配置项：
+编辑 `.env`，设置允许访问的目录和鉴权 Token：
 
 ```env
 # 允许访问的目录（逗号分隔）
+# Windows: ALLOWED_DIRS=D:\AilyWorkspace
+# macOS/Linux: ALLOWED_DIRS=/Users/yourname/Documents
 ALLOWED_DIRS=/path/to/your/workspace
 
-# Bearer Token（生成: openssl rand -hex 32）
+# Bearer Token（生成一个随机字符串）
+# Linux/macOS: openssl rand -hex 32
+# 或随便填一个你自己的强密码
 MCP_AUTH_TOKEN=your-secret-token
-
-# 端口（默认 3000）
-PORT=3000
 ```
 
-### 运行
+完整配置项见 `.env.example`。
+
+### 3. 启动 MCP 服务
 
 ```bash
-# 构建
 npm run build
-
-# 启动
 npm start
-
-# 开发模式（热重载）
-npm run dev
 ```
 
-### 验证
+服务默认监听 `http://localhost:3000`。验证是否正常：
 
 ```bash
 # 健康检查
 curl http://localhost:3000/health
 
-# MCP 工具列表
+# 测试 MCP 工具调用
 curl -X POST http://localhost:3000/mcp \
   -H "Content-Type: application/json" \
   -H "Accept: application/json, text/event-stream" \
-  -H "Authorization: Bearer YOUR_TOKEN" \
+  -H "Authorization: Bearer your-secret-token" \
   -d '{"jsonrpc":"2.0","id":1,"method":"tools/list","params":{}}'
-
-# 端到端测试
-python3 test/e2e_test.py
 ```
 
-## 部署
+### 4. 配置 ngrok 内网穿透
 
-### Cloudflare Tunnel（公网暴露）
+本地服务需要通过公网地址才能被飞书 Aily 访问。使用 ngrok 免费版即可获得固定公网域名，效果与 Cloudflare Tunnel 相同。
 
-1. 安装 cloudflared（Windows 脚本）：
+#### 4.1 注册 ngrok 账号
 
-```powershell
-# 以管理员运行
-.\scripts\install-cloudflared-windows.ps1
-```
+打开 https://dashboard.ngrok.com/signup （可以用 GitHub / Google 直接登录）
 
-2. 创建命名 Tunnel：
+#### 4.2 获取 Auth Token
+
+登录后访问 https://dashboard.ngrok.com/get-started/your-authtoken
+
+- 页面上会显示一串类似 `2abc1XYZ...` 的 token
+- 复制这个 token
+
+#### 4.3 领取免费固定域名
+
+访问 https://dashboard.ngrok.com/domains
+
+- 点击 "Create Domain" 或 "Claim Domain"
+- ngrok 会免费给你一个固定的子域名，比如 `xxx-xxx-xxx.ngrok-free.app`
+- 把这个域名记下来
+
+#### 4.4 安装并配置 ngrok
 
 ```bash
-cloudflared tunnel login
-cloudflared tunnel create aily-mcp
-cloudflared tunnel route dns aily-mcp aily-mcp.yourdomain.com
+# 安装 ngrok（任选一种方式）
+
+# macOS (Homebrew)
+brew install ngrok/ngrok/ngrok
+
+# Windows (Chocolatey)
+choco install ngrok
+
+# 或直接下载: https://ngrok.com/download
+
+# 配置 Auth Token
+ngrok config add-authtoken YOUR_NGROK_AUTHTOKEN
 ```
 
-3. 编辑 `cloudflared/config.yml`，替换 `<TUNNEL_ID>`
+#### 4.5 启动隧道
 
-4. 注册为系统服务（开机自启）：
-
-```powershell
-# 以管理员运行
-.\scripts\install-service-windows.ps1
+```bash
+# 将本地 3000 端口映射到你的固定域名
+ngrok http 3000 --domain=your-domain.ngrok-free.app
 ```
 
-详细配置见 `cloudflared/config.yml` 和 `scripts/` 目录。
+看到 `Forwarding https://your-domain.ngrok-free.app -> http://localhost:3000` 就说明隧道已建立。
 
-### 飞书 Aily 接入
+验证公网可达：
 
-详见 [飞书 Aily MCP 接入指南](docs/aily-integration-guide.md)。
+```bash
+curl https://your-domain.ngrok-free.app/health
+```
+
+> **提示**：ngrok 免费版提供 1 个固定域名，完全满足个人使用。隧道需要保持运行，关闭终端会断开。Windows 可用 `scripts/start-ngrok.ps1` 一键启动服务 + 隧道。
+
+### 5. 接入飞书 Aily
+
+1. 打开飞书 Aily 管理后台
+2. 进入 **MCP 管理** → **添加 MCP** → 选择 **企业自定义 MCP**
+3. 填写配置：
+
+| 字段 | 值 |
+|------|------|
+| 名称 | 本地文件助手 |
+| 请求地址 | `https://your-domain.ngrok-free.app/mcp` |
+| Endpoint 类型 | **Streamable HTTP** |
+
+4. 添加请求参数用于鉴权：
+
+| 字段 | 值 |
+|------|------|
+| 参数名 | `Authorization` |
+| 参数位置 | **Header** |
+| 参数值 | `Bearer your-secret-token` |
+| 传值方式 | **用户输入** |
+
+5. 在 Aily 助手对话中添加该 MCP，输入你的 Token，即可使用
+
+详细接入步骤见 [飞书 Aily MCP 接入指南](docs/aily-integration-guide.md)。
+
+## 使用示例
+
+在飞书 Aily 中对 AI 助手说：
+
+```
+请用本地文件助手的 ping 工具，消息写 hello
+请列出 D:\AilyWorkspace 目录的内容
+请读取 D:\AilyWorkspace\hello.txt 文件
+请搜索 D:\AilyWorkspace 下所有 .py 文件
+```
+
+AI 会通过 MCP 工具直接操作你本机的文件。
 
 ## 项目结构
 
 ```
-aily-local-file-mcp/
+feishu_mcp/
 ├── src/
 │   ├── index.ts              # 入口：Express 服务 + MCP 路由
 │   ├── config.ts             # 配置：环境变量集中管理
@@ -149,12 +209,8 @@ aily-local-file-mcp/
 │   │   └── trash.ts          # 软删除回收站
 │   └── tools/
 │       └── filesystem.ts     # 9 个文件系统工具
-├── cloudflared/
-│   └── config.yml            # Cloudflare Tunnel 配置模板
 ├── scripts/
-│   ├── install-cloudflared-windows.ps1  # Windows 安装脚本
-│   ├── start-tunnel.ps1                 # 启动 Quick Tunnel
-│   └── install-service-windows.ps1      # 注册系统服务
+│   └── start-ngrok.ps1       # Windows 一键启动（服务 + 隧道）
 ├── docs/
 │   └── aily-integration-guide.md  # 飞书 Aily 接入指南
 ├── test/
@@ -169,19 +225,30 @@ aily-local-file-mcp/
 ## 技术栈
 
 - **TypeScript** + **Node.js** (ESM)
-- **@modelcontextprotocol/server** v2.0.0-beta.5 (MCP SDK v2)
+- **@modelcontextprotocol/server** v2 (MCP SDK v2)
 - **@modelcontextprotocol/express** (Express HTTP transport)
 - **Express** 4.x
 - **Zod** v4 (Schema validation)
-- **Cloudflare Tunnel** (公网暴露)
+- **ngrok** (内网穿透)
 
-## 开发阶段
+## 开发
 
-- [x] **Phase 1** — 项目初始化 + HTTP MCP Server 骨架
-- [x] **Phase 2** — 9 个文件系统工具实现
-- [x] **Phase 3** — 安全层加固（鉴权、路径防护、审计、软删除）
-- [x] **Phase 4** — Cloudflare Tunnel 部署配置
-- [x] **Phase 5** — 飞书 Aily 接入指南 + 端到端测试
+```bash
+# 安装依赖
+npm install
+
+# 开发模式（热重载）
+npm run dev
+
+# 构建
+npm run build
+
+# 类型检查
+npm run typecheck
+
+# 端到端测试（需先构建）
+npm run build && python3 test/e2e_test.py
+```
 
 ## License
 

@@ -19,7 +19,7 @@ env["MCP_AUTH_TOKEN"] = TOKEN
 env["PORT"] = str(PORT)
 
 proc = subprocess.Popen(["node", "dist/index.js"], env=env,
-    cwd="/home/gem/.aily/workdir/web_p2p/aily-local-file-mcp",
+    cwd=os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
     stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
 
 for i in range(40):
