@@ -1,80 +1,123 @@
 /**
- * Atomic file writes.
+ * Transaction-safe file replacement with soft-delete history.
  *
- * Background
- * ----------
- * The previous write_file / edit_file implementation moved the original to
- * `.trash` and then called `fs.writeFileSync(path, content)` directly.  If
- * the write threw mid-way, the original was already in the trash and the
- * target was gone — a real data-loss hazard for a destructive overwrite.
- *
- * The new flow is: write to `<path>.tmp`, then `fs.renameSync` over the
- * target.  `rename` is atomic on the same filesystem, so observers either
- * see the old file or the new file, never half-written bytes.  On failure
- * the temp file is cleaned up and the original is untouched.
- *
- * When overwriting an existing file we still want the old contents in the
- * trash (for soft-delete), so the original is moved to trash *before* the
- * atomic write, and if the write fails the caller can re-rename the trashed
- * copy back.
+ * The sibling temporary file is fully written and flushed before the original
+ * is moved. If preservation or final replacement fails, the temporary/partial
+ * output is removed and the original is restored before the error escapes.
  */
 
 import fs from "node:fs";
 import path from "node:path";
+import crypto from "node:crypto";
 import { moveToTrash } from "../security/trash.js";
 
 export interface AtomicWriteOptions {
-  /** Existing path: if present, moved to .trash first to preserve history. */
   trashOriginal?: boolean;
-  /** Encoding for the write call (defaults to utf-8). */
   encoding?: BufferEncoding;
 }
 
+export interface AtomicWriteRuntime {
+  exists(filePath: string): boolean;
+  mkdir(directory: string): void;
+  writeAndSync(filePath: string, content: string, encoding: BufferEncoding): void;
+  rename(source: string, destination: string): void;
+  remove(filePath: string): void;
+  moveToTrash(filePath: string): string | null;
+}
+
+const defaultRuntime: AtomicWriteRuntime = {
+  exists: (filePath) => fs.existsSync(filePath),
+  mkdir: (directory) => fs.mkdirSync(directory, { recursive: true }),
+  writeAndSync: (filePath, content, encoding) => {
+    fs.writeFileSync(filePath, content, encoding);
+    // Windows requires a writable descriptor for fsyncSync.
+    const descriptor = fs.openSync(filePath, "r+");
+    try {
+      fs.fsyncSync(descriptor);
+    } finally {
+      fs.closeSync(descriptor);
+    }
+  },
+  rename: (source, destination) => fs.renameSync(source, destination),
+  remove: (filePath) => fs.rmSync(filePath, { force: true, recursive: true }),
+  moveToTrash,
+};
+
+function messageOf(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
+}
+
+function bestEffortRemove(runtime: AtomicWriteRuntime, filePath: string): void {
+  try {
+    if (runtime.exists(filePath)) runtime.remove(filePath);
+  } catch {
+    // Cleanup must not hide the primary failure.
+  }
+}
+
 /**
- * Write `content` to `target` atomically.  Returns the number of bytes
- * written.  Throws on any failure; on throw the target file is guaranteed
- * to be in its pre-call state (or absent if it didn't exist).
+ * The optional runtime overrides are intentionally exposed for deterministic
+ * failure-injection tests; production callers use the default runtime.
  */
 export function atomicWriteFile(
   target: string,
   content: string,
-  opts: AtomicWriteOptions = {}
+  opts: AtomicWriteOptions = {},
+  runtimeOverrides: Partial<AtomicWriteRuntime> = {}
 ): { bytes: number; tempPath: string } {
   const { trashOriginal = true, encoding = "utf-8" } = opts;
+  const runtime: AtomicWriteRuntime = { ...defaultRuntime, ...runtimeOverrides };
   const bytes = Buffer.byteLength(content, encoding);
-  const tempPath = `${target}.${process.pid}.${Date.now()}.tmp`;
+  const tempPath = `${target}.${process.pid}.${crypto.randomUUID()}.tmp`;
+  const hadOriginal = runtime.exists(target);
+  let trashedPath: string | null = null;
 
-  // 1. Preserve the previous version (soft-delete) before we touch anything.
-  if (trashOriginal && fs.existsSync(target)) {
-    moveToTrash(target);
+  runtime.mkdir(path.dirname(target));
+
+  // Do not disturb the original until a complete sibling replacement exists.
+  try {
+    runtime.writeAndSync(tempPath, content, encoding);
+  } catch (error) {
+    bestEffortRemove(runtime, tempPath);
+    throw error;
   }
 
-  // 2. Make sure the parent directory exists — the tool handler normally
-  //    does this, but a direct caller might forget, so guard here.
-  fs.mkdirSync(path.dirname(target), { recursive: true });
-
-  // 3. Write to a sibling temp file, then rename over the target.
-  try {
-    fs.writeFileSync(tempPath, content, encoding);
-  } catch (err) {
-    // Clean up the half-written temp file before propagating.
-    try { fs.unlinkSync(tempPath); } catch { /* best effort */ }
-    throw err;
-  }
-
-  try {
-    fs.renameSync(tempPath, target);
-  } catch (err) {
-    // Cross-device rename can fail (EXDEV).  Fall back to copy + unlink so
-    // the caller still gets an atomic-on-target-filesystem overwrite.
-    try {
-      fs.copyFileSync(tempPath, target);
-      fs.unlinkSync(tempPath);
-    } catch (innerErr) {
-      const message = innerErr instanceof Error ? innerErr.message : String(innerErr);
-      throw new Error(`Atomic write failed: ${message}`);
+  if (hadOriginal && trashOriginal) {
+    trashedPath = runtime.moveToTrash(target);
+    if (!trashedPath) {
+      bestEffortRemove(runtime, tempPath);
+      throw new Error(`Atomic write aborted: failed to preserve original ${target}`);
     }
   }
 
+  try {
+    runtime.rename(tempPath, target);
+  } catch (primaryError) {
+    bestEffortRemove(runtime, target);
+    let restoreError: unknown;
+    if (trashedPath) {
+      try {
+        runtime.rename(trashedPath, target);
+      } catch (error) {
+        restoreError = error;
+      }
+    }
+    bestEffortRemove(runtime, tempPath);
+
+    if (restoreError) {
+      throw new Error(
+        `Atomic write failed (${messageOf(primaryError)}); original restore failed (${messageOf(restoreError)})`,
+        { cause: primaryError }
+      );
+    }
+    throw new Error(
+      `Atomic write failed: ${messageOf(primaryError)}${trashedPath ? "; original restored" : ""}`,
+      { cause: primaryError }
+    );
+  }
+
+  if (!runtime.exists(target)) {
+    throw new Error(`Atomic write failed: replacement missing after rename: ${target}`);
+  }
   return { bytes, tempPath };
 }

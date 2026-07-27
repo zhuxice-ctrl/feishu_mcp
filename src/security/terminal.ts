@@ -5,11 +5,14 @@ import { CONSENT_TIMEOUT_MS } from "../config.js";
 export interface PromptOptions {
   render: (context: { queuedBehind: number }) => string;
   timeoutMs?: number;
+  beforeRender?: () => PromptResult | null;
+  onResult?: (result: PromptResult) => void;
 }
 
 export interface PromptResult {
   answer: string | null;
   timedOut: boolean;
+  skipped?: boolean;
 }
 
 export interface TerminalInterface {
@@ -81,12 +84,17 @@ export function createTerminal(options: TerminalOptions = {}): TerminalInterface
   return {
     prompt(promptOptions): Promise<PromptResult> {
       if (!interactive) return Promise.resolve({ answer: null, timedOut: true });
-      const queuedBehind = pendingCount++;
+      pendingCount += 1;
       const result = queue.then(async () => {
-        return await readLine(
-          promptOptions.render({ queuedBehind }),
-          promptOptions.timeoutMs ?? CONSENT_TIMEOUT_MS
-        );
+        const queuedBehind = Math.max(0, pendingCount - 1);
+        const promptResult =
+          promptOptions.beforeRender?.() ??
+          (await readLine(
+            promptOptions.render({ queuedBehind }),
+            promptOptions.timeoutMs ?? CONSENT_TIMEOUT_MS
+          ));
+        promptOptions.onResult?.(promptResult);
+        return promptResult;
       });
       queue = result.then(
         () => undefined,

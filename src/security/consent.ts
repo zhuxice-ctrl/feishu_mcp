@@ -142,7 +142,25 @@ export function createConsentGate(
     const result = await term.prompt({
       render: ({ queuedBehind }) => render(consentRequest, queuedBehind),
       timeoutMs,
+      beforeRender: () => {
+        const current = decisions.get(key);
+        return current
+          ? { answer: current, timedOut: false, skipped: true }
+          : null;
+      },
+      onResult: (promptResult) => {
+        if (promptResult.skipped) return;
+        const answer = promptResult.answer?.toLowerCase();
+        if (answer === "a") decisions.set(key, "allow");
+        if (answer === "d") decisions.set(key, "deny");
+      },
     });
+    if (result.skipped) {
+      return logDecision(consentRequest, {
+        allowed: result.answer === "allow",
+        source: "remembered",
+      });
+    }
     if (result.timedOut) {
       return logDecision(consentRequest, { allowed: false, source: "timeout" });
     }

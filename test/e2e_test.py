@@ -90,6 +90,9 @@ def main():
     env = os.environ.copy()
     env["ALLOWED_DIRS"] = WORKSPACE
     env["MCP_AUTH_TOKEN"] = TOKEN
+    env["AUTH_MODE"] = "none"
+    env["CONSENT_ABSOLUTE_PATH"] = "allow"
+    env["CONSENT_SENSITIVE_FILE"] = "deny"
     env["PORT"] = str(SERVER_PORT)
     env["LOG_DIR"] = os.path.join(PROJECT_DIR, "logs")
 
@@ -138,7 +141,7 @@ def main():
     r = httpx.get(f"{BASE_URL}/health", timeout=5)
     health = r.json()
     test("Health check returns 200", r.status_code == 200)
-    test("Health shows 10 tools", len(health.get("tools", [])) == 10, f"got {len(health.get('tools', []))}")
+    test("Health shows 11 tools", len(health.get("tools", [])) == 11, f"got {len(health.get('tools', []))}")
     test("Health shows auth enabled", health.get("authEnabled") == True)
 
     # === No Auth -> 401 ===
@@ -168,8 +171,8 @@ def main():
     tools = []
     if code == 200 and "result" in body:
         tools = [t["name"] for t in body["result"].get("tools", [])]
-    test("Tools list returns 10 tools", len(tools) == 10, f"got {len(tools)}: {tools}")
-    expected_tools = {"ping", "read_file", "write_file", "edit_file", "create_directory", "list_directory", "move_file", "search_files", "get_file_info", "list_allowed_directories"}
+    test("Tools list returns 11 tools", len(tools) == 11, f"got {len(tools)}: {tools}")
+    expected_tools = {"ping", "read_file", "write_file", "edit_file", "create_directory", "list_directory", "move_file", "search_files", "get_file_info", "list_allowed_directories", "auth"}
     test("All expected tools present", expected_tools.issubset(set(tools)), f"missing: {expected_tools - set(tools)}")
 
     # === Ping Tool ===
@@ -287,7 +290,12 @@ def main():
     rid += 1
     code, body = call_tool("list_allowed_directories", {}, rid)
     text = extract_text(body.get("result", body))
-    test("List allowed dirs shows workspace", WORKSPACE in text, text[:100])
+    test(
+        "List allowed dirs shows workspace",
+        os.path.normcase(os.path.abspath(WORKSPACE))
+        in os.path.normcase(os.path.abspath(text.strip())),
+        text[:100],
+    )
 
     # === Audit Log Check ===
     log_path = f"{PROJECT_DIR}/logs/mcp-operations.log"

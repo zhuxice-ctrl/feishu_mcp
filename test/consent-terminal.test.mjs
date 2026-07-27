@@ -19,8 +19,21 @@ test("terminal serializes real prompts until the active answer resolves", async 
 
   const terminal = createTerminal({ input, output, interactive: true });
   try {
-    const first = terminal.prompt({ render: () => "first> ", timeoutMs: 1_000 });
-    const second = terminal.prompt({ render: () => "second> ", timeoutMs: 1_000 });
+    const queueDepths = [];
+    const first = terminal.prompt({
+      render: ({ queuedBehind }) => {
+        queueDepths.push(queuedBehind);
+        return "first> ";
+      },
+      timeoutMs: 1_000,
+    });
+    const second = terminal.prompt({
+      render: ({ queuedBehind }) => {
+        queueDepths.push(queuedBehind);
+        return "second> ";
+      },
+      timeoutMs: 1_000,
+    });
     await tick();
     assert.equal(rendered, "first> ");
 
@@ -31,8 +44,48 @@ test("terminal serializes real prompts until the active answer resolves", async 
 
     input.write("no\n");
     assert.deepEqual(await second, { answer: "no", timedOut: false });
+    assert.deepEqual(queueDepths, [1, 0]);
   } finally {
     terminal.close();
+  }
+});
+
+test("queued consent reuses a decision remembered by the active prompt", async () => {
+  const input = new PassThrough();
+  const output = new PassThrough();
+  let rendered = "";
+  output.setEncoding("utf8");
+  output.on("data", (chunk) => (rendered += chunk));
+  const terminal = createTerminal({ input, output, interactive: true });
+  const gate = createConsentGate(terminal, {
+    absolutePathPolicy: "confirm",
+    sensitiveFilePolicy: "allow",
+    nonInteractivePolicy: "deny",
+    timeoutMs: 1_000,
+  });
+  const request = {
+    kinds: ["absolute_path"],
+    tool: "read_file",
+    userId: "alice",
+    argName: "path",
+    raw: "/workspace/file.txt",
+    resolved: "/workspace/file.txt",
+  };
+  try {
+    const first = gate.request(request);
+    const second = gate.request(request);
+    await tick();
+    assert.match(rendered, /Consent required/);
+    input.write("a\n");
+    assert.deepEqual(await first, {
+      allowed: true,
+      source: "operator",
+      remembered: true,
+    });
+    assert.deepEqual(await second, { allowed: true, source: "remembered" });
+    assert.equal((rendered.match(/Consent required/g) || []).length, 1);
+  } finally {
+    gate.close();
   }
 });
 

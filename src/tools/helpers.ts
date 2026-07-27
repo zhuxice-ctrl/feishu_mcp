@@ -92,7 +92,16 @@ export async function resolveGuardAndAuthorize(
   operation: "read" | "write"
 ): Promise<ResolvedAndGuarded | GuardFailed> {
   const guard = resolveAndGuard(inputPath, operation);
-  if (!guard.ok) return guard;
+  if (!guard.ok) {
+    logOperation(
+      toolName as OperationType,
+      inputPath,
+      getRequestToken(),
+      "denied",
+      guard.error
+    );
+    return guard;
+  }
   const consentError = await authorizeFilePath(
     toolName,
     argName,
@@ -100,6 +109,13 @@ export async function resolveGuardAndAuthorize(
     guard.resolvedPath
   );
   if (consentError) {
+    logOperation(
+      toolName as OperationType,
+      guard.resolvedPath,
+      getRequestToken(),
+      "denied",
+      consentError.content[0].text
+    );
     return { ok: false, error: consentError.content[0].text };
   }
   return guard;

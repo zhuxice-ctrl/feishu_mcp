@@ -5,6 +5,7 @@
 ## 前置条件
 
 - [ ] MCP 服务已构建完成（`npm run build`），`/health` 返回正常
+- [ ] 已选择工具授权模式；默认 `pin` 模式已设置 `AUTH_PIN`（至少 8 个字符）
 - [ ] ngrok 已安装并配置了固定域名（见 README 中的 ngrok 设置步骤）
 - [ ] 拥有飞书 Aily 管理后台权限
 
@@ -49,7 +50,7 @@ curl -X POST https://your-domain.ngrok-free.app/mcp \
 | 请求地址 | `https://your-domain.ngrok-free.app/mcp` |
 | Endpoint 类型 | **Streamable HTTP** |
 
-### 4. 配置请求参数（鉴权 Token）
+### 4. 配置传输层 Bearer Token
 
 添加一个请求参数用于传递 Bearer Token：
 
@@ -62,11 +63,20 @@ curl -X POST https://your-domain.ngrok-free.app/mcp \
 
 > 使用「用户输入」方式让每个使用者自行填入 Token，Token 不会硬编码在服务端配置中。
 
+Bearer Token 只保护 HTTP/ngrok 入口；工具调用还受 `AUTH_MODE` 控制：
+
+- `pin`（默认）：平台需在每个请求中提供稳定的 `x-aily-user`，然后调用 `auth` 工具并传入服务端配置的 PIN。
+- `none`：关闭工具级授权，仅使用 Bearer Token，适合个人单用户部署。
+- `header`：信任身份头，仅可放在可信网关后。网关必须删除客户端自带的身份头并重新注入；不要直接通过 ngrok 暴露 header 模式。
+
+PIN 不会输出到 stdout、stderr 或日志。请通过安全渠道把它交给需要认证的操作者，不要写入普通对话或公开配置。
+
 ### 5. 在 Aily 中添加并测试 MCP
 
 1. 在 Aily 助手对话中，添加该 MCP
 2. 输入你的 Bearer Token
-3. 测试工具调用：
+3. 若使用 `pin` 模式，先让当前身份调用 `auth` 工具
+4. 测试工具调用：
 
 ```
 # 测试 ping
@@ -101,7 +111,9 @@ curl -X POST https://your-domain.ngrok-free.app/mcp \
 - [ ] 提供错误 Token 时请求被拒绝（401）
 - [ ] 尝试读取白名单外的文件被拒绝
 - [ ] 尝试路径穿越（`../../../etc/passwd`）被拒绝
-- [ ] 尝试读取 `.env` 等敏感文件被拒绝
+- [ ] `.env` 等敏感文件按 `CONSENT_SENSITIVE_FILE` 策略被允许、确认或拒绝
+- [ ] 未认证身份不能调用 `auth` 之外的工具（`pin` 模式）
+- [ ] 无 TTY 时需要确认的操作按 `NON_INTERACTIVE=deny` 被拒绝
 - [ ] 尝试写入 `.exe` 等危险文件类型被拒绝
 - [ ] 操作日志中记录了所有写操作
 - [ ] 软删除的文件出现在 `.trash` 目录中

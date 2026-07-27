@@ -306,6 +306,8 @@ test("structured event fields are recursively redacted", async () => {
     const { logger } = await import("../dist/security/logger.js");
     const fields = {
       authorization: "Bearer raw-token",
+      "proxy-authorization": "Basic proxy-secret",
+      "set-cookie": "session=secret; Secure",
       request: {
         profile: [{ pin: "12345678", name: "alice" }],
         Cookie: "session=secret",
@@ -322,6 +324,8 @@ test("structured event fields are recursively redacted", async () => {
       Cookie: "[REDACTED]",
     });
     assert.equal(event.authorization, "[REDACTED]");
+    assert.equal(event["proxy-authorization"], "[REDACTED]");
+    assert.equal(event["set-cookie"], "[REDACTED]");
   } finally {
     process.stderr.write = originalWrite;
     for (const [name, value] of Object.entries(previousEnvironment)) {

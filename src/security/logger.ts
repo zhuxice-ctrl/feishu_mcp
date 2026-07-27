@@ -68,6 +68,8 @@ function isSecretField(key: string): boolean {
       "token",
       "apikey",
     ].includes(normalized) ||
+    normalized.endsWith("authorization") ||
+    normalized.endsWith("cookie") ||
     normalized.endsWith("password") ||
     normalized.endsWith("secret") ||
     normalized.endsWith("token")
