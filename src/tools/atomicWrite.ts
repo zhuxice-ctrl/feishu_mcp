@@ -92,6 +92,9 @@ export function atomicWriteFile(
 
   try {
     runtime.rename(tempPath, target);
+    if (!runtime.exists(target)) {
+      throw new Error(`replacement missing after rename: ${target}`);
+    }
   } catch (primaryError) {
     bestEffortRemove(runtime, target);
     let restoreError: unknown;
@@ -116,8 +119,5 @@ export function atomicWriteFile(
     );
   }
 
-  if (!runtime.exists(target)) {
-    throw new Error(`Atomic write failed: replacement missing after rename: ${target}`);
-  }
   return { bytes, tempPath };
 }

@@ -10,6 +10,7 @@
 
 import fs from "node:fs";
 import path from "node:path";
+import crypto from "node:crypto";
 import { ALLOWED_DIRS, TRASH_DIR_NAME, TRASH_RETENTION_DAYS } from "../config.js";
 
 /**
@@ -44,7 +45,7 @@ export function moveToTrash(filePath: string): string | null {
 
   const baseName = path.basename(filePath);
   const timestamp = Date.now();
-  const trashedName = `${timestamp}_${baseName}`;
+  const trashedName = `${timestamp}_${crypto.randomUUID()}_${baseName}`;
   const trashedPath = path.join(trashDir, trashedName);
 
   try {

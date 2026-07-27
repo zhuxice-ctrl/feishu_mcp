@@ -378,32 +378,50 @@ function registerMoveFile(server: McpServer): void {
       }
 
       // If destination exists, soft-delete it first
+      let trashedDestination: string | null = null;
       if (fs.existsSync(dst)) {
-        const trashed = moveToTrash(dst);
-        if (!trashed) {
+        trashedDestination = moveToTrash(dst);
+        if (!trashedDestination) {
           logOperation("move_file", src, token, "error", "trash failed", dst);
           return errorResult(`Failed to trash existing destination: ${dst}`);
         }
       }
 
-      fs.mkdirSync(path.dirname(dst), { recursive: true });
-
       // Track which path succeeded so the audit log can record the detail.
       let movedViaCopy = false;
 
       try {
-        fs.renameSync(src, dst);
-      } catch {
-        // Cross-device rename fallback (copy + remove)
+        fs.mkdirSync(path.dirname(dst), { recursive: true });
         try {
+          fs.renameSync(src, dst);
+        } catch {
+          // Cross-device rename fallback (copy + remove)
           fs.cpSync(src, dst, { recursive: true });
           fs.rmSync(src, { recursive: true, force: true });
           movedViaCopy = true;
-        } catch (err) {
-          const msg = err instanceof Error ? err.message : String(err);
-          logOperation("move_file", src, token, "error", msg, dst);
-          return errorResult(`Failed to move: ${msg}`);
         }
+      } catch (error) {
+        try {
+          fs.rmSync(dst, { recursive: true, force: true });
+        } catch {
+          // Continue to destination restoration and preserve the primary error.
+        }
+        let restoreError: unknown;
+        if (trashedDestination) {
+          try {
+            fs.renameSync(trashedDestination, dst);
+          } catch (caught) {
+            restoreError = caught;
+          }
+        }
+        const primaryMessage = error instanceof Error ? error.message : String(error);
+        const detail = restoreError
+          ? `${primaryMessage}; destination restore failed: ${
+              restoreError instanceof Error ? restoreError.message : String(restoreError)
+            }`
+          : `${primaryMessage}${trashedDestination ? "; destination restored" : ""}`;
+        logOperation("move_file", src, token, "error", detail, dst);
+        return errorResult(`Failed to move: ${detail}`);
       }
 
       logOperation(

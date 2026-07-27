@@ -53,7 +53,8 @@ export const SERVER_VERSION = "1.0.0";
 // Server
 // ---------------------------------------------------------------------------
 
-export const PORT = parseInt(process.env.PORT || "3000", 10);
+export const PORT = envPositiveInt("PORT", 3000);
+if (PORT > 65_535) throw new Error("PORT must be between 1 and 65535");
 export const HOST = process.env.HOST || "0.0.0.0";
 export const MCP_ENDPOINT = process.env.MCP_ENDPOINT || "/mcp";
 
@@ -135,33 +136,21 @@ export const NON_INTERACTIVE: NonInteractivePolicy = envEnum(
 // File size limits (Phase 3)
 // ---------------------------------------------------------------------------
 
-export const MAX_READ_BYTES = parseInt(
-  process.env.MAX_READ_BYTES || String(10 * 1024 * 1024), // 10 MB
-  10
-);
-export const MAX_WRITE_BYTES = parseInt(
-  process.env.MAX_WRITE_BYTES || String(5 * 1024 * 1024), // 5 MB
-  10
-);
+export const MAX_READ_BYTES = envPositiveInt("MAX_READ_BYTES", 10 * 1024 * 1024);
+export const MAX_WRITE_BYTES = envPositiveInt("MAX_WRITE_BYTES", 5 * 1024 * 1024);
 
 // ---------------------------------------------------------------------------
 // Rate limiting (Phase 3)
 // ---------------------------------------------------------------------------
 
-export const RATE_LIMIT_PER_MIN = parseInt(
-  process.env.RATE_LIMIT_PER_MIN || "60",
-  10
-);
+export const RATE_LIMIT_PER_MIN = envPositiveInt("RATE_LIMIT_PER_MIN", 60);
 
 // ---------------------------------------------------------------------------
 // Soft-delete / recycle bin (Phase 3)
 // ---------------------------------------------------------------------------
 
 export const TRASH_DIR_NAME = ".trash";
-export const TRASH_RETENTION_DAYS = parseInt(
-  process.env.TRASH_RETENTION_DAYS || "7",
-  10
-);
+export const TRASH_RETENTION_DAYS = envPositiveInt("TRASH_RETENTION_DAYS", 7);
 
 // ---------------------------------------------------------------------------
 // Operation log (Phase 3)

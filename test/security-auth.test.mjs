@@ -281,6 +281,38 @@ test("pin mode requires an operator-configured PIN", () => {
   assert.match(result.stderr, /AUTH_PIN is required when AUTH_MODE=pin/);
 });
 
+test("integer configuration rejects malformed, zero, and out-of-range values", () => {
+  const cases = [
+    ["MAX_READ_BYTES", "12x", /MAX_READ_BYTES must be a positive integer/],
+    ["RATE_LIMIT_PER_MIN", "0", /RATE_LIMIT_PER_MIN must be a positive integer/],
+    ["PORT", "70000", /PORT must be between 1 and 65535/],
+  ];
+  for (const [name, value, expected] of cases) {
+    const result = spawnSync(
+      process.execPath,
+      ["--input-type=module", "--eval", "import('./dist/config.js')"],
+      {
+        cwd: projectDir,
+        env: {
+          ...process.env,
+          AUTH_MODE: "none",
+          AUTH_PIN: "",
+          PORT: "3000",
+          MAX_READ_BYTES: "1024",
+          MAX_WRITE_BYTES: "1024",
+          RATE_LIMIT_PER_MIN: "60",
+          TRASH_RETENTION_DAYS: "7",
+          [name]: value,
+        },
+        encoding: "utf8",
+        timeout: 5_000,
+      }
+    );
+    assert.notEqual(result.status, 0, `${name} unexpectedly succeeded`);
+    assert.match(result.stderr, expected);
+  }
+});
+
 test("structured event fields are recursively redacted", async () => {
   const logDir = await mkdtemp(path.join(os.tmpdir(), "feishu-mcp-log-"));
   const environment = {

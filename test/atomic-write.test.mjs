@@ -72,3 +72,26 @@ test("final rename failure restores the trashed original and removes partial out
     assert.deepEqual(await siblingTemps(root), []);
   });
 });
+
+test("a missing replacement after rename restores the trashed original", async () => {
+  await withTarget(async ({ root, target }) => {
+    const trash = path.join(root, "preserved.txt");
+    const runtime = {
+      moveToTrash: (source) => {
+        fs.renameSync(source, trash);
+        return trash;
+      },
+      rename: (source, destination) => {
+        fs.renameSync(source, destination);
+        if (source.endsWith(".tmp")) fs.rmSync(destination);
+      },
+    };
+    assert.throws(
+      () => atomicWriteFile(target, "replacement", {}, runtime),
+      /replacement missing.*original restored/
+    );
+    assert.equal(await readFile(target, "utf8"), "original");
+    assert.equal(fs.existsSync(trash), false);
+    assert.deepEqual(await siblingTemps(root), []);
+  });
+});

@@ -7,6 +7,7 @@
  */
 
 import type { Request, Response, NextFunction } from "express";
+import crypto from "node:crypto";
 import {
   AUTH_EMAIL_HEADER,
   AUTH_ENABLED,
@@ -43,6 +44,15 @@ export function extractToken(authHeader: string | undefined): string | null {
   return match ? match[1].trim() : null;
 }
 
+function tokenMatches(candidate: string, expected: string): boolean {
+  const candidateBuffer = Buffer.from(candidate, "utf8");
+  const expectedBuffer = Buffer.from(expected, "utf8");
+  return (
+    candidateBuffer.length === expectedBuffer.length &&
+    crypto.timingSafeEqual(candidateBuffer, expectedBuffer)
+  );
+}
+
 export function corsPreflight(
   req: Request,
   res: Response,
@@ -76,7 +86,7 @@ export function authMiddleware(
 
   // --- Auth check ---
   if (AUTH_ENABLED) {
-    if (!token || token !== MCP_AUTH_TOKEN) {
+    if (!token || !tokenMatches(token, MCP_AUTH_TOKEN)) {
       logger.warn("transport_authentication_failed", { ip: req.ip });
       res.status(401).json({
         jsonrpc: "2.0",

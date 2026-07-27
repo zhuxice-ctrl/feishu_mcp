@@ -19,6 +19,37 @@ export interface PathValidationResult {
   error?: string;
 }
 
+function existsIncludingBrokenSymlink(candidate: string): boolean {
+  try {
+    fs.lstatSync(candidate);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Resolve the nearest existing ancestor and append the still-missing suffix.
+ * This catches writes such as `allowed/link-to-outside/new-file`, where the
+ * final target does not exist yet but an ancestor is a symlink or junction.
+ */
+function resolveThroughExistingAncestor(candidate: string): string {
+  let cursor = path.resolve(candidate);
+  const missingSegments: string[] = [];
+
+  while (!existsIncludingBrokenSymlink(cursor)) {
+    const parent = path.dirname(cursor);
+    if (parent === cursor) {
+      throw new Error(`Unable to resolve an existing ancestor for ${candidate}`);
+    }
+    missingSegments.unshift(path.basename(cursor));
+    cursor = parent;
+  }
+
+  const realAncestor = fs.realpathSync(cursor);
+  return path.resolve(realAncestor, ...missingSegments);
+}
+
 /**
  * Validate that `inputPath` resolves to a location inside one of the
  * allowed directories. Returns the resolved absolute path on success.
@@ -55,9 +86,7 @@ export function validatePath(inputPath: string): PathValidationResult {
   }
 
   // Check against each allowed root
-  const matchingRoot = ALLOWED_DIRS.find((root) =>
-    isInsideDir(resolved, root)
-  );
+  const matchingRoot = ALLOWED_DIRS.find((root) => isInsideDir(resolved, root));
 
   if (!matchingRoot) {
     return {
@@ -66,24 +95,29 @@ export function validatePath(inputPath: string): PathValidationResult {
     };
   }
 
-  // Symlink escape detection — resolve real path if the file exists
+  // Resolve an existing target or its nearest existing ancestor. Checking only
+  // an existing final target would allow writes through a symlinked directory.
   try {
-    if (fs.existsSync(resolved)) {
-      const realPath = fs.realpathSync(resolved);
-      const realRoot = ALLOWED_DIRS.find((root) =>
-        isInsideDir(realPath, root)
-      );
-      if (!realRoot) {
-        return {
-          ok: false,
-          error: `Path "${inputPath}" resolves (via symlink) outside allowed directories.`,
-        };
+    const physicalPath = resolveThroughExistingAncestor(resolved);
+    const physicalRoots = ALLOWED_DIRS.flatMap((root) => {
+      try {
+        return [resolveThroughExistingAncestor(root)];
+      } catch {
+        return [];
       }
-      // Use the real path for subsequent operations
-      resolved = realPath;
+    });
+    if (!physicalRoots.some((root) => isInsideDir(physicalPath, root))) {
+      return {
+        ok: false,
+        error: `Path "${inputPath}" resolves (via symlink) outside allowed directories.`,
+      };
     }
+    resolved = physicalPath;
   } catch {
-    // realpathSync can fail on broken symlinks — that's fine, the path check above already passed
+    return {
+      ok: false,
+      error: `Path "${inputPath}" could not be safely resolved.`,
+    };
   }
 
   return { ok: true, resolvedPath: resolved };
@@ -94,8 +128,12 @@ export function validatePath(inputPath: string): PathValidationResult {
  * Uses case-insensitive comparison on Windows.
  */
 function isInsideDir(target: string, parent: string): boolean {
-  const normalizedTarget = path.normalize(target) + path.sep;
-  const normalizedParent = path.normalize(parent) + path.sep;
+  let normalizedTarget = path.normalize(target) + path.sep;
+  let normalizedParent = path.normalize(parent) + path.sep;
+  if (process.platform === "win32") {
+    normalizedTarget = normalizedTarget.toLowerCase();
+    normalizedParent = normalizedParent.toLowerCase();
+  }
   return (
     normalizedTarget === normalizedParent ||
     normalizedTarget.startsWith(normalizedParent)
