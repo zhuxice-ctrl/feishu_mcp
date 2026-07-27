@@ -2,7 +2,7 @@
  * Filesystem tools — 9 tools ported from the official MCP filesystem server.
  *
  * Each tool follows the same flow:
- *   1. resolveAndGuard() — whitelist + file-type/sensitive-file check
+ *   1. resolveGuardAndAuthorize() — whitelist, file type, then consent
  *   2. existence / type check
  *   3. actual work
  *   4. audit log (handled by withToolHandler)
@@ -28,7 +28,7 @@ import {
   errorResult,
   formatBytes,
   isLikelyTextFile,
-  resolveAndGuard,
+  resolveGuardAndAuthorize,
   textContent,
   withToolHandler,
 } from "./helpers.js";
@@ -70,7 +70,12 @@ function registerReadFile(server: McpServer): void {
     async (args) => {
       const accessError = authorizeToolCall("read_file", args);
       if (accessError) return accessError;
-      const guard = resolveAndGuard(args.path, "read");
+      const guard = await resolveGuardAndAuthorize(
+        "read_file",
+        "path",
+        args.path,
+        "read"
+      );
       if (!guard.ok) return errorResult(guard.error);
 
       const { resolvedPath: resolved } = guard;
@@ -136,7 +141,12 @@ function registerWriteFile(server: McpServer): void {
     async (args) => {
       const accessError = authorizeToolCall("write_file", args);
       if (accessError) return accessError;
-      const guard = resolveAndGuard(args.path, "write");
+      const guard = await resolveGuardAndAuthorize(
+        "write_file",
+        "path",
+        args.path,
+        "write"
+      );
       if (!guard.ok) return errorResult(guard.error);
 
       const { resolvedPath: resolved } = guard;
@@ -188,7 +198,12 @@ function registerEditFile(server: McpServer): void {
     async (args) => {
       const accessError = authorizeToolCall("edit_file", args);
       if (accessError) return accessError;
-      const guard = resolveAndGuard(args.path, "write");
+      const guard = await resolveGuardAndAuthorize(
+        "edit_file",
+        "path",
+        args.path,
+        "write"
+      );
       if (!guard.ok) return errorResult(guard.error);
 
       const { resolvedPath: resolved } = guard;
@@ -254,7 +269,12 @@ function registerCreateDirectory(server: McpServer): void {
     async (args) => {
       const accessError = authorizeToolCall("create_directory", args);
       if (accessError) return accessError;
-      const guard = resolveAndGuard(args.path, "write");
+      const guard = await resolveGuardAndAuthorize(
+        "create_directory",
+        "path",
+        args.path,
+        "write"
+      );
       if (!guard.ok) return errorResult(guard.error);
 
       const { resolvedPath: resolved } = guard;
@@ -287,7 +307,12 @@ function registerListDirectory(server: McpServer): void {
     async (args) => {
       const accessError = authorizeToolCall("list_directory", args);
       if (accessError) return accessError;
-      const guard = resolveAndGuard(args.path, "read");
+      const guard = await resolveGuardAndAuthorize(
+        "list_directory",
+        "path",
+        args.path,
+        "read"
+      );
       if (!guard.ok) return errorResult(guard.error);
 
       const { resolvedPath: resolved } = guard;
@@ -329,9 +354,19 @@ function registerMoveFile(server: McpServer): void {
     async (args) => {
       const accessError = authorizeToolCall("move_file", args);
       if (accessError) return accessError;
-      const srcGuard = resolveAndGuard(args.source, "write");
+      const srcGuard = await resolveGuardAndAuthorize(
+        "move_file",
+        "source",
+        args.source,
+        "write"
+      );
       if (!srcGuard.ok) return errorResult(`Source: ${srcGuard.error}`);
-      const dstGuard = resolveAndGuard(args.destination, "write");
+      const dstGuard = await resolveGuardAndAuthorize(
+        "move_file",
+        "destination",
+        args.destination,
+        "write"
+      );
       if (!dstGuard.ok) return errorResult(`Destination: ${dstGuard.error}`);
 
       const src = srcGuard.resolvedPath;
@@ -432,7 +467,12 @@ function registerSearchFiles(server: McpServer): void {
     async (args) => {
       const accessError = authorizeToolCall("search_files", args);
       if (accessError) return accessError;
-      const guard = resolveAndGuard(args.path, "read");
+      const guard = await resolveGuardAndAuthorize(
+        "search_files",
+        "path",
+        args.path,
+        "read"
+      );
       if (!guard.ok) return errorResult(guard.error);
 
       const { resolvedPath: resolved } = guard;
@@ -507,7 +547,12 @@ function registerGetFileInfo(server: McpServer): void {
     async (args) => {
       const accessError = authorizeToolCall("get_file_info", args);
       if (accessError) return accessError;
-      const guard = resolveAndGuard(args.path, "read");
+      const guard = await resolveGuardAndAuthorize(
+        "get_file_info",
+        "path",
+        args.path,
+        "read"
+      );
       if (!guard.ok) return errorResult(guard.error);
 
       const { resolvedPath: resolved } = guard;

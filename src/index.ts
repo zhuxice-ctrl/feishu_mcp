@@ -39,6 +39,7 @@ import {
   authorizeToolCall,
   toolAuthorizationMiddleware,
 } from "./security/toolAccess.js";
+import { consentGate } from "./security/consent.js";
 import { cleanupTrash } from "./security/trash.js";
 import { registerFilesystemTools } from "./tools/filesystem.js";
 
@@ -212,6 +213,7 @@ app.get("/health", (_req: Request, res: Response) => {
       "auth",
     ],
     auth: authSummary(),
+    consent: consentGate.summary(),
     timestamp: new Date().toISOString(),
   });
 });
@@ -243,6 +245,8 @@ app.listen(PORT, HOST, () => {
     `Allowed directories: ${ALLOWED_DIRS.join(", ") || "none"}`,
     `Bearer transport auth: ${AUTH_ENABLED ? "enabled" : "disabled"}`,
     `Tool auth mode: ${AUTH_MODE}`,
+    `Consent: ${JSON.stringify(consentGate.summary())}`,
+    `Terminal interactive: ${consentGate.isInteractive() ? "yes" : "no"}`,
     "Tools: 11 (ping, 9 filesystem tools, auth)",
   ];
   if (AUTH_MODE === "pin") lines.push("PIN: configured via AUTH_PIN (value hidden)");

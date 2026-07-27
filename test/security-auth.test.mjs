@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { spawn, spawnSync } from "node:child_process";
-import { mkdtemp, rm } from "node:fs/promises";
+import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import net from "node:net";
 import os from "node:os";
 import path from "node:path";
@@ -64,6 +64,9 @@ test("PIN authentication is isolated per request identity", async () => {
       AUTH_USER_QUERY_PARAM: "",
       AUTH_MULTI_USER: "false",
       AUTH_MAX_USERS: "8",
+      CONSENT_ABSOLUTE_PATH: "deny",
+      CONSENT_SENSITIVE_FILE: "allow",
+      NON_INTERACTIVE: "deny",
     },
     stdio: ["ignore", "pipe", "pipe"],
   });
@@ -225,6 +228,30 @@ test("PIN authentication is isolated per request identity", async () => {
       (await callTool("list_allowed_directories", {}, "alice")).isError,
       undefined
     );
+    const readableFile = path.join(workspace, "relative-readable.txt");
+    await writeFile(readableFile, "relative path is allowed", "utf8");
+    const absoluteRead = await callTool(
+      "read_file",
+      { path: readableFile },
+      "alice"
+    );
+    assert.equal(absoluteRead.isError, true);
+    assert.match(absoluteRead.content[0].text, /consent.*denied/i);
+    const outsideRead = await callTool(
+      "read_file",
+      { path: path.resolve(workspace, "..", "outside.txt") },
+      "alice"
+    );
+    assert.equal(outsideRead.isError, true);
+    assert.match(outsideRead.content[0].text, /outside all allowed directories/i);
+    assert.doesNotMatch(outsideRead.content[0].text, /consent/i);
+    const relativeRead = await callTool(
+      "read_file",
+      { path: "relative-readable.txt" },
+      "alice"
+    );
+    assert.equal(relativeRead.isError, undefined);
+    assert.equal(relativeRead.content[0].text, "relative path is allowed");
     assert.equal(
       (await callTool("list_allowed_directories", {}, "bob")).isError,
       true

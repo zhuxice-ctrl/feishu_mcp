@@ -108,6 +108,30 @@ if (AUTH_PIN && AUTH_PIN.length < 8) {
 }
 
 // ---------------------------------------------------------------------------
+// Consent gate
+// ---------------------------------------------------------------------------
+
+export type ConsentPolicy = "confirm" | "allow" | "deny";
+export type NonInteractivePolicy = "deny" | "allow";
+
+export const CONSENT_ABSOLUTE_PATH: ConsentPolicy = envEnum(
+  "CONSENT_ABSOLUTE_PATH",
+  ["confirm", "allow", "deny"] as const,
+  "confirm"
+);
+export const CONSENT_SENSITIVE_FILE: ConsentPolicy = envEnum(
+  "CONSENT_SENSITIVE_FILE",
+  ["confirm", "allow", "deny"] as const,
+  "confirm"
+);
+export const CONSENT_TIMEOUT_MS = envPositiveInt("CONSENT_TIMEOUT_MS", 60_000);
+export const NON_INTERACTIVE: NonInteractivePolicy = envEnum(
+  "NON_INTERACTIVE",
+  ["deny", "allow"] as const,
+  "deny"
+);
+
+// ---------------------------------------------------------------------------
 // File size limits (Phase 3)
 // ---------------------------------------------------------------------------
 

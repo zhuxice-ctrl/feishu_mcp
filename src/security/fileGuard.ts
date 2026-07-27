@@ -1,8 +1,8 @@
 /**
  * File-type and sensitive-file protection.
  *
- * Blocks dangerous executable file types and sensitive system files
- * (credentials, SSH keys, browser data, etc.) from being read or written.
+ * Blocks dangerous executable file types. Sensitive files are classified here
+ * and gated by configurable consent in `consent.ts`.
  */
 
 import path from "node:path";
@@ -20,20 +20,17 @@ export function isBlockedExtension(filePath: string): boolean {
  * Returns true if the file path matches a sensitive file pattern.
  */
 export function isSensitiveFile(filePath: string): boolean {
-  return SENSITIVE_PATTERNS.some((pattern) => pattern.test(filePath));
+  const normalizedPath = filePath.replace(/\\/g, "/");
+  return SENSITIVE_PATTERNS.some((pattern) => pattern.test(normalizedPath));
 }
 
 /**
- * Combined check — returns an error message if the path is blocked, or null if safe.
+ * Returns an error message for unconditionally blocked executable types.
  */
 export function checkFileAccess(
   filePath: string,
   operation: "read" | "write"
 ): string | null {
-  if (isSensitiveFile(filePath)) {
-    return `Access to sensitive file "${filePath}" is blocked (${operation}).`;
-  }
-
   if (isBlockedExtension(filePath)) {
     const ext = path.extname(filePath).toLowerCase();
     return `File type "${ext}" is blocked for ${operation} operations.`;

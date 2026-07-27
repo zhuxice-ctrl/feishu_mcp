@@ -1,6 +1,7 @@
 import { isAuthenticated } from "../auth/pinAuth.js";
 import type { NextFunction, Request, Response } from "express";
 import { extractRequestContext, getRequestUserId } from "./requestContext.js";
+import { consentGate, inspectPath, PATH_ARGS } from "./consent.js";
 import { logger } from "./logger.js";
 
 export interface ToolAccessError {
@@ -56,6 +57,40 @@ export function authorizeToolCall(
   _args: unknown
 ): ToolAccessError | null {
   return authorizeToolForUser(toolName, getRequestUserId());
+}
+
+/**
+ * Enforce consent only after the caller has passed `validatePath`. The
+ * resolved subject is used for decision memory, while the raw value retains
+ * the distinction between absolute and relative caller input.
+ */
+export async function authorizeFilePath(
+  toolName: string,
+  argName: string,
+  rawPath: string,
+  resolvedPath: string
+): Promise<ToolAccessError | null> {
+  if (!PATH_ARGS[toolName]?.includes(argName)) return null;
+  const kinds = inspectPath(toolName, rawPath, resolvedPath);
+  if (kinds.length === 0) return null;
+  const decision = await consentGate.request({
+    kinds,
+    tool: toolName,
+    userId: getRequestUserId(),
+    argName,
+    raw: rawPath,
+    resolved: resolvedPath,
+  });
+  if (decision.allowed) return null;
+  return {
+    content: [
+      {
+        type: "text",
+        text: `Consent denied for ${argName}.`,
+      },
+    ],
+    isError: true,
+  };
 }
 
 export function toolAuthorizationMiddleware(

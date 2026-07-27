@@ -21,6 +21,10 @@ import { validatePath } from "../security/pathGuard.js";
 import { checkFileAccess } from "../security/fileGuard.js";
 import { getRequestToken } from "../security/requestContext.js";
 import { logOperation, type OperationType } from "../security/logger.js";
+import {
+  authorizeFilePath,
+  authorizeToolCall,
+} from "../security/toolAccess.js";
 export { authorizeToolCall } from "../security/toolAccess.js";
 
 // ---------------------------------------------------------------------------
@@ -75,6 +79,30 @@ export function resolveAndGuard(
     return { ok: false, error: guardError };
   }
   return { ok: true, resolvedPath: resolved };
+}
+
+/**
+ * Keep directory and symlink validation ahead of consent. A consent decision
+ * is never requested for a path outside the configured filesystem boundary.
+ */
+export async function resolveGuardAndAuthorize(
+  toolName: string,
+  argName: string,
+  inputPath: string,
+  operation: "read" | "write"
+): Promise<ResolvedAndGuarded | GuardFailed> {
+  const guard = resolveAndGuard(inputPath, operation);
+  if (!guard.ok) return guard;
+  const consentError = await authorizeFilePath(
+    toolName,
+    argName,
+    inputPath,
+    guard.resolvedPath
+  );
+  if (consentError) {
+    return { ok: false, error: consentError.content[0].text };
+  }
+  return guard;
 }
 
 // ---------------------------------------------------------------------------
