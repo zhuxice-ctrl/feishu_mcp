@@ -1,89 +1,57 @@
 /**
- * Filesystem tools — all 9 tools ported from the official MCP filesystem server.
+ * Filesystem tools — 9 tools ported from the official MCP filesystem server.
  *
- * Each tool validates paths, checks file-type guards, enforces size limits,
- * and logs write operations. Security is built in from the start (Phase 2+3
- * merged per the development plan).
+ * Each tool follows the same flow:
+ *   1. resolveAndGuard() — whitelist + file-type/sensitive-file check
+ *   2. existence / type check
+ *   3. actual work
+ *   4. audit log (handled by withToolHandler)
+ *
+ * The boilerplate lives in ./helpers and ./atomicWrite so the bodies here
+ * focus on what each tool actually does.  All tool handlers are async and
+ * read the request token from AsyncLocalStorage (see security/requestContext).
  */
 
 import fs from "node:fs";
 import path from "node:path";
 import { z } from "zod";
 import type { McpServer } from "@modelcontextprotocol/server";
-import { validatePath, getAllowedDirectories } from "../security/pathGuard.js";
-import { checkFileAccess } from "../security/fileGuard.js";
+import { getRequestToken } from "../security/requestContext.js";
 import { logOperation } from "../security/logger.js";
+import { getAllowedDirectories } from "../security/pathGuard.js";
 import { moveToTrash } from "../security/trash.js";
-import { MAX_READ_BYTES, MAX_WRITE_BYTES } from "../config.js";
+import { atomicWriteFile } from "./atomicWrite.js";
+import {
+  checkReadSize,
+  checkWriteSize,
+  errorResult,
+  formatBytes,
+  isLikelyTextFile,
+  resolveAndGuard,
+  textContent,
+  withToolHandler,
+} from "./helpers.js";
 
-// ---------------------------------------------------------------------------
-// Helper: extract token from the MCP request context (best-effort)
-// ---------------------------------------------------------------------------
-
-function getTokenFromContext(extra: unknown): string {
-  if (extra && typeof extra === "object" && "_meta" in extra) {
-    const meta = (extra as Record<string, unknown>)._meta;
-    if (meta && typeof meta === "object" && "authToken" in meta) {
-      return String((meta as Record<string, unknown>).authToken || "");
-    }
-  }
-  // Fallback: the auth middleware already validated the token;
-  // for logging we use an empty string if we can't extract it.
-  return "";
+/**
+ * Register all 9 filesystem tools + ping (ping stays in index.ts) on `server`.
+ */
+export function registerFilesystemTools(server: McpServer): void {
+  registerReadFile(server);
+  registerWriteFile(server);
+  registerEditFile(server);
+  registerCreateDirectory(server);
+  registerListDirectory(server);
+  registerMoveFile(server);
+  registerSearchFiles(server);
+  registerGetFileInfo(server);
+  registerListAllowedDirectories(server);
 }
 
 // ---------------------------------------------------------------------------
-// Helper: build a text content block
+// 1. read_file
 // ---------------------------------------------------------------------------
 
-function textContent(text: string) {
-  return { type: "text" as const, text };
-}
-
-function errorResult(message: string) {
-  return {
-    content: [textContent(`Error: ${message}`)],
-    isError: true,
-  };
-}
-
-// ---------------------------------------------------------------------------
-// Helper: detect if a file is text or binary
-// ---------------------------------------------------------------------------
-
-const TEXT_EXTENSIONS = new Set([
-  ".txt", ".md", ".json", ".js", ".ts", ".jsx", ".tsx", ".py", ".rb",
-  ".go", ".rs", ".java", ".c", ".cpp", ".h", ".hpp", ".css", ".html",
-  ".htm", ".xml", ".yaml", ".yml", ".toml", ".ini", ".cfg", ".conf",
-  ".sh", ".bash", ".zsh", ".fish", ".sql", ".csv", ".tsv", ".log",
-  ".svg", ".graphql", ".gql", ".proto", ".dart", ".kt", ".swift",
-  ".scala", ".clj", ".ex", ".exs", ".erl", ".lua", ".vim", ".r",
-  ".pl", ".pm", ".tcl", ".asm", ".s", ".v", ".vh", ".sv",
-]);
-
-function isLikelyTextFile(filePath: string): boolean {
-  const ext = path.extname(filePath).toLowerCase();
-  if (TEXT_EXTENSIONS.has(ext)) return true;
-  if (ext === "") {
-    // No extension — check content for null bytes
-    return false;
-  }
-  return false;
-}
-
-// ---------------------------------------------------------------------------
-// Register all filesystem tools
-// ---------------------------------------------------------------------------
-
-export function registerFilesystemTools(
-  server: McpServer,
-  getToken: () => string
-): void {
-  const token = getToken;
-
-  // ========================================================================
-  // 1. read_file
-  // ========================================================================
+function registerReadFile(server: McpServer): void {
   server.registerTool(
     "read_file",
     {
@@ -98,77 +66,59 @@ export function registerFilesystemTools(
           .describe("Output encoding: 'text' (default) or 'base64'. For binary files, base64 is auto-selected."),
       },
     },
-    async (args, ctx) => {
-      const filePath = args.path;
-      const pathResult = validatePath(filePath);
-      if (!pathResult.ok || !pathResult.resolvedPath) {
-        return errorResult(pathResult.error || "Invalid path");
-      }
-      const resolved = pathResult.resolvedPath;
+    async (args) => {
+      const guard = resolveAndGuard(args.path, "read");
+      if (!guard.ok) return errorResult(guard.error);
 
-      // File-type / sensitive-file guard
-      const guardError = checkFileAccess(resolved, "read");
-      if (guardError) {
-        logOperation("read_file", resolved, token(), "denied", guardError);
-        return errorResult(guardError);
-      }
+      const { resolvedPath: resolved } = guard;
+      const token = getRequestToken();
 
-      // Check existence
       if (!fs.existsSync(resolved)) {
-        return errorResult(`File not found: ${filePath}`);
+        return errorResult(`File not found: ${args.path}`);
       }
-
       const stat = fs.statSync(resolved);
       if (stat.isDirectory()) {
-        return errorResult(`Path is a directory, not a file: ${filePath}`);
+        return errorResult(`Path is a directory, not a file: ${args.path}`);
+      }
+      const sizeError = checkReadSize(stat.size);
+      if (sizeError) {
+        logOperation("read_file", resolved, token, "denied", sizeError);
+        return errorResult(sizeError);
       }
 
-      // Size limit
-      if (stat.size > MAX_READ_BYTES) {
-        const msg = `File too large (${stat.size} bytes, max ${MAX_READ_BYTES})`;
-        logOperation("read_file", resolved, token(), "denied", msg);
-        return errorResult(msg);
-      }
-
-      try {
+      return withToolHandler("read_file", resolved, async () => {
         const buffer = fs.readFileSync(resolved);
-        const checkBuffer = buffer.subarray(0, Math.min(8192, buffer.length));
+        const sample = buffer.subarray(0, Math.min(8192, buffer.length));
         const useBase64 =
           args.encoding === "base64" ||
-          (!isLikelyTextFile(resolved) && checkBuffer.includes(0));
+          (!isLikelyTextFile(resolved) && sample.includes(0));
 
         if (useBase64) {
-          const base64Data = buffer.toString("base64");
-          logOperation("read_file", resolved, token(), "success", `binary ${buffer.length}B`);
           return {
             content: [
-              {
-                type: "text" as const,
-                text: JSON.stringify({
+              textContent(
+                JSON.stringify({
                   path: resolved,
                   size: stat.size,
                   encoding: "base64",
-                  data: base64Data,
-                }),
-              },
+                  data: buffer.toString("base64"),
+                })
+              ),
             ],
           };
         }
 
-        const text = buffer.toString("utf-8");
-        logOperation("read_file", resolved, token(), "success", `text ${buffer.length}B`);
-        return { content: [textContent(text)] };
-      } catch (err) {
-        const msg = err instanceof Error ? err.message : String(err);
-        logOperation("read_file", resolved, token(), "error", msg);
-        return errorResult(`Failed to read file: ${msg}`);
-      }
+        return { content: [textContent(buffer.toString("utf-8"))] };
+      });
     }
   );
+}
 
-  // ========================================================================
-  // 2. write_file
-  // ========================================================================
+// ---------------------------------------------------------------------------
+// 2. write_file
+// ---------------------------------------------------------------------------
+
+function registerWriteFile(server: McpServer): void {
   server.registerTool(
     "write_file",
     {
@@ -180,55 +130,39 @@ export function registerFilesystemTools(
         content: z.string().describe("Content to write to the file"),
       },
     },
-    async (args, ctx) => {
-      const filePath = args.path;
-      const pathResult = validatePath(filePath);
-      if (!pathResult.ok || !pathResult.resolvedPath) {
-        return errorResult(pathResult.error || "Invalid path");
-      }
-      const resolved = pathResult.resolvedPath;
+    async (args) => {
+      const guard = resolveAndGuard(args.path, "write");
+      if (!guard.ok) return errorResult(guard.error);
 
-      // File-type / sensitive-file guard
-      const guardError = checkFileAccess(resolved, "write");
-      if (guardError) {
-        logOperation("write_file", resolved, token(), "denied", guardError);
-        return errorResult(guardError);
-      }
+      const { resolvedPath: resolved } = guard;
+      const token = getRequestToken();
 
-      // Size limit
       const contentBytes = Buffer.byteLength(args.content, "utf-8");
-      if (contentBytes > MAX_WRITE_BYTES) {
-        const msg = `Content too large (${contentBytes} bytes, max ${MAX_WRITE_BYTES})`;
-        logOperation("write_file", resolved, token(), "denied", msg);
-        return errorResult(msg);
+      const sizeError = checkWriteSize(contentBytes);
+      if (sizeError) {
+        logOperation("write_file", resolved, token, "denied", sizeError);
+        return errorResult(sizeError);
       }
 
-      try {
-        // If file exists, move to trash before overwriting
-        if (fs.existsSync(resolved)) {
-          moveToTrash(resolved);
-        }
-
-        // Ensure parent directory exists
-        const parentDir = path.dirname(resolved);
-        fs.mkdirSync(parentDir, { recursive: true });
-
-        fs.writeFileSync(resolved, args.content, "utf-8");
-        logOperation("write_file", resolved, token(), "success", `${contentBytes}B`);
+      return withToolHandler("write_file", resolved, async () => {
+        const { bytes } = atomicWriteFile(resolved, args.content, {
+          trashOriginal: true,
+        });
         return {
-          content: [textContent(`Successfully wrote ${contentBytes} bytes to ${resolved}`)],
+          content: [
+            textContent(`Successfully wrote ${bytes} bytes to ${resolved}`),
+          ],
         };
-      } catch (err) {
-        const msg = err instanceof Error ? err.message : String(err);
-        logOperation("write_file", resolved, token(), "error", msg);
-        return errorResult(`Failed to write file: ${msg}`);
-      }
+      });
     }
   );
+}
 
-  // ========================================================================
-  // 3. edit_file
-  // ========================================================================
+// ---------------------------------------------------------------------------
+// 3. edit_file
+// ---------------------------------------------------------------------------
+
+function registerEditFile(server: McpServer): void {
   server.registerTool(
     "edit_file",
     {
@@ -246,76 +180,60 @@ export function registerFilesystemTools(
           .describe("If true, preview the diff without writing changes"),
       },
     },
-    async (args, ctx) => {
-      const filePath = args.path;
-      const pathResult = validatePath(filePath);
-      if (!pathResult.ok || !pathResult.resolvedPath) {
-        return errorResult(pathResult.error || "Invalid path");
-      }
-      const resolved = pathResult.resolvedPath;
+    async (args) => {
+      const guard = resolveAndGuard(args.path, "write");
+      if (!guard.ok) return errorResult(guard.error);
 
-      const guardError = checkFileAccess(resolved, "write");
-      if (guardError) {
-        logOperation("edit_file", resolved, token(), "denied", guardError);
-        return errorResult(guardError);
-      }
+      const { resolvedPath: resolved } = guard;
 
       if (!fs.existsSync(resolved)) {
-        return errorResult(`File not found: ${filePath}`);
+        return errorResult(`File not found: ${args.path}`);
       }
-
       const stat = fs.statSync(resolved);
       if (stat.isDirectory()) {
-        return errorResult(`Path is a directory: ${filePath}`);
+        return errorResult(`Path is a directory: ${args.path}`);
       }
 
-      try {
-        const original = fs.readFileSync(resolved, "utf-8");
+      const original = fs.readFileSync(resolved, "utf-8");
+      const matchCount = original.split(args.oldText).length - 1;
+      if (matchCount === 0) {
+        return errorResult(`No matches found for the given oldText in ${resolved}`);
+      }
+      if (matchCount > 1) {
+        return errorResult(
+          `Found ${matchCount} matches for oldText — must be unique. ` +
+          `Provide a longer/more specific oldText.`
+        );
+      }
 
-        // Count matches
-        const matchCount = original.split(args.oldText).length - 1;
-        if (matchCount === 0) {
-          return errorResult(`No matches found for the given oldText in ${resolved}`);
-        }
-        if (matchCount > 1) {
-          return errorResult(
-            `Found ${matchCount} matches for oldText — must be unique. ` +
-            `Provide a longer/more specific oldText.`
-          );
-        }
+      if (args.dryRun) {
+        return {
+          content: [
+            textContent(
+              `Dry run — would replace 1 match in ${resolved}.\n\n` +
+              `--- old (lines around match) ---\n${args.oldText}\n` +
+              `--- new ---\n${args.newText}`
+            ),
+          ],
+        };
+      }
 
-        const updated = original.replace(args.oldText, args.newText);
-
-        if (args.dryRun) {
-          return {
-            content: [
-              textContent(
-                `Dry run — would replace 1 match in ${resolved}.\n\n` +
-                `--- old (lines around match) ---\n${args.oldText}\n` +
-                `--- new ---\n${args.newText}`
-              ),
-            ],
-          };
-        }
-
-        // Move original to trash, then write updated
-        moveToTrash(resolved);
-        fs.writeFileSync(resolved, updated, "utf-8");
-        logOperation("edit_file", resolved, token(), "success");
+      const updated = original.replace(args.oldText, args.newText);
+      return withToolHandler("edit_file", resolved, async () => {
+        atomicWriteFile(resolved, updated, { trashOriginal: true });
         return {
           content: [textContent(`Successfully edited ${resolved} (1 replacement applied)`)],
         };
-      } catch (err) {
-        const msg = err instanceof Error ? err.message : String(err);
-        logOperation("edit_file", resolved, token(), "error", msg);
-        return errorResult(`Failed to edit file: ${msg}`);
-      }
+      });
     }
   );
+}
 
-  // ========================================================================
-  // 4. create_directory
-  // ========================================================================
+// ---------------------------------------------------------------------------
+// 4. create_directory
+// ---------------------------------------------------------------------------
+
+function registerCreateDirectory(server: McpServer): void {
   server.registerTool(
     "create_directory",
     {
@@ -326,36 +244,27 @@ export function registerFilesystemTools(
         path: z.string().describe("Path to the directory to create"),
       },
     },
-    async (args, ctx) => {
-      const dirPath = args.path;
-      const pathResult = validatePath(dirPath);
-      if (!pathResult.ok || !pathResult.resolvedPath) {
-        return errorResult(pathResult.error || "Invalid path");
-      }
-      const resolved = pathResult.resolvedPath;
+    async (args) => {
+      const guard = resolveAndGuard(args.path, "write");
+      if (!guard.ok) return errorResult(guard.error);
 
-      try {
+      const { resolvedPath: resolved } = guard;
+      return withToolHandler("create_directory", resolved, async () => {
         if (fs.existsSync(resolved) && fs.statSync(resolved).isDirectory()) {
-          return {
-            content: [textContent(`Directory already exists: ${resolved}`)],
-          };
+          return { content: [textContent(`Directory already exists: ${resolved}`)] };
         }
         fs.mkdirSync(resolved, { recursive: true });
-        logOperation("create_directory", resolved, token(), "success");
-        return {
-          content: [textContent(`Successfully created directory: ${resolved}`)],
-        };
-      } catch (err) {
-        const msg = err instanceof Error ? err.message : String(err);
-        logOperation("create_directory", resolved, token(), "error", msg);
-        return errorResult(`Failed to create directory: ${msg}`);
-      }
+        return { content: [textContent(`Successfully created directory: ${resolved}`)] };
+      });
     }
   );
+}
 
-  // ========================================================================
-  // 5. list_directory
-  // ========================================================================
+// ---------------------------------------------------------------------------
+// 5. list_directory
+// ---------------------------------------------------------------------------
+
+function registerListDirectory(server: McpServer): void {
   server.registerTool(
     "list_directory",
     {
@@ -366,46 +275,34 @@ export function registerFilesystemTools(
         path: z.string().describe("Path to the directory to list"),
       },
     },
-    async (args, ctx) => {
-      const dirPath = args.path;
-      const pathResult = validatePath(dirPath);
-      if (!pathResult.ok || !pathResult.resolvedPath) {
-        return errorResult(pathResult.error || "Invalid path");
-      }
-      const resolved = pathResult.resolvedPath;
+    async (args) => {
+      const guard = resolveAndGuard(args.path, "read");
+      if (!guard.ok) return errorResult(guard.error);
 
+      const { resolvedPath: resolved } = guard;
       if (!fs.existsSync(resolved)) {
-        return errorResult(`Directory not found: ${dirPath}`);
+        return errorResult(`Directory not found: ${args.path}`);
+      }
+      if (!fs.statSync(resolved).isDirectory()) {
+        return errorResult(`Path is a file, not a directory: ${args.path}`);
       }
 
-      const stat = fs.statSync(resolved);
-      if (!stat.isDirectory()) {
-        return errorResult(`Path is a file, not a directory: ${dirPath}`);
-      }
-
-      try {
+      return withToolHandler("list_directory", resolved, async () => {
         const entries = fs.readdirSync(resolved, { withFileTypes: true });
         const formatted = entries
-          .map((entry) => {
-            const type = entry.isDirectory() ? "[DIR]" : "[FILE]";
-            return `${type} ${entry.name}`;
-          })
+          .map((entry) => `${entry.isDirectory() ? "[DIR]" : "[FILE]"} ${entry.name}`)
           .join("\n");
-        logOperation("list_directory", resolved, token(), "success");
-        return {
-          content: [textContent(formatted || "(empty directory)")],
-        };
-      } catch (err) {
-        const msg = err instanceof Error ? err.message : String(err);
-        logOperation("list_directory", resolved, token(), "error", msg);
-        return errorResult(`Failed to list directory: ${msg}`);
-      }
+        return { content: [textContent(formatted || "(empty directory)")] };
+      });
     }
   );
+}
 
-  // ========================================================================
-  // 6. move_file (move / rename — soft-delete aware)
-  // ========================================================================
+// ---------------------------------------------------------------------------
+// 6. move_file — soft-delete aware
+// ---------------------------------------------------------------------------
+
+function registerMoveFile(server: McpServer): void {
   server.registerTool(
     "move_file",
     {
@@ -418,70 +315,91 @@ export function registerFilesystemTools(
         destination: z.string().describe("Target path"),
       },
     },
-    async (args, ctx) => {
-      const srcResult = validatePath(args.source);
-      const dstResult = validatePath(args.destination);
-      if (!srcResult.ok || !srcResult.resolvedPath) {
-        return errorResult(`Source: ${srcResult.error}`);
-      }
-      if (!dstResult.ok || !dstResult.resolvedPath) {
-        return errorResult(`Destination: ${dstResult.error}`);
-      }
-      const src = srcResult.resolvedPath;
-      const dst = dstResult.resolvedPath;
+    async (args) => {
+      const srcGuard = resolveAndGuard(args.source, "write");
+      if (!srcGuard.ok) return errorResult(`Source: ${srcGuard.error}`);
+      const dstGuard = resolveAndGuard(args.destination, "write");
+      if (!dstGuard.ok) return errorResult(`Destination: ${dstGuard.error}`);
 
-      // Guard both source and destination
-      const srcGuard = checkFileAccess(src, "write");
-      if (srcGuard) {
-        logOperation("move_file", src, token(), "denied", srcGuard, dst);
-        return errorResult(`Source: ${srcGuard}`);
-      }
-      const dstGuard = checkFileAccess(dst, "write");
-      if (dstGuard) {
-        logOperation("move_file", src, token(), "denied", dstGuard, dst);
-        return errorResult(`Destination: ${dstGuard}`);
-      }
+      const src = srcGuard.resolvedPath;
+      const dst = dstGuard.resolvedPath;
+      const token = getRequestToken();
 
       if (!fs.existsSync(src)) {
         return errorResult(`Source not found: ${args.source}`);
       }
 
-      try {
-        // If destination exists, move to trash
-        if (fs.existsSync(dst)) {
-          moveToTrash(dst);
+      // If destination exists, soft-delete it first
+      if (fs.existsSync(dst)) {
+        const trashed = moveToTrash(dst);
+        if (!trashed) {
+          logOperation("move_file", src, token, "error", "trash failed", dst);
+          return errorResult(`Failed to trash existing destination: ${dst}`);
         }
+      }
 
-        // Ensure parent directory exists
-        const parentDir = path.dirname(dst);
-        fs.mkdirSync(parentDir, { recursive: true });
+      fs.mkdirSync(path.dirname(dst), { recursive: true });
 
+      // Track which path succeeded so the audit log can record the detail.
+      let movedViaCopy = false;
+
+      try {
         fs.renameSync(src, dst);
-        logOperation("move_file", src, token(), "success", undefined, dst);
-        return {
-          content: [textContent(`Successfully moved ${src} → ${dst}`)],
-        };
-      } catch (err) {
-        const msg = err instanceof Error ? err.message : String(err);
-        // Cross-device rename fallback
+      } catch {
+        // Cross-device rename fallback (copy + remove)
         try {
           fs.cpSync(src, dst, { recursive: true });
           fs.rmSync(src, { recursive: true, force: true });
-          logOperation("move_file", src, token(), "success", "cross-device copy", dst);
-          return {
-            content: [textContent(`Successfully moved (cross-device) ${src} → ${dst}`)],
-          };
-        } catch {
-          logOperation("move_file", src, token(), "error", msg, dst);
+          movedViaCopy = true;
+        } catch (err) {
+          const msg = err instanceof Error ? err.message : String(err);
+          logOperation("move_file", src, token, "error", msg, dst);
           return errorResult(`Failed to move: ${msg}`);
         }
       }
+
+      logOperation(
+        "move_file",
+        src,
+        token,
+        "success",
+        movedViaCopy ? "cross-device copy" : undefined,
+        dst
+      );
+      return {
+        content: [
+          textContent(
+            movedViaCopy
+              ? `Successfully moved (cross-device) ${src} → ${dst}`
+              : `Successfully moved ${src} → ${dst}`
+          ),
+        ],
+      };
     }
   );
+}
 
-  // ========================================================================
-  // 7. search_files
-  // ========================================================================
+// ---------------------------------------------------------------------------
+// 7. search_files
+// ---------------------------------------------------------------------------
+
+const MAX_SEARCH_RESULTS = 200;
+const MAX_SEARCH_DEPTH = 15;
+
+/**
+ * Pre-compile a glob pattern to a RegExp once per request, then test names
+ * against it.  Patterns: `*` → any chars, `?` → single char, everything else
+ * escaped.
+ */
+function compileGlob(pattern: string): RegExp {
+  const escaped = pattern
+    .replace(/[.+^${}()|[\]\\]/g, "\\$&")
+    .replace(/\*/g, ".*")
+    .replace(/\?/g, ".");
+  return new RegExp(`^${escaped}$`);
+}
+
+function registerSearchFiles(server: McpServer): void {
   server.registerTool(
     "search_files",
     {
@@ -498,86 +416,69 @@ export function registerFilesystemTools(
           .describe("Patterns to exclude from results (e.g. ['node_modules', '.git'])"),
       },
     },
-    async (args, ctx) => {
-      const rootPath = args.path;
-      const pathResult = validatePath(rootPath);
-      if (!pathResult.ok || !pathResult.resolvedPath) {
-        return errorResult(pathResult.error || "Invalid path");
-      }
-      const resolved = pathResult.resolvedPath;
+    async (args) => {
+      const guard = resolveAndGuard(args.path, "read");
+      if (!guard.ok) return errorResult(guard.error);
 
+      const { resolvedPath: resolved } = guard;
       if (!fs.existsSync(resolved)) {
-        return errorResult(`Path not found: ${rootPath}`);
+        return errorResult(`Path not found: ${args.path}`);
       }
 
+      const token = getRequestToken();
       const excludes = args.excludePatterns || [];
+      const excludeRegexes = excludes.map(compileGlob);
+      const matchRegex = compileGlob(args.pattern);
+
       const results: string[] = [];
-      const maxResults = 200;
 
-      function globMatch(name: string, pattern: string): boolean {
-        // Convert glob to regex
-        const regex = new RegExp(
-          "^" +
-            pattern
-              .replace(/[.+^${}()|[\]\\]/g, "\\$&")
-              .replace(/\*/g, ".*")
-              .replace(/\?/g, ".") +
-            "$"
-        );
-        return regex.test(name);
-      }
-
-      function walk(dir: string, depth: number): void {
-        if (results.length >= maxResults || depth > 15) return;
-
+      const walk = (dir: string, depth: number): void => {
+        if (results.length >= MAX_SEARCH_RESULTS || depth > MAX_SEARCH_DEPTH) return;
         let entries: fs.Dirent[];
         try {
           entries = fs.readdirSync(dir, { withFileTypes: true });
         } catch {
           return;
         }
-
         for (const entry of entries) {
-          if (results.length >= maxResults) break;
-
+          if (results.length >= MAX_SEARCH_RESULTS) break;
           const fullPath = path.join(dir, entry.name);
           const relativePath = path.relative(resolved, fullPath);
-
-          // Check excludes
-          const isExcluded = excludes.some(
-            (ex) => globMatch(entry.name, ex) || relativePath.includes(ex)
-          );
+          const isExcluded =
+            excludeRegexes.some((re) => re.test(entry.name)) ||
+            excludes.some((ex) => relativePath.includes(ex));
           if (isExcluded) continue;
-
-          if (globMatch(entry.name, args.pattern)) {
-            results.push(fullPath);
-          }
-
-          if (entry.isDirectory()) {
-            walk(fullPath, depth + 1);
-          }
+          if (matchRegex.test(entry.name)) results.push(fullPath);
+          if (entry.isDirectory()) walk(fullPath, depth + 1);
         }
-      }
+      };
 
       try {
         walk(resolved, 0);
-        logOperation("search_files", resolved, token(), "success", `pattern=${args.pattern}, found=${results.length}`);
+        logOperation(
+          "search_files",
+          resolved,
+          token,
+          "success",
+          `pattern=${args.pattern}, found=${results.length}`
+        );
         const output =
-          results.length === 0
-            ? "No matching files found."
-            : results.join("\n");
+          results.length === 0 ? "No matching files found." : results.join("\n");
         return { content: [textContent(output)] };
       } catch (err) {
         const msg = err instanceof Error ? err.message : String(err);
-        logOperation("search_files", resolved, token(), "error", msg);
+        logOperation("search_files", resolved, token, "error", msg);
         return errorResult(`Search failed: ${msg}`);
       }
     }
   );
+}
 
-  // ========================================================================
-  // 8. get_file_info
-  // ========================================================================
+// ---------------------------------------------------------------------------
+// 8. get_file_info
+// ---------------------------------------------------------------------------
+
+function registerGetFileInfo(server: McpServer): void {
   server.registerTool(
     "get_file_info",
     {
@@ -588,19 +489,16 @@ export function registerFilesystemTools(
         path: z.string().describe("Path to the file or directory"),
       },
     },
-    async (args, ctx) => {
-      const filePath = args.path;
-      const pathResult = validatePath(filePath);
-      if (!pathResult.ok || !pathResult.resolvedPath) {
-        return errorResult(pathResult.error || "Invalid path");
-      }
-      const resolved = pathResult.resolvedPath;
+    async (args) => {
+      const guard = resolveAndGuard(args.path, "read");
+      if (!guard.ok) return errorResult(guard.error);
 
+      const { resolvedPath: resolved } = guard;
       if (!fs.existsSync(resolved)) {
-        return errorResult(`Path not found: ${filePath}`);
+        return errorResult(`Path not found: ${args.path}`);
       }
 
-      try {
+      return withToolHandler("get_file_info", resolved, async () => {
         const stat = fs.statSync(resolved);
         const info = {
           path: resolved,
@@ -613,21 +511,17 @@ export function registerFilesystemTools(
           permissions: stat.mode.toString(8).slice(-3),
           isSymbolicLink: stat.isSymbolicLink(),
         };
-        logOperation("get_file_info", resolved, token(), "success");
-        return {
-          content: [textContent(JSON.stringify(info, null, 2))],
-        };
-      } catch (err) {
-        const msg = err instanceof Error ? err.message : String(err);
-        logOperation("get_file_info", resolved, token(), "error", msg);
-        return errorResult(`Failed to get file info: ${msg}`);
-      }
+        return { content: [textContent(JSON.stringify(info, null, 2))] };
+      });
     }
   );
+}
 
-  // ========================================================================
-  // 9. list_allowed_directories
-  // ========================================================================
+// ---------------------------------------------------------------------------
+// 9. list_allowed_directories
+// ---------------------------------------------------------------------------
+
+function registerListAllowedDirectories(server: McpServer): void {
   server.registerTool(
     "list_allowed_directories",
     {
@@ -636,27 +530,18 @@ export function registerFilesystemTools(
         "All file operations are restricted to these roots.",
       inputSchema: {},
     },
-    async (args, ctx) => {
+    async () => {
       const dirs = getAllowedDirectories();
       if (dirs.length === 0) {
         return {
-          content: [textContent("No allowed directories configured. Set ALLOWED_DIRS to enable file operations.")],
+          content: [
+            textContent(
+              "No allowed directories configured. Set ALLOWED_DIRS to enable file operations."
+            ),
+          ],
         };
       }
-      return {
-        content: [textContent(dirs.join("\n"))],
-      };
+      return { content: [textContent(dirs.join("\n"))] };
     }
   );
-}
-
-// ---------------------------------------------------------------------------
-// Utility
-// ---------------------------------------------------------------------------
-
-function formatBytes(bytes: number): string {
-  if (bytes === 0) return "0 B";
-  const units = ["B", "KB", "MB", "GB", "TB"];
-  const i = Math.floor(Math.log(bytes) / Math.log(1024));
-  return `${(bytes / Math.pow(1024, i)).toFixed(1)} ${units[i]}`;
 }

@@ -10,8 +10,7 @@
 
 import fs from "node:fs";
 import path from "node:path";
-import { TRASH_DIR_NAME, TRASH_RETENTION_DAYS } from "../config.js";
-import { ALLOWED_DIRS } from "../config.js";
+import { ALLOWED_DIRS, TRASH_DIR_NAME, TRASH_RETENTION_DAYS } from "../config.js";
 
 /**
  * Find or create the .trash directory for a given file path's root.

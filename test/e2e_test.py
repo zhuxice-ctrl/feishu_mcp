@@ -159,8 +159,8 @@ def main():
     test("MCP initialize succeeds", code == 200, f"got {code}, body={str(body)[:200]}")
     if code == 200 and "result" in body:
         si = body["result"].get("serverInfo", {})
-        test("Server name correct", si.get("name") == "aily-local-file-mcp", str(si))
-        test("Server version 0.2.0", si.get("version") == "0.2.0", str(si.get("version")))
+        test("Server name correct", si.get("name") == "feishu-mcp", str(si))
+        test("Server version 1.0.0", si.get("version") == "1.0.0", str(si.get("version")))
 
     # === Tools List ===
     rid += 1

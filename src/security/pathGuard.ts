@@ -86,16 +86,6 @@ export function validatePath(inputPath: string): PathValidationResult {
     // realpathSync can fail on broken symlinks — that's fine, the path check above already passed
   }
 
-  // Sensitive path check
-  for (const root of ALLOWED_DIRS) {
-    const trashPath = path.join(root, ".trash");
-    if (isInsideDir(resolved, trashPath) && resolved !== trashPath) {
-      // Allow .trash directory operations for cleanup, but prevent direct user access
-      // (soft-deleted files should only be restored programmatically)
-      // We allow it here because cleanup needs it, but tools can decide to block
-    }
-  }
-
   return { ok: true, resolvedPath: resolved };
 }
 

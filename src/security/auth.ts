@@ -7,13 +7,13 @@
  */
 
 import type { Request, Response, NextFunction } from "express";
-import { AUTH_ENABLED, MCP_AUTH_TOKEN } from "../config.js";
+import { AUTH_ENABLED, MCP_AUTH_TOKEN, RATE_LIMIT_PER_MIN } from "../config.js";
 import { checkRateLimit } from "./rateLimit.js";
 
 /**
  * Extract the Bearer token from the Authorization header.
  */
-function extractToken(authHeader: string | undefined): string | null {
+export function extractToken(authHeader: string | undefined): string | null {
   if (!authHeader) return null;
   const match = authHeader.match(/^Bearer\s+(.+)$/i);
   return match ? match[1].trim() : null;
@@ -24,6 +24,9 @@ function extractToken(authHeader: string | undefined): string | null {
  *
  * 1. If auth is enabled, validates the Bearer token.
  * 2. Rate-limits requests per token (or per IP if no token).
+ *
+ * On success the validated token is forwarded to `next()` so the route
+ * handler can wrap the rest of the request lifecycle in runWithToken().
  */
 export function authMiddleware(
   req: Request,
@@ -61,12 +64,17 @@ export function authMiddleware(
       },
       id: null,
     });
-    return;
+      return;
   }
 
-  // Attach rate-limit headers
-  res.set("X-RateLimit-Limit", String(60));
+  // Attach rate-limit headers (limit reflects the configured value, not a
+  // hardcoded 60 — a previous version drifted from RATE_LIMIT_PER_MIN).
+  res.set("X-RateLimit-Limit", String(RATE_LIMIT_PER_MIN));
   res.set("X-RateLimit-Remaining", String(rateLimitResult.remaining));
+
+  // Stash the validated token on the request for the route handler to pick up
+  // and propagate via AsyncLocalStorage (see security/requestContext.ts).
+  (req as Request & { authToken?: string }).authToken = token || "";
 
   next();
 }

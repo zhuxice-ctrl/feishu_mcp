@@ -198,29 +198,45 @@ AI 会通过 MCP 工具直接操作你本机的文件。
 ```
 feishu_mcp/
 ├── src/
-│   ├── index.ts              # 入口：Express 服务 + MCP 路由
-│   ├── config.ts             # 配置：环境变量集中管理
+│   ├── index.ts                  # 入口：Express 服务 + MCP 路由（AsyncLocalStorage 传递 token）
+│   ├── config.ts                 # 配置：环境变量集中管理 + SERVER_NAME/SERVER_VERSION 单一来源
 │   ├── security/
-│   │   ├── auth.ts           # Bearer Token + 频率限制中间件
-│   │   ├── pathGuard.ts      # 路径白名单 + 穿越防护
-│   │   ├── fileGuard.ts      # 文件类型黑名单 + 敏感文件过滤
-│   │   ├── rateLimit.ts      # 滑动窗口限流
-│   │   ├── logger.ts         # 操作审计日志
-│   │   └── trash.ts          # 软删除回收站
+│   │   ├── auth.ts               # Bearer Token + 频率限制中间件
+│   │   ├── requestContext.ts     # AsyncLocalStorage 传递每请求 token
+│   │   ├── pathGuard.ts          # 路径白名单 + 穿越防护
+│   │   ├── fileGuard.ts          # 文件类型黑名单 + 敏感文件过滤
+│   │   ├── rateLimit.ts          # 滑动窗口限流
+│   │   ├── logger.ts             # 操作审计日志（token 哈希存储）
+│   │   └── trash.ts              # 软删除回收站
 │   └── tools/
-│       └── filesystem.ts     # 9 个文件系统工具
+│       ├── filesystem.ts         # 9 个文件系统工具（注册入口）
+│       ├── helpers.ts            # 共享：resolveAndGuard / withToolHandler / 文本二进制判定
+│       └── atomicWrite.ts        # 原子写：tmp + rename
 ├── scripts/
-│   └── start-ngrok.ps1       # Windows 一键启动（服务 + 隧道）
+│   └── start-ngrok.ps1           # Windows 一键启动（服务 + 隧道）
 ├── docs/
-│   └── aily-integration-guide.md  # 飞书 Aily 接入指南
+│   └── aily-integration-guide.md # 飞书 Aily 接入指南
 ├── test/
-│   ├── e2e_test.py           # 端到端测试（37 项）
-│   └── debug_mcp.py          # 调试工具
-├── .env.example              # 环境变量模板
+│   ├── e2e_test.py               # 端到端测试（37 项）
+│   └── debug_mcp.py              # 调试工具
+├── .env.example                  # 环境变量模板
 ├── package.json
 ├── tsconfig.json
 └── README.md
 ```
+
+## 重构说明（2026-07）
+
+本仓库在 v1.0.0 基础上做了一次以「行为零变化 + 代码质量提升」为目标的重构，提交在 `refactor/code-quality` 分支（待合并）。主要改动：
+
+- **每请求 token 通过 AsyncLocalStorage 传递**，替代原先的模块级 `currentToken` 变量，修复了并发请求下审计日志串号与 token 残留的隐患（见 `src/security/requestContext.ts`）。
+- **SERVER_NAME / SERVER_VERSION 提到 `config.ts`**，消除 `package.json`、`McpServer`、`/health`、e2e 测试四处不一致；e2e 期望值同步更新。
+- **`auth.ts` 的 `X-RateLimit-Limit` 头改用 `RATE_LIMIT_PER_MIN`**，配置变更不再与硬编码 60 漂移。
+- **写入原子化**：`write_file` / `edit_file` 改用「写 `.tmp` + `rename` 覆盖」流程（`src/tools/atomicWrite.ts`），杜绝写失败导致原文件已进回收站、目标文件丢失的数据风险；rename 跨盘失败时降级 copy + unlink。
+- **工具样板收敛**：`src/tools/helpers.ts` 抽出 `resolveAndGuard` / `withToolHandler` / `errorResult` / `textContent` / 文本二进制判定 / 字节格式化，`filesystem.ts` 从 662 行降至 ~500 行，每个工具函数体更聚焦。
+- **死代码清理**：删除 `getTokenFromContext`、未使用的 `MCP_AUTH_TOKEN` 导入、`pathGuard` 中空的 `.trash` 循环、`trash.ts` 重复的 `ALLOWED_DIRS` 导入。
+- **search_files 的 glob 预编译**为 RegExp（原本每条目每目录重编译一次）。
+- e2e 测试从 37/37 通过保持不变（行为兼容）。
 
 ## 技术栈
 

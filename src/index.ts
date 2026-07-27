@@ -3,6 +3,13 @@
  *
  * Streamable HTTP MCP server that exposes local filesystem to Feishu Aily.
  * Uses ngrok for public tunneling (replaces Cloudflare Tunnel).
+ *
+ * Refactor notes (2026-07):
+ *   - Per-request token now flows through AsyncLocalStorage (security/requestContext)
+ *     instead of a module-level `currentToken` variable, which previously raced
+ *     across concurrent requests and stuck the last value forever.
+ *   - Server identity (name / version) is sourced from config.ts — one place
+ *     to change.
  */
 
 import { McpServer, createMcpHandler } from "@modelcontextprotocol/server";
@@ -11,25 +18,17 @@ import type { Express, Request, Response } from "express";
 import { z } from "zod";
 
 import {
-  PORT,
+  AUTH_ENABLED,
   HOST,
   MCP_ENDPOINT,
-  AUTH_ENABLED,
-  MCP_AUTH_TOKEN,
+  PORT,
+  SERVER_NAME,
+  SERVER_VERSION,
 } from "./config.js";
 import { authMiddleware } from "./security/auth.js";
+import { runWithToken } from "./security/requestContext.js";
 import { cleanupTrash } from "./security/trash.js";
 import { registerFilesystemTools } from "./tools/filesystem.js";
-
-// ---------------------------------------------------------------------------
-// Token extraction — passed to tool registrations for audit logging
-// ---------------------------------------------------------------------------
-
-let currentToken = "";
-
-function getToken(): string {
-  return currentToken;
-}
 
 // ---------------------------------------------------------------------------
 // MCP server factory — one fresh instance per request
@@ -37,11 +36,11 @@ function getToken(): string {
 
 function createMcpServer(): McpServer {
   const server = new McpServer({
-    name: "feishu-mcp",
-    version: "0.2.0",
+    name: SERVER_NAME,
+    version: SERVER_VERSION,
   });
 
-  // --- Phase 1: ping tool (health verification) ---------------------------
+  // --- Health verification tool ---
   server.registerTool(
     "ping",
     {
@@ -55,20 +54,18 @@ function createMcpServer(): McpServer {
           .describe("Optional message to echo back in the response"),
       },
     },
-    async (args) => {
-      return {
-        content: [
-          {
-            type: "text" as const,
-            text: `pong${args.message ? `: ${args.message}` : ""}`,
-          },
-        ],
-      };
-    }
+    async (args) => ({
+      content: [
+        {
+          type: "text" as const,
+          text: `pong${args.message ? `: ${args.message}` : ""}`,
+        },
+      ],
+    })
   );
 
-  // --- Phase 2+3: Filesystem tools (with built-in security) -------------
-  registerFilesystemTools(server, getToken);
+  // --- Filesystem tools (9 tools, token read from AsyncLocalStorage) ---
+  registerFilesystemTools(server);
 
   return server;
 }
@@ -87,22 +84,16 @@ const app: Express = createMcpExpressApp({ host: HOST });
 
 // --- Auth + rate-limit middleware (Phase 3) ------------------------------
 // Applied only to the MCP endpoint; /health remains open for monitoring.
-
-app.all(MCP_ENDPOINT, (req: Request, _res: Response, next) => {
-  // Extract token for audit logging (the authMiddleware validates it)
-  const authHeader = req.headers.authorization;
-  if (authHeader) {
-    const match = authHeader.match(/^Bearer\s+(.+)$/i);
-    if (match) currentToken = match[1].trim();
-  }
-  next();
-});
-
+// The middleware stashes the validated token on the request object, and the
+// route handler below wraps the MCP fetch call in runWithToken() so every
+// tool handler sees the right token via AsyncLocalStorage.
 app.all(MCP_ENDPOINT, authMiddleware);
 
 // --- MCP route handler ---------------------------------------------------
 
 app.all(MCP_ENDPOINT, async (req: Request, res: Response) => {
+  const token = (req as Request & { authToken?: string }).authToken ?? "";
+
   try {
     const protocol = req.protocol;
     const host = req.headers.host || `${HOST}:${PORT}`;
@@ -124,9 +115,14 @@ app.all(MCP_ENDPOINT, async (req: Request, res: Response) => {
       body: hasBody && req.body !== undefined ? JSON.stringify(req.body) : undefined,
     });
 
-    const response = await handler.fetch(request, {
-      parsedBody: hasBody ? req.body : undefined,
-    });
+    // Propagate the validated token into the async context for the duration
+    // of this request.  The MCP handler and every tool it calls will read
+    // it via getRequestToken().
+    const response = await runWithToken(token, () =>
+      handler.fetch(request, {
+        parsedBody: hasBody ? req.body : undefined,
+      })
+    );
 
     res.status(response.status);
     response.headers.forEach((value, key) => {
@@ -175,8 +171,8 @@ app.all(MCP_ENDPOINT, async (req: Request, res: Response) => {
 app.get("/health", (_req: Request, res: Response) => {
   res.json({
     status: "ok",
-    service: "feishu-mcp",
-    version: "0.2.0",
+    service: SERVER_NAME,
+    version: SERVER_VERSION,
     mcpEndpoint: MCP_ENDPOINT,
     authEnabled: AUTH_ENABLED,
     tools: [
@@ -214,10 +210,12 @@ setTimeout(() => cleanupTrash(), 5000);
 // ---------------------------------------------------------------------------
 
 app.listen(PORT, HOST, () => {
-  console.log(`[feishu-mcp] Server running on http://${HOST}:${PORT}`);
-  console.log(`[feishu-mcp] MCP endpoint: http://${HOST}:${PORT}${MCP_ENDPOINT}`);
-  console.log(`[feishu-mcp] Health check: http://${HOST}:${PORT}/health`);
-  console.log(`[feishu-mcp] Auth: ${AUTH_ENABLED ? "ENABLED (Bearer token required)" : "DISABLED (no token set)"}`);
-  console.log(`[feishu-mcp] 10 tools registered (ping + 9 filesystem tools)`);
-  console.log(`[feishu-mcp] Security: path guard, file guard, rate limit, audit log, soft-delete`);
+  console.log(`[${SERVER_NAME}] Server running on http://${HOST}:${PORT}`);
+  console.log(`[${SERVER_NAME}] MCP endpoint: http://${HOST}:${PORT}${MCP_ENDPOINT}`);
+  console.log(`[${SERVER_NAME}] Health check: http://${HOST}:${PORT}/health`);
+  console.log(
+    `[${SERVER_NAME}] Auth: ${AUTH_ENABLED ? "ENABLED (Bearer token required)" : "DISABLED (no token set)"}`
+  );
+  console.log(`[${SERVER_NAME}] 10 tools registered (ping + 9 filesystem tools)`);
+  console.log(`[${SERVER_NAME}] Security: path guard, file guard, rate limit, audit log, soft-delete`);
 });

@@ -1,9 +1,23 @@
 /**
  * Central configuration — all environment-driven settings live here.
  * Phases 2-5 read from this module so there is a single source of truth.
+ *
+ * Identity (name / version) is exported from here so the MCP server
+ * registration and the HTTP health endpoint always report the same values.
  */
 
 import path from "node:path";
+
+// ---------------------------------------------------------------------------
+// Server identity — single source of truth (was duplicated across index.ts,
+// /health endpoint, and the e2e test prior to the refactor).
+// ---------------------------------------------------------------------------
+
+/** Name advertised via MCP `initialize` (serverInfo.name) and /health. */
+export const SERVER_NAME = "feishu-mcp";
+
+/** Version advertised via MCP `initialize` and /health. Mirrors package.json. */
+export const SERVER_VERSION = "1.0.0";
 
 // ---------------------------------------------------------------------------
 // Server
