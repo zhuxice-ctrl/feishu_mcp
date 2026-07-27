@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { spawn } from "node:child_process";
+import { spawn, spawnSync } from "node:child_process";
 import { mkdtemp, rm } from "node:fs/promises";
 import net from "node:net";
 import os from "node:os";
@@ -161,6 +161,46 @@ test("PIN authentication is isolated per request identity", async () => {
     }
     assert.equal(new Set(allowedHeaders).size, allowedHeaders.length);
 
+    const malformedResponse = await fetch(`${baseUrl}/mcp`, {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        accept: "application/json, text/event-stream",
+        "x-test-user": "alice",
+      },
+      body: JSON.stringify({
+        jsonrpc: "2.0",
+        id: ++requestId,
+        method: "tools/call",
+        params: { name: "read_file", arguments: { path: 42 } },
+      }),
+    });
+    const malformedBody = await malformedResponse.text();
+    assert.equal(malformedResponse.status, 200, malformedBody);
+    const malformed = parseMcpResponse(malformedBody);
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    assert.deepEqual(
+      {
+        malformedDeniedBeforeValidation:
+          malformed.error === undefined &&
+          malformed.result?.isError === true &&
+          /authentication required/i.test(malformed.result?.content?.[0]?.text || ""),
+        bannerLeaksPin: output.includes("12345678"),
+        bannerDescribesHiddenPin: output.includes(
+          "PIN: configured via AUTH_PIN (value hidden)"
+        ),
+      },
+      {
+        malformedDeniedBeforeValidation: true,
+        bannerLeaksPin: false,
+        bannerDescribesHiddenPin: true,
+      }
+    );
+    assert.doesNotMatch(
+      JSON.stringify(malformed),
+      /expected.*string|invalid.*type|validation error/i
+    );
+
     assert.equal(
       (await callTool("list_allowed_directories", {}, "alice")).isError,
       true
@@ -193,6 +233,25 @@ test("PIN authentication is isolated per request identity", async () => {
     await stopChild(child);
     await rm(workspace, { recursive: true, force: true });
   }
+});
+
+test("pin mode requires an operator-configured PIN", () => {
+  const result = spawnSync(process.execPath, ["dist/index.js"], {
+    cwd: projectDir,
+    env: {
+      ...process.env,
+      AUTH_MODE: "pin",
+      AUTH_PIN: "",
+      AUTH_MULTI_USER: "false",
+      AUTH_MAX_USERS: "8",
+      LOG_LEVEL: "info",
+      LOG_FORMAT: "pretty",
+    },
+    encoding: "utf8",
+    timeout: 5_000,
+  });
+  assert.notEqual(result.status, 0);
+  assert.match(result.stderr, /AUTH_PIN is required when AUTH_MODE=pin/);
 });
 
 test("structured event fields are recursively redacted", async () => {

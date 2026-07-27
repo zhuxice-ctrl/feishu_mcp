@@ -13,22 +13,11 @@ interface AuthRecord {
 }
 
 const activeUsers = new Map<string, AuthRecord>();
-let serverPin: string | null = null;
 
 export interface AuthResult {
   ok: boolean;
   error?: string;
   evictedUsers?: string[];
-}
-
-export function initPin(): string | null {
-  if (AUTH_MODE !== "pin") return null;
-  if (!serverPin) serverPin = AUTH_PIN || crypto.randomBytes(24).toString("base64url");
-  return serverPin;
-}
-
-export function getPin(): string | null {
-  return serverPin;
 }
 
 function safeEqual(candidate: string, expected: string): boolean {
@@ -77,10 +66,8 @@ export function attemptAuth(pin: string | undefined, userId: string | null): Aut
     return { ok: true, evictedUsers: touch(userId) };
   }
 
-  const expected = initPin();
-  if (!expected) return { ok: false, error: "PIN authentication is not initialized" };
   if (!pin) return { ok: false, error: "Missing pin argument" };
-  if (!safeEqual(pin, expected)) return { ok: false, error: "Invalid PIN" };
+  if (!safeEqual(pin, AUTH_PIN)) return { ok: false, error: "Invalid PIN" };
 
   const evictedUsers = touch(userId);
   return { ok: true, evictedUsers };

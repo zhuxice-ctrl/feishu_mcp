@@ -19,11 +19,8 @@ import { z } from "zod";
 
 import {
   ALLOWED_DIRS,
-  AUTH_EMAIL_HEADER,
   AUTH_ENABLED,
   AUTH_MODE,
-  AUTH_USER_HEADER,
-  AUTH_USER_QUERY_PARAM,
   HOST,
   MCP_ENDPOINT,
   PORT,
@@ -31,11 +28,17 @@ import {
   SERVER_VERSION,
 } from "./config.js";
 import { registerAuthTool } from "./auth/authTool.js";
-import { getPin, initPin, summary as authSummary } from "./auth/pinAuth.js";
+import { summary as authSummary } from "./auth/pinAuth.js";
 import { authMiddleware, corsPreflight } from "./security/auth.js";
 import { logger } from "./security/logger.js";
-import { runWithRequestContext } from "./security/requestContext.js";
-import { authorizeToolCall } from "./security/toolAccess.js";
+import {
+  extractRequestContext,
+  runWithRequestContext,
+} from "./security/requestContext.js";
+import {
+  authorizeToolCall,
+  toolAuthorizationMiddleware,
+} from "./security/toolAccess.js";
 import { cleanupTrash } from "./security/trash.js";
 import { registerFilesystemTools } from "./tools/filesystem.js";
 
@@ -104,17 +107,12 @@ app.all(MCP_ENDPOINT, corsPreflight);
 // route handler below wraps the MCP fetch call in runWithRequestContext() so
 // every tool handler sees the right transport credential and identity.
 app.all(MCP_ENDPOINT, authMiddleware);
+app.all(MCP_ENDPOINT, toolAuthorizationMiddleware);
 
 // --- MCP route handler ---------------------------------------------------
 
 app.all(MCP_ENDPOINT, async (req: Request, res: Response) => {
-  const token = (req as Request & { authToken?: string }).authToken ?? "";
-  const headerUserId = readIdentityValue(req.get(AUTH_USER_HEADER));
-  const queryUserId = AUTH_USER_QUERY_PARAM
-    ? readIdentityValue(req.query[AUTH_USER_QUERY_PARAM])
-    : null;
-  const userId = headerUserId ?? queryUserId;
-  const email = readIdentityValue(req.get(AUTH_EMAIL_HEADER));
+  const context = extractRequestContext(req);
 
   try {
     const protocol = req.protocol;
@@ -138,7 +136,7 @@ app.all(MCP_ENDPOINT, async (req: Request, res: Response) => {
     });
 
     // Keep transport credentials and identity scoped to this handler call.
-    const response = await runWithRequestContext({ token, userId, email }, () =>
+    const response = await runWithRequestContext(context, () =>
       handler.fetch(request, {
         parsedBody: hasBody ? req.body : undefined,
       })
@@ -171,7 +169,11 @@ app.all(MCP_ENDPOINT, async (req: Request, res: Response) => {
       res.end();
     }
   } catch (error) {
-    logger.error("mcp_handler_error", { error, userId, email });
+    logger.error("mcp_handler_error", {
+      error,
+      userId: context.userId,
+      email: context.email,
+    });
     if (!res.headersSent) {
       res.status(500).json({
         jsonrpc: "2.0",
@@ -183,13 +185,6 @@ app.all(MCP_ENDPOINT, async (req: Request, res: Response) => {
     }
   }
 });
-
-function readIdentityValue(value: unknown): string | null {
-  const firstValue = Array.isArray(value) ? value[0] : value;
-  if (typeof firstValue !== "string") return null;
-  const trimmed = firstValue.trim();
-  return trimmed || null;
-}
 
 // ---------------------------------------------------------------------------
 // Health check endpoint (non-MCP, always open)
@@ -239,8 +234,6 @@ setTimeout(() => cleanupTrash(), 5000);
 // Start server
 // ---------------------------------------------------------------------------
 
-initPin();
-
 app.listen(PORT, HOST, () => {
   const lines = [
     `${SERVER_NAME} v${SERVER_VERSION}`,
@@ -252,7 +245,6 @@ app.listen(PORT, HOST, () => {
     `Tool auth mode: ${AUTH_MODE}`,
     "Tools: 11 (ping, 9 filesystem tools, auth)",
   ];
-  const pin = getPin();
-  if (AUTH_MODE === "pin" && pin) lines.push(`PIN: ${pin}`);
+  if (AUTH_MODE === "pin") lines.push("PIN: configured via AUTH_PIN (value hidden)");
   process.stderr.write(`${lines.join("\n")}\n`);
 });

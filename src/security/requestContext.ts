@@ -18,6 +18,12 @@
  */
 
 import { AsyncLocalStorage } from "node:async_hooks";
+import type { Request } from "express";
+import {
+  AUTH_EMAIL_HEADER,
+  AUTH_USER_HEADER,
+  AUTH_USER_QUERY_PARAM,
+} from "../config.js";
 
 export interface RequestContext {
   /** Raw Bearer token from the Authorization header (already validated). */
@@ -29,6 +35,25 @@ export interface RequestContext {
 }
 
 const storage = new AsyncLocalStorage<RequestContext>();
+
+function readIdentityValue(value: unknown): string | null {
+  const firstValue = Array.isArray(value) ? value[0] : value;
+  if (typeof firstValue !== "string") return null;
+  const trimmed = firstValue.trim();
+  return trimmed || null;
+}
+
+export function extractRequestContext(req: Request): RequestContext {
+  const headerUserId = readIdentityValue(req.get(AUTH_USER_HEADER));
+  const queryUserId = AUTH_USER_QUERY_PARAM
+    ? readIdentityValue(req.query[AUTH_USER_QUERY_PARAM])
+    : null;
+  return {
+    token: (req as Request & { authToken?: string }).authToken ?? "",
+    userId: headerUserId ?? queryUserId,
+    email: readIdentityValue(req.get(AUTH_EMAIL_HEADER)),
+  };
+}
 
 /**
  * Run `fn` inside a request context visible to all downstream tool handlers.

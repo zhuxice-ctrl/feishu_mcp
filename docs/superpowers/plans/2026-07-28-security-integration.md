@@ -67,7 +67,7 @@ export const AUTH_MULTI_USER = envBoolean("AUTH_MULTI_USER", false);
 export const AUTH_MAX_USERS = envPositiveInt("AUTH_MAX_USERS", 8);
 ```
 
-Throw during module initialization when `AUTH_PIN` is non-empty and shorter than eight characters, or when an enum/boolean/integer value is invalid. Export `SERVER_NAME` and `SERVER_VERSION` as the single identity used by MCP, health, tests, and the Banner.
+Require `AUTH_PIN` when `AUTH_MODE=pin` and throw during module initialization when it is shorter than eight characters. Never print the raw PIN; the Banner reports only that it is configured. Also reject invalid enum/boolean/integer values. Export `SERVER_NAME` and `SERVER_VERSION` as the single identity used by MCP, health, tests, and the Banner.
 
 - [ ] **Step 3: Extend request context**
 
@@ -92,7 +92,7 @@ Extract identity from the current Express request using the configured header fi
 
 Port timing-safe PIN validation and LRU multi-user state from commit `b8eb394`, but make all identity reads use `getRequestUserId()`. Add `authorizeToolCall(toolName, args)` in `toolAccess.ts`; before Task 2 it must enforce authentication and return a standard MCP error result when unauthorized. `auth` bypasses this check.
 
-Call the authorization helper as the first statement of every filesystem handler and `ping`, before path validation, existence checks, or other observable behavior.
+Enforce authorization at the HTTP/JSON-RPC boundary before SDK schema validation for every `tools/call` except `auth`. Keep the authorization helper as the first statement of every filesystem handler and `ping` as defense in depth, before path validation, existence checks, or other observable behavior.
 
 - [ ] **Step 5: Register the auth tool and make CORS dynamic**
 

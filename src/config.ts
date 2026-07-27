@@ -100,6 +100,9 @@ export const AUTH_USER_QUERY_PARAM = process.env.AUTH_USER_QUERY_PARAM?.trim() |
 export const AUTH_MULTI_USER = envBoolean("AUTH_MULTI_USER", false);
 export const AUTH_MAX_USERS = envPositiveInt("AUTH_MAX_USERS", 8);
 
+if (AUTH_MODE === "pin" && !AUTH_PIN) {
+  throw new Error("AUTH_PIN is required when AUTH_MODE=pin");
+}
 if (AUTH_PIN && AUTH_PIN.length < 8) {
   throw new Error("AUTH_PIN must be at least 8 characters when configured");
 }
