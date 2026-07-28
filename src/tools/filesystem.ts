@@ -21,6 +21,7 @@ import { logOperation } from "../security/logger.js";
 import { getAllowedDirectories } from "../security/pathGuard.js";
 import { moveToTrash } from "../security/trash.js";
 import { atomicWriteFile } from "./atomicWrite.js";
+import { compileGlob, normalizeGlobPath } from "./globPattern.js";
 import {
   checkReadSize,
   checkWriteSize,
@@ -466,19 +467,6 @@ function registerMoveFile(server: McpServer): void {
 const MAX_SEARCH_RESULTS = 200;
 const MAX_SEARCH_DEPTH = 15;
 
-/**
- * Pre-compile a glob pattern to a RegExp once per request, then test names
- * against it.  Patterns: `*` → any chars, `?` → single char, everything else
- * escaped.
- */
-function compileGlob(pattern: string): RegExp {
-  const escaped = pattern
-    .replace(/[.+^${}()|[\]\\]/g, "\\$&")
-    .replace(/\*/g, ".*")
-    .replace(/\?/g, ".");
-  return new RegExp(`^${escaped}$`);
-}
-
 function registerSearchFiles(server: McpServer): void {
   server.registerTool(
     "search_files",
@@ -494,6 +482,7 @@ function registerSearchFiles(server: McpServer): void {
           .array(z.string())
           .optional()
           .describe("Patterns to exclude from results (e.g. ['node_modules', '.git'])"),
+        limit: z.number().int().positive().optional().describe("Maximum result count"),
       },
     },
     async (args, ctx) => {
@@ -516,34 +505,43 @@ function registerSearchFiles(server: McpServer): void {
 
       const token = getRequestToken();
       const excludes = args.excludePatterns || [];
-      const excludeRegexes = excludes.map(compileGlob);
-      const matchRegex = compileGlob(args.pattern);
-
-      const results: string[] = [];
-
-      const walk = (dir: string, depth: number): void => {
-        if (results.length >= MAX_SEARCH_RESULTS || depth > MAX_SEARCH_DEPTH) return;
-        let entries: fs.Dirent[];
-        try {
-          entries = fs.readdirSync(dir, { withFileTypes: true });
-        } catch {
-          return;
-        }
-        for (const entry of entries) {
-          if (results.length >= MAX_SEARCH_RESULTS) break;
-          const fullPath = path.join(dir, entry.name);
-          const relativePath = path.relative(resolved, fullPath);
-          const isExcluded =
-            excludeRegexes.some((re) => re.test(entry.name)) ||
-            excludes.some((ex) => relativePath.includes(ex));
-          if (isExcluded) continue;
-          if (matchRegex.test(entry.name)) results.push(fullPath);
-          if (entry.isDirectory()) walk(fullPath, depth + 1);
-        }
-      };
+      let excludeMatchers: ReturnType<typeof compileGlob>[];
+      let match: ReturnType<typeof compileGlob>;
+      try {
+        excludeMatchers = excludes.map(compileGlob);
+        match = compileGlob(args.pattern);
+      } catch (error) {
+        return errorResult((error as Error).message);
+      }
+      const limit = Math.min(args.limit ?? MAX_SEARCH_RESULTS, MAX_SEARCH_RESULTS);
+      const found: Array<{ path: string; modifiedMs: number }> = [];
 
       try {
-        walk(resolved, 0);
+        const stack = [{ dir: resolved, depth: 0 }];
+        while (stack.length && found.length < limit) {
+          const { dir, depth } = stack.pop()!;
+          if (depth > MAX_SEARCH_DEPTH) continue;
+          let entries: fs.Dirent[];
+          try { entries = await fs.promises.readdir(dir, { withFileTypes: true }); }
+          catch { continue; }
+          for (const entry of entries) {
+            const fullPath = path.join(dir, entry.name);
+            const relativePath = normalizeGlobPath(path.relative(resolved, fullPath));
+            if (excludeMatchers.some((matcher) => matcher(relativePath, entry.name))) continue;
+            if (match(relativePath, entry.name)) {
+              let modifiedMs = 0;
+              try { modifiedMs = (await fs.promises.stat(fullPath)).mtimeMs; } catch {}
+              found.push({ path: fullPath, modifiedMs });
+              if (found.length >= limit) break;
+            }
+            if (entry.isDirectory() && !entry.isSymbolicLink()) {
+              stack.push({ dir: fullPath, depth: depth + 1 });
+            }
+          }
+          await new Promise<void>((resolve) => setImmediate(resolve));
+        }
+        found.sort((a, b) => b.modifiedMs - a.modifiedMs);
+        const results = found.map((item) => item.path);
         logOperation(
           "search_files",
           resolved,
@@ -553,7 +551,15 @@ function registerSearchFiles(server: McpServer): void {
         );
         const output =
           results.length === 0 ? "No matching files found." : results.join("\n");
-        return { content: [textContent(output)] };
+        return {
+          content: [textContent(output)],
+          structuredContent: {
+            ok: true,
+            results,
+            count: results.length,
+            truncated: results.length >= limit,
+          },
+        };
       } catch (err) {
         const msg = err instanceof Error ? err.message : String(err);
         logOperation("search_files", resolved, token, "error", msg);

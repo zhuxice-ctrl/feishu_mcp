@@ -14,10 +14,12 @@
   "dependencies": {
     "@modelcontextprotocol/express": "^2.0.0-beta.5",
     "@modelcontextprotocol/server": "^2.0.0-beta.5",
+    "diff": "^5.2.2",
     "express": "^4.21.2",
     "zod": "^4.2.0"
   },
   "devDependencies": {
+    "@types/diff": "^5.2.3",
     "@types/express": "^5.0.0",
     "@types/node": "^22.10.0",
     "tsx": "^4.19.0",

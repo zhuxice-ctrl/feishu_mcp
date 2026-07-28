@@ -52,9 +52,19 @@ export const PATH_ARGS: Record<string, string[]> = {
   move_file: ["source", "destination"],
   search_files: ["path"],
   get_file_info: ["path"],
+  search_content: ["path"],
+  git_status: ["path"],
+  git_diff: ["path"],
+  compare_files: ["path_a", "path_b"],
 };
 
-const CONTENT_TOOLS = new Set(["read_file", "write_file", "edit_file"]);
+const CONTENT_TOOLS = new Set([
+  "read_file",
+  "write_file",
+  "edit_file",
+  "search_content",
+  "compare_files",
+]);
 
 export function inspectPath(
   toolName: string,
