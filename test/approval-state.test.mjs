@@ -11,6 +11,7 @@ process.env.APPROVAL_STATE_SECRET = "0123456789abcdef0123456789abcdef";
 
 const { runWithRequestContext } = await import("../dist/security/requestContext.js");
 const { approvalStateCodec } = await import("../dist/security/approvalState.js");
+const { createRequestStateCodec } = await import("@modelcontextprotocol/server");
 
 const payload = {
   version: 1,
@@ -52,4 +53,14 @@ test("request state rejects tampering and a different user", async () => {
       () => approvalStateCodec.verify(wire, {}),
     ),
   );
+});
+
+test("request state expires", async () => {
+  const shortLived = createRequestStateCodec({
+    key: "fedcba9876543210fedcba9876543210",
+    ttlSeconds: 1,
+  });
+  const wire = await shortLived.mint({ value: "short" });
+  await new Promise((resolve) => setTimeout(resolve, 2_100));
+  await assert.rejects(shortLived.verify(wire, {}));
 });

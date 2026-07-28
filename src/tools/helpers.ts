@@ -119,13 +119,15 @@ export async function resolveGuardAndAuthorize(
     ctx,
   );
   if (approval !== true) {
-    logOperation(
-      toolName as OperationType,
-      guard.resolvedPath,
-      getRequestToken(),
-      "denied",
-      "approval required or denied"
-    );
+    if ("isError" in approval && approval.isError) {
+      logOperation(
+        toolName as OperationType,
+        guard.resolvedPath,
+        getRequestToken(),
+        "denied",
+        "approval denied"
+      );
+    }
     return { ok: false, result: approval };
   }
   return guard;

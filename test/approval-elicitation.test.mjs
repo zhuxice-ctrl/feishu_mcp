@@ -48,6 +48,16 @@ test("approval flow emits input_required then accepts once and blocks replay", a
   assert.equal(JSON.parse(replay.content[0].text).code, "APPROVAL_DENIED");
 });
 
+test("approval state cannot authorize changed arguments", async () => {
+  const initial = await requestApproval(context(), request("original"));
+  const state = await approvalStateCodec.verify(initial.requestState, context());
+  const changed = await requestApproval(
+    context({ state, decision: "allow_once" }),
+    request("changed"),
+  );
+  assert.equal(JSON.parse(changed.content[0].text).code, "APPROVAL_DENIED");
+});
+
 test("session approval applies only to the same exact subject", async () => {
   const initial = await requestApproval(context(), request("session"));
   const state = await approvalStateCodec.verify(initial.requestState, context());
