@@ -1,8 +1,19 @@
 import { isAuthenticated } from "../auth/pinAuth.js";
+import type { ServerContext } from "@modelcontextprotocol/server";
 import type { NextFunction, Request, Response } from "express";
+import {
+  CONSENT_ABSOLUTE_PATH,
+  CONSENT_SENSITIVE_FILE,
+} from "../config.js";
 import { extractRequestContext, getRequestUserId } from "./requestContext.js";
-import { consentGate, inspectPath, PATH_ARGS } from "./consent.js";
+import { inspectPath, PATH_ARGS } from "./consent.js";
+import {
+  digestArguments,
+  requestApproval,
+  type ApprovalOutcome,
+} from "./approval.js";
 import { logger } from "./logger.js";
+import { toolError } from "../tools/results.js";
 
 export interface ToolAccessError {
   [key: string]: unknown;
@@ -68,29 +79,40 @@ export async function authorizeFilePath(
   toolName: string,
   argName: string,
   rawPath: string,
-  resolvedPath: string
-): Promise<ToolAccessError | null> {
-  if (!PATH_ARGS[toolName]?.includes(argName)) return null;
+  resolvedPath: string,
+  args: unknown,
+  ctx: ServerContext,
+): Promise<ApprovalOutcome> {
+  if (!PATH_ARGS[toolName]?.includes(argName)) return true;
   const kinds = inspectPath(toolName, rawPath, resolvedPath);
-  if (kinds.length === 0) return null;
-  const decision = await consentGate.request({
-    kinds,
+  if (kinds.length === 0) return true;
+  if (
+    (kinds.includes("absolute_path") && CONSENT_ABSOLUTE_PATH === "deny") ||
+    (kinds.includes("sensitive_file") && CONSENT_SENSITIVE_FILE === "deny")
+  ) {
+    return toolError("APPROVAL_DENIED", `Consent policy denied ${argName}.`);
+  }
+  if (
+    (!kinds.includes("absolute_path") || CONSENT_ABSOLUTE_PATH === "allow") &&
+    (!kinds.includes("sensitive_file") || CONSENT_SENSITIVE_FILE === "allow")
+  ) {
+    return true;
+  }
+  return requestApproval(ctx, {
     tool: toolName,
     userId: getRequestUserId(),
-    argName,
-    raw: rawPath,
-    resolved: resolvedPath,
+    subject: {
+      kind: "path",
+      key: `${[...kinds].sort().join("+")}|${resolvedPath}`,
+      display: resolvedPath,
+    },
+    argsDigest: digestArguments(args),
+    reasons: kinds.map((kind) =>
+      kind === "absolute_path"
+        ? "The caller supplied an absolute path."
+        : "The target is classified as a sensitive file."
+    ),
   });
-  if (decision.allowed) return null;
-  return {
-    content: [
-      {
-        type: "text",
-        text: `Consent denied for ${argName}.`,
-      },
-    ],
-    isError: true,
-  };
 }
 
 export function toolAuthorizationMiddleware(

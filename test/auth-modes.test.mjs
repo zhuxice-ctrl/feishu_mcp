@@ -48,6 +48,7 @@ async function withServer(mode, consentPolicy, run) {
       HOST: "127.0.0.1",
       PORT: String(port),
       ALLOWED_DIRS: workspace,
+      APPROVAL_DATA_DIR: path.join(workspace, "approvals"),
       LOG_DIR: path.join(workspace, "logs"),
       MCP_AUTH_TOKEN: "",
       AUTH_MODE: mode,
@@ -120,12 +121,12 @@ test("none mode allows tools without a request identity", async () => {
   });
 });
 
-test("confirm policy denies absolute paths when no TTY is available", async () => {
+test("confirm policy denies absolute paths when the client cannot elicit", async () => {
   await withServer("none", "confirm", async ({ workspace, call }) => {
     const target = path.join(workspace, "sample.txt");
     await writeFile(target, "sample", "utf8");
     const result = await call("read_file", { path: target });
     assert.equal(result.isError, true);
-    assert.match(result.content[0].text, /consent denied/i);
+    assert.match(result.content[0].text, /CLIENT_ELICITATION_UNSUPPORTED/);
   });
 });

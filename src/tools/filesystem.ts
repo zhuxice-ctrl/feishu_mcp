@@ -67,16 +67,18 @@ function registerReadFile(server: McpServer): void {
           .describe("Output encoding: 'text' (default) or 'base64'. For binary files, base64 is auto-selected."),
       },
     },
-    async (args) => {
+    async (args, ctx) => {
       const accessError = authorizeToolCall("read_file", args);
       if (accessError) return accessError;
       const guard = await resolveGuardAndAuthorize(
         "read_file",
         "path",
         args.path,
-        "read"
+        "read",
+        args,
+        ctx,
       );
-      if (!guard.ok) return errorResult(guard.error);
+      if (!guard.ok) return guard.result ?? errorResult(guard.error ?? "Invalid path");
 
       const { resolvedPath: resolved } = guard;
       const token = getRequestToken();
@@ -138,16 +140,18 @@ function registerWriteFile(server: McpServer): void {
         content: z.string().describe("Content to write to the file"),
       },
     },
-    async (args) => {
+    async (args, ctx) => {
       const accessError = authorizeToolCall("write_file", args);
       if (accessError) return accessError;
       const guard = await resolveGuardAndAuthorize(
         "write_file",
         "path",
         args.path,
-        "write"
+        "write",
+        args,
+        ctx,
       );
-      if (!guard.ok) return errorResult(guard.error);
+      if (!guard.ok) return guard.result ?? errorResult(guard.error ?? "Invalid path");
 
       const { resolvedPath: resolved } = guard;
       const token = getRequestToken();
@@ -195,16 +199,18 @@ function registerEditFile(server: McpServer): void {
           .describe("If true, preview the diff without writing changes"),
       },
     },
-    async (args) => {
+    async (args, ctx) => {
       const accessError = authorizeToolCall("edit_file", args);
       if (accessError) return accessError;
       const guard = await resolveGuardAndAuthorize(
         "edit_file",
         "path",
         args.path,
-        "write"
+        "write",
+        args,
+        ctx,
       );
-      if (!guard.ok) return errorResult(guard.error);
+      if (!guard.ok) return guard.result ?? errorResult(guard.error ?? "Invalid path");
 
       const { resolvedPath: resolved } = guard;
 
@@ -266,16 +272,18 @@ function registerCreateDirectory(server: McpServer): void {
         path: z.string().describe("Path to the directory to create"),
       },
     },
-    async (args) => {
+    async (args, ctx) => {
       const accessError = authorizeToolCall("create_directory", args);
       if (accessError) return accessError;
       const guard = await resolveGuardAndAuthorize(
         "create_directory",
         "path",
         args.path,
-        "write"
+        "write",
+        args,
+        ctx,
       );
-      if (!guard.ok) return errorResult(guard.error);
+      if (!guard.ok) return guard.result ?? errorResult(guard.error ?? "Invalid path");
 
       const { resolvedPath: resolved } = guard;
       return withToolHandler("create_directory", resolved, async () => {
@@ -304,16 +312,18 @@ function registerListDirectory(server: McpServer): void {
         path: z.string().describe("Path to the directory to list"),
       },
     },
-    async (args) => {
+    async (args, ctx) => {
       const accessError = authorizeToolCall("list_directory", args);
       if (accessError) return accessError;
       const guard = await resolveGuardAndAuthorize(
         "list_directory",
         "path",
         args.path,
-        "read"
+        "read",
+        args,
+        ctx,
       );
-      if (!guard.ok) return errorResult(guard.error);
+      if (!guard.ok) return guard.result ?? errorResult(guard.error ?? "Invalid path");
 
       const { resolvedPath: resolved } = guard;
       if (!fs.existsSync(resolved)) {
@@ -351,23 +361,27 @@ function registerMoveFile(server: McpServer): void {
         destination: z.string().describe("Target path"),
       },
     },
-    async (args) => {
+    async (args, ctx) => {
       const accessError = authorizeToolCall("move_file", args);
       if (accessError) return accessError;
       const srcGuard = await resolveGuardAndAuthorize(
         "move_file",
         "source",
         args.source,
-        "write"
+        "write",
+        args,
+        ctx,
       );
-      if (!srcGuard.ok) return errorResult(`Source: ${srcGuard.error}`);
+      if (!srcGuard.ok) return srcGuard.result ?? errorResult(`Source: ${srcGuard.error ?? "Invalid path"}`);
       const dstGuard = await resolveGuardAndAuthorize(
         "move_file",
         "destination",
         args.destination,
-        "write"
+        "write",
+        args,
+        ctx,
       );
-      if (!dstGuard.ok) return errorResult(`Destination: ${dstGuard.error}`);
+      if (!dstGuard.ok) return dstGuard.result ?? errorResult(`Destination: ${dstGuard.error ?? "Invalid path"}`);
 
       const src = srcGuard.resolvedPath;
       const dst = dstGuard.resolvedPath;
@@ -482,16 +496,18 @@ function registerSearchFiles(server: McpServer): void {
           .describe("Patterns to exclude from results (e.g. ['node_modules', '.git'])"),
       },
     },
-    async (args) => {
+    async (args, ctx) => {
       const accessError = authorizeToolCall("search_files", args);
       if (accessError) return accessError;
       const guard = await resolveGuardAndAuthorize(
         "search_files",
         "path",
         args.path,
-        "read"
+        "read",
+        args,
+        ctx,
       );
-      if (!guard.ok) return errorResult(guard.error);
+      if (!guard.ok) return guard.result ?? errorResult(guard.error ?? "Invalid path");
 
       const { resolvedPath: resolved } = guard;
       if (!fs.existsSync(resolved)) {
@@ -562,16 +578,18 @@ function registerGetFileInfo(server: McpServer): void {
         path: z.string().describe("Path to the file or directory"),
       },
     },
-    async (args) => {
+    async (args, ctx) => {
       const accessError = authorizeToolCall("get_file_info", args);
       if (accessError) return accessError;
       const guard = await resolveGuardAndAuthorize(
         "get_file_info",
         "path",
         args.path,
-        "read"
+        "read",
+        args,
+        ctx,
       );
-      if (!guard.ok) return errorResult(guard.error);
+      if (!guard.ok) return guard.result ?? errorResult(guard.error ?? "Invalid path");
 
       const { resolvedPath: resolved } = guard;
       if (!fs.existsSync(resolved)) {

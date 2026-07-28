@@ -19,6 +19,7 @@ import { z } from "zod";
 
 import {
   ALLOWED_DIRS,
+  APPROVAL_TIMEOUT_MS,
   AUTH_ENABLED,
   AUTH_MODE,
   HOST,
@@ -41,6 +42,7 @@ import {
   toolAuthorizationMiddleware,
 } from "./security/toolAccess.js";
 import { consentGate } from "./security/consent.js";
+import { approvalStateCodec } from "./security/approvalState.js";
 import { cleanupTrash } from "./security/trash.js";
 import { registerFilesystemTools } from "./tools/filesystem.js";
 
@@ -49,10 +51,17 @@ import { registerFilesystemTools } from "./tools/filesystem.js";
 // ---------------------------------------------------------------------------
 
 function createMcpServer(): McpServer {
-  const server = new McpServer({
-    name: SERVER_NAME,
-    version: SERVER_VERSION,
-  });
+  const server = new McpServer(
+    { name: SERVER_NAME, version: SERVER_VERSION },
+    {
+      inputRequired: {
+        maxRounds: 4,
+        roundTimeoutMs: APPROVAL_TIMEOUT_MS,
+        legacyShim: true,
+      },
+      requestState: { verify: approvalStateCodec.verify },
+    },
+  );
 
   // --- Health verification tool ---
   server.registerTool(

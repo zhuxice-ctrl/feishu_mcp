@@ -13,6 +13,11 @@
  */
 
 import path from "node:path";
+import type {
+  CallToolResult,
+  InputRequiredResult,
+  ServerContext,
+} from "@modelcontextprotocol/server";
 import {
   MAX_READ_BYTES,
   MAX_WRITE_BYTES,
@@ -54,7 +59,8 @@ export interface ResolvedAndGuarded {
 }
 export interface GuardFailed {
   ok: false;
-  error: string;
+  error?: string;
+  result?: CallToolResult | InputRequiredResult;
 }
 
 /**
@@ -89,7 +95,9 @@ export async function resolveGuardAndAuthorize(
   toolName: string,
   argName: string,
   inputPath: string,
-  operation: "read" | "write"
+  operation: "read" | "write",
+  args: unknown,
+  ctx: ServerContext,
 ): Promise<ResolvedAndGuarded | GuardFailed> {
   const guard = resolveAndGuard(inputPath, operation);
   if (!guard.ok) {
@@ -102,21 +110,23 @@ export async function resolveGuardAndAuthorize(
     );
     return guard;
   }
-  const consentError = await authorizeFilePath(
+  const approval = await authorizeFilePath(
     toolName,
     argName,
     inputPath,
-    guard.resolvedPath
+    guard.resolvedPath,
+    args,
+    ctx,
   );
-  if (consentError) {
+  if (approval !== true) {
     logOperation(
       toolName as OperationType,
       guard.resolvedPath,
       getRequestToken(),
       "denied",
-      consentError.content[0].text
+      "approval required or denied"
     );
-    return { ok: false, error: consentError.content[0].text };
+    return { ok: false, result: approval };
   }
   return guard;
 }

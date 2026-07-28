@@ -78,6 +78,7 @@ test("PIN authentication is isolated per request identity", async () => {
       HOST: "127.0.0.1",
       PORT: String(port),
       ALLOWED_DIRS: workspace,
+      APPROVAL_DATA_DIR: path.join(workspace, "approvals"),
       LOG_DIR: path.join(workspace, "logs"),
       MCP_AUTH_TOKEN: "",
       AUTH_MODE: "pin",
