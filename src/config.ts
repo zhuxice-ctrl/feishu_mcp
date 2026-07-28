@@ -7,6 +7,7 @@
  */
 
 import path from "node:path";
+import os from "node:os";
 
 function envEnum<const T extends readonly string[]>(
   name: string,
@@ -38,6 +39,14 @@ function envPositiveInt(name: string, defaultValue: number): number {
   return parsed;
 }
 
+function envBoundedPositiveInt(name: string, defaultValue: number, maxValue: number): number {
+  const value = envPositiveInt(name, defaultValue);
+  if (value > maxValue) {
+    throw new Error(`${name} must be at most ${maxValue}`);
+  }
+  return value;
+}
+
 // ---------------------------------------------------------------------------
 // Server identity — single source of truth (was duplicated across index.ts,
 // /health endpoint, and the e2e test prior to the refactor).
@@ -57,6 +66,69 @@ export const PORT = envPositiveInt("PORT", 3000);
 if (PORT > 65_535) throw new Error("PORT must be between 1 and 65535");
 export const HOST = process.env.HOST || "0.0.0.0";
 export const MCP_ENDPOINT = process.env.MCP_ENDPOINT || "/mcp";
+
+// ---------------------------------------------------------------------------
+// Local development tool execution limits
+// ---------------------------------------------------------------------------
+
+const MAX_CONCURRENCY_LIMIT = 64;
+const MAX_TIMEOUT_MS = 60 * 60 * 1000;
+const MAX_RESPONSE_BYTES = 100 * 1024 * 1024;
+
+export const MAX_CONCURRENT_TOOLS = envBoundedPositiveInt(
+  "MAX_CONCURRENT_TOOLS", 8, MAX_CONCURRENCY_LIMIT
+);
+export const MAX_CONCURRENT_COMMANDS = envBoundedPositiveInt(
+  "MAX_CONCURRENT_COMMANDS", 2, MAX_CONCURRENCY_LIMIT
+);
+export const MAX_CONCURRENT_SEARCHES = envBoundedPositiveInt(
+  "MAX_CONCURRENT_SEARCHES", 2, MAX_CONCURRENCY_LIMIT
+);
+export const MAX_CONCURRENT_FETCHES = envBoundedPositiveInt(
+  "MAX_CONCURRENT_FETCHES", 4, MAX_CONCURRENCY_LIMIT
+);
+export const TOOL_QUEUE_TIMEOUT_MS = envBoundedPositiveInt(
+  "TOOL_QUEUE_TIMEOUT_MS", 30_000, MAX_TIMEOUT_MS
+);
+export const COMMAND_TIMEOUT_MS = envBoundedPositiveInt(
+  "COMMAND_TIMEOUT_MS", 30_000, MAX_TIMEOUT_MS
+);
+export const COMMAND_MAX_TIMEOUT_MS = envBoundedPositiveInt(
+  "COMMAND_MAX_TIMEOUT_MS", 300_000, MAX_TIMEOUT_MS
+);
+export const COMMAND_MAX_OUTPUT_BYTES = envBoundedPositiveInt(
+  "COMMAND_MAX_OUTPUT_BYTES", 1_048_576, MAX_RESPONSE_BYTES
+);
+export const SEARCH_TIMEOUT_MS = envBoundedPositiveInt(
+  "SEARCH_TIMEOUT_MS", 30_000, MAX_TIMEOUT_MS
+);
+export const SEARCH_MAX_FILES = envBoundedPositiveInt(
+  "SEARCH_MAX_FILES", 10_000, MAX_RESPONSE_BYTES
+);
+export const SEARCH_MAX_RESULTS = envBoundedPositiveInt(
+  "SEARCH_MAX_RESULTS", 1_000, MAX_RESPONSE_BYTES
+);
+export const GIT_TIMEOUT_MS = envBoundedPositiveInt(
+  "GIT_TIMEOUT_MS", 30_000, MAX_TIMEOUT_MS
+);
+export const FETCH_TIMEOUT_MS = envBoundedPositiveInt(
+  "FETCH_TIMEOUT_MS", 30_000, MAX_TIMEOUT_MS
+);
+export const FETCH_MAX_TIMEOUT_MS = envBoundedPositiveInt(
+  "FETCH_MAX_TIMEOUT_MS", 120_000, MAX_TIMEOUT_MS
+);
+export const FETCH_MAX_BYTES = envBoundedPositiveInt(
+  "FETCH_MAX_BYTES", 5_242_880, MAX_RESPONSE_BYTES
+);
+export const FETCH_MAX_REDIRECTS = envBoundedPositiveInt(
+  "FETCH_MAX_REDIRECTS", 5, MAX_RESPONSE_BYTES
+);
+export const APPROVAL_TIMEOUT_MS = envBoundedPositiveInt(
+  "APPROVAL_TIMEOUT_MS", 600_000, MAX_TIMEOUT_MS
+);
+export const APPROVAL_STATE_SECRET = process.env.APPROVAL_STATE_SECRET || "";
+const localAppData = process.env.LOCALAPPDATA || path.join(os.homedir(), "AppData", "Local");
+export const APPROVAL_DATA_DIR = process.env.APPROVAL_DATA_DIR || path.join(localAppData, "feishu-mcp");
 
 // ---------------------------------------------------------------------------
 // Allowed directories (Phase 2 — directory whitelist)
