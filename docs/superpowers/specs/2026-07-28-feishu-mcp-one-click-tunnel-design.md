@@ -62,7 +62,7 @@ authtoken。
 - 请求公网 `/health`，确认通道实际可访问，而不只依赖 ngrok 进程存活。
 - 成功后在控制台显示 Health URL 和 MCP URL，并把 MCP URL 复制到剪贴板。
 - 持续监控 Node 和 ngrok；任一进程异常退出时报告原因并清理另一个进程。
-- 用户按 `Ctrl+C` 或脚本正常退出时终止两个子进程及其进程树。
+- 用户按 `Q`、`Enter`、`Ctrl+C` 或脚本正常退出时终止两个子进程及其进程树。
 
 ## 启动流程
 
@@ -76,7 +76,7 @@ authtoken。
   → ngrok inspector 返回固定 URL
   → 公网 /health 通过
   → 显示并复制 /mcp 地址
-  → 等待 Ctrl+C
+  → 等待 Q、Enter 或 Ctrl+C
   → 清理 Node 与 ngrok
 ```
 
@@ -96,6 +96,8 @@ authtoken。
 
 - 启动器不回显 `.env`，不打印 Token/PIN 长度之外的敏感信息。
 - MCP 只监听 `127.0.0.1`，公网访问必须经过 ngrok。
+- MCP Express 的 Host/Origin 白名单只加入本机地址和配置的固定 ngrok 域名，
+  不关闭 DNS rebinding 防护。
 - 固定域名不是秘密，可以出现在脚本输出和文档中。
 - ngrok authtoken 继续存放在 ngrok 自身配置文件中，不复制进仓库。
 - 保留当前 `AUTH_MODE=pin`、Bearer 鉴权、目录白名单和 consent 策略。

@@ -129,3 +129,17 @@ test(
     assert.doesNotMatch(content, /MCP_AUTH_TOKEN|AUTH_PIN/);
   }
 );
+
+test(
+  "PowerShell launcher waits for the configured ngrok 3 endpoint URL",
+  { skip: process.platform !== "win32" },
+  async () => {
+    const content = await readFile(launcherScript, "utf8");
+    assert.match(content, /function\s+Wait-NgrokTunnel/i);
+    assert.match(content, /--url=https:\/\/\$domain/);
+    assert.doesNotMatch(content, /--domain=\$domain/);
+    assert.match(content, /ngrok-skip-browser-warning/);
+    assert.match(content, /\[Console\]::KeyAvailable/);
+    assert.match(content, /Press Q or Enter to stop/);
+  }
+);

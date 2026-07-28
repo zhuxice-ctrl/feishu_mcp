@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { spawn, spawnSync } from "node:child_process";
 import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import net from "node:net";
+import http from "node:http";
 import os from "node:os";
 import path from "node:path";
 import test from "node:test";
@@ -43,6 +44,28 @@ async function stopChild(child) {
   }
 }
 
+async function rawHealthRequest(port, headers) {
+  return await new Promise((resolve, reject) => {
+    const request = http.request(
+      {
+        hostname: "127.0.0.1",
+        port,
+        path: "/health",
+        method: "GET",
+        headers,
+      },
+      (response) => {
+        let body = "";
+        response.setEncoding("utf8");
+        response.on("data", (chunk) => (body += chunk));
+        response.on("end", () => resolve({ status: response.statusCode, body }));
+      }
+    );
+    request.once("error", reject);
+    request.end();
+  });
+}
+
 test("PIN authentication is isolated per request identity", async () => {
   const workspace = await mkdtemp(path.join(os.tmpdir(), "feishu-mcp-auth-"));
   const port = await getFreePort();
@@ -67,6 +90,7 @@ test("PIN authentication is isolated per request identity", async () => {
       CONSENT_ABSOLUTE_PATH: "deny",
       CONSENT_SENSITIVE_FILE: "allow",
       NON_INTERACTIVE: "deny",
+      NGROK_DOMAIN: "fixed-test.ngrok-free.dev",
     },
     stdio: ["ignore", "pipe", "pipe"],
   });
@@ -120,6 +144,15 @@ test("PIN authentication is isolated per request identity", async () => {
     if (!ready) throw new Error(`server did not become ready: ${lastError}\n${output}`);
 
     const health = await (await fetch(`${baseUrl}/health`)).json();
+    const fixedHostHealth = await rawHealthRequest(port, {
+      host: "fixed-test.ngrok-free.dev",
+      origin: "https://fixed-test.ngrok-free.dev",
+    });
+    assert.equal(fixedHostHealth.status, 200, fixedHostHealth.body);
+    const untrustedHostHealth = await rawHealthRequest(port, {
+      host: "untrusted.example",
+    });
+    assert.equal(untrustedHostHealth.status, 403);
     const initializeResponse = await fetch(`${baseUrl}/mcp`, {
       method: "POST",
       headers: {

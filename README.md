@@ -109,7 +109,7 @@ start-feishu-mcp.bat
 
 启动器会自动构建项目、启动本地 MCP、建立固定 ngrok 通道，并验证本地和
 公网 `/health`。成功后会显示并复制飞书 Aily 所需的 `/mcp` 地址。按
-`Ctrl+C` 会清理本次启动的 Node 和 ngrok 子进程。
+`Q`、`Enter` 或 `Ctrl+C` 会清理本次启动的 Node 和 ngrok 子进程。
 
 启动器优先使用 PATH 中的 `ngrok`；若未加入 PATH，则会自动查找仓库同级
 `ngrok/ngrok.exe`。它不会打印 `.env` 中的 Bearer Token、PIN 或 ngrok

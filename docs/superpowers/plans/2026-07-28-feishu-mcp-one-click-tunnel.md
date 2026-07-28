@@ -304,7 +304,7 @@ Document the primary Windows flow:
 
 State that the launcher uses `.env`, builds before start, uses a PATH ngrok or
 the sibling `ngrok/ngrok.exe`, copies the fixed `/mcp` URL, and stops owned
-children on `Ctrl+C`. Keep the existing manual ngrok commands as the fallback.
+children on `Q`, `Enter`, or `Ctrl+C`. Keep the existing manual ngrok commands as the fallback.
 
 - [ ] **Step 3: Verify documentation and repository hygiene**
 

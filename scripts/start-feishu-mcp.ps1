@@ -86,7 +86,8 @@ function Resolve-Ngrok([string]$Requested) {
 function Wait-Json(
     [string]$Uri,
     [int]$Seconds,
-    [System.Diagnostics.Process]$OwnedProcess = $null
+    [System.Diagnostics.Process]$OwnedProcess = $null,
+    [hashtable]$Headers = @{}
 ) {
     $deadline = (Get-Date).AddSeconds($Seconds)
     $lastError = $null
@@ -98,13 +99,47 @@ function Wait-Json(
             }
         }
         try {
-            return Invoke-RestMethod -Uri $Uri -TimeoutSec 5
+            return Invoke-RestMethod -Uri $Uri -Headers $Headers -TimeoutSec 5
         } catch {
             $lastError = $_.Exception.Message
             Start-Sleep -Milliseconds 500
         }
     }
     throw "Timed out waiting for $Uri ($lastError)"
+}
+
+function Wait-NgrokTunnel(
+    [string]$Domain,
+    [int]$Seconds,
+    [System.Diagnostics.Process]$OwnedProcess
+) {
+    $deadline = (Get-Date).AddSeconds($Seconds)
+    $expectedUrl = "https://$Domain"
+    $lastError = $null
+    while ((Get-Date) -lt $deadline) {
+        $OwnedProcess.Refresh()
+        if ($OwnedProcess.HasExited) {
+            throw "ngrok exited before the fixed endpoint became ready (exit $($OwnedProcess.ExitCode))"
+        }
+        try {
+            $inspector = Invoke-RestMethod `
+                -Uri "http://127.0.0.1:4040/api/tunnels" `
+                -TimeoutSec 5
+            $tunnel = @($inspector.tunnels) |
+                Where-Object {
+                    ([string]$_.public_url).TrimEnd('/') -eq $expectedUrl
+                } |
+                Select-Object -First 1
+            if ($tunnel) {
+                return $tunnel
+            }
+            $lastError = "fixed endpoint not registered yet"
+        } catch {
+            $lastError = $_.Exception.Message
+        }
+        Start-Sleep -Milliseconds 500
+    }
+    throw "Timed out waiting for ngrok fixed endpoint ($lastError)"
 }
 
 function Stop-ProcessTree($Process) {
@@ -264,7 +299,7 @@ function Invoke-Launcher {
         $ngrokArguments = @(
             "http",
             "http://127.0.0.1:$port",
-            "--domain=$domain",
+            "--url=https://$domain",
             "--log=$ngrokLog",
             "--log-format=json"
         )
@@ -274,20 +309,15 @@ function Invoke-Launcher {
             -WindowStyle Hidden `
             -PassThru
 
-        $inspector = Wait-Json "http://127.0.0.1:4040/api/tunnels" 30 $ngrok
-        $httpsTunnel = @($inspector.tunnels) |
-            Where-Object { $_.public_url -like "https://*" } |
-            Select-Object -First 1
-        if (-not $httpsTunnel) {
-            throw "ngrok inspector did not report an HTTPS tunnel"
-        }
+        $httpsTunnel = Wait-NgrokTunnel $domain 30 $ngrok
         $publicUrl = [string]$httpsTunnel.public_url
         $expectedUrl = "https://$domain"
         if ($publicUrl.TrimEnd('/') -ne $expectedUrl) {
             throw "ngrok public URL did not match NGROK_DOMAIN"
         }
 
-        $publicHealth = Wait-Json "$expectedUrl/health" 45 $ngrok
+        $publicHeaders = @{ "ngrok-skip-browser-warning" = "true" }
+        $publicHealth = Wait-Json "$expectedUrl/health" 45 $ngrok $publicHeaders
         if ($publicHealth.version -ne "1.0.0" -or @($publicHealth.tools).Count -ne 11) {
             throw "Public health response did not report version 1.0.0 and 11 tools"
         }
@@ -304,9 +334,19 @@ function Invoke-Launcher {
         Write-Host "feishu_mcp is ready." -ForegroundColor Green
         Write-Host "Health: $expectedUrl/health"
         Write-Host "MCP:    $mcpUrl ($clipboardStatus)"
-        Write-Host "Press Ctrl+C to stop both processes." -ForegroundColor Yellow
+        Write-Host "Press Q or Enter to stop both processes (Ctrl+C also cleans up)." -ForegroundColor Yellow
 
         while ($true) {
+            try {
+                if ([Console]::KeyAvailable) {
+                    $key = [Console]::ReadKey($true)
+                    if ($key.Key -eq [ConsoleKey]::Q -or $key.Key -eq [ConsoleKey]::Enter) {
+                        break
+                    }
+                }
+            } catch {
+                # Non-interactive hosts cannot inspect console keys; process monitoring continues.
+            }
             $server.Refresh()
             $ngrok.Refresh()
             if ($server.HasExited) {
@@ -329,6 +369,8 @@ function Invoke-Launcher {
 
 try {
     Invoke-Launcher
+    exit 0
+} catch [System.Management.Automation.PipelineStoppedException] {
     exit 0
 } catch {
     [Console]::Error.WriteLine("Error: $($_.Exception.Message)")

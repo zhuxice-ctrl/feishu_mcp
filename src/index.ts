@@ -23,6 +23,7 @@ import {
   AUTH_MODE,
   HOST,
   MCP_ENDPOINT,
+  NGROK_DOMAIN,
   PORT,
   SERVER_NAME,
   SERVER_VERSION,
@@ -98,7 +99,19 @@ const handler = createMcpHandler(createMcpServer);
 // Express app
 // ---------------------------------------------------------------------------
 
-const app: Express = createMcpExpressApp({ host: HOST });
+const allowedRequestHosts = [
+  "localhost",
+  "127.0.0.1",
+  "[::1]",
+  HOST,
+  NGROK_DOMAIN,
+].filter((value, index, values) => value && values.indexOf(value) === index);
+
+const app: Express = createMcpExpressApp({
+  host: HOST,
+  allowedHosts: allowedRequestHosts,
+  allowedOrigins: allowedRequestHosts,
+});
 
 app.all(MCP_ENDPOINT, corsPreflight);
 
