@@ -91,8 +91,8 @@ interface EffectiveRoot {
 }
 
 hasAccess(userId: string, candidate: string): boolean;
-rememberSession(userId: string, root: CanonicalRoot): void;
-rememberPermanent(userId: string, root: CanonicalRoot): DirectoryGrant;
+rememberSessionBatch(userId: string, roots: CanonicalRoot[]): void;
+rememberPermanentBatch(userId: string, roots: CanonicalRoot[]): DirectoryGrant[];
 listForUser(userId: string): DirectoryGrant[];
 revoke(id: string): boolean;
 clear(userId?: string): void;
@@ -122,7 +122,7 @@ summary(): { session: number; permanent: number };
 }
 ```
 
-写入使用同目录临时文件、`fsync`、原子重命名和尽可能严格的文件权限。日志和 `/health` 只记录数量，不记录目录或用户。
+写入使用同目录临时文件、`fsync`、原子重命名和尽可能严格的文件权限。一次多目录批准必须作为一个批次写入：全部成功或全部保持旧文件不变，不能留下部分永久授权。加载时严格校验版本、字段、绝对路径和记录类型；损坏或不合法的存储安全拒绝，不静默扩大权限。日志和 `/health` 只记录数量，不记录目录或用户。
 
 ### 5.2 `directoryAuthorization.ts`
 
@@ -143,8 +143,7 @@ version
 userId
 originalTool
 argsDigest
-sortedLogicalRoots
-sortedPhysicalRoots
+rootsDigest(SHA-256 of canonical sorted logical/physical root pairs)
 nonce
 ```
 
@@ -211,7 +210,7 @@ nonce
 | 移动 | 源范围和目标范围，去重后一次展示 |
 | 多文件补丁 | 所有源/目标父目录，规范化、去重、排序后一次展示 |
 
-多目录卡片必须列出所有范围。只要其中一个目录未授权，操作就不能开始；不存在部分执行或部分持久化。
+多目录卡片必须列出所有范围。只要其中一个目录未授权，操作就不能开始；会话/永久授权也必须批量提交，不存在部分执行或部分持久化。
 
 ## 7. 飞书卡片与自动重试
 
@@ -255,6 +254,22 @@ SDK 重试同一工具时：
 - `deny`、取消、超时：结构化拒绝，原操作不执行。
 
 目录授权已经满足同一操作的绝对路径确认，避免立即出现第二张绝对路径卡片。敏感文件策略仍可单独触发审批。
+
+### 7.1 `allow_once` 的多轮状态传递
+
+“本次允许”覆盖同一个原始工具调用的完整 MCP 多轮链，而不扩大为会话授权。例如，外部命令工作目录可能先需要目录许可，随后还需要命令风险许可；外部敏感文件可能先需要目录许可，随后需要敏感文件许可。
+
+实现不得把 `allow_once` 写入会话或永久存储。目录授权结果生成 `authorizedDirectoryRootsDigest`，它绑定当前用户、原始工具、完整参数摘要以及规范化逻辑/物理目录集合。后续操作审批的签名 request state 必须携带这个摘要。下一轮重新进入原工具时，路径管线只有在以下字段全部匹配时才临时接受目录范围：
+
+```text
+userId
+originalTool
+argsDigest
+authorizedDirectoryRootsDigest
+signed request state
+```
+
+目录审批 nonce 只消费一次；后续操作审批使用新的 nonce。若没有后续审批，原操作完成后不留下任何一次性目录记录。若存在后续审批，目录摘要只存在于该签名 MRTR 链中，最终成功、拒绝、取消、超时或过期后自然失效。参数、用户、工具或目录集合变化必须重新申请目录授权。
 
 ## 8. 默认 `F:\` 行为
 
