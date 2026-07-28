@@ -19,6 +19,7 @@ export interface ApprovalStatePayload {
   subjectKey: string;
   argsDigest: string;
   nonce: string;
+  priorSubjectKeys?: string[];
 }
 
 function loadOrCreateApprovalKey(): string {

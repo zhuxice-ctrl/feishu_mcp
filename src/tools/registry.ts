@@ -1,4 +1,5 @@
 import { logger } from "../security/logger.js";
+import type { CallToolResult, InputRequiredResult } from "@modelcontextprotocol/server";
 import {
   QueueTimeoutError,
   type ConcurrencyClass,
@@ -18,11 +19,7 @@ export interface RunToolOptions {
   subject: ToolSubject;
 }
 
-type ToolResult = {
-  content: Array<{ type: "text"; text: string }>;
-  structuredContent?: Record<string, unknown>;
-  isError?: boolean;
-};
+type ToolResult = CallToolResult | InputRequiredResult;
 
 function redactedSubject(subject: ToolSubject): { kind: ToolSubject["kind"]; target: string } {
   return { kind: subject.kind, target: "[REDACTED]" };
@@ -44,7 +41,8 @@ export async function runTool(
       name,
       concurrency,
       subject: auditSubject,
-      outcome: result.isError ? "error" : "success",
+      outcome: "isError" in result && result.isError ? "error" :
+        "resultType" in result ? "input_required" : "success",
     });
     return result;
   } catch (error) {

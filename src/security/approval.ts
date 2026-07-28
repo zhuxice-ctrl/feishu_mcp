@@ -19,6 +19,7 @@ export interface ApprovalRequest {
   subject: { kind: ApprovalSubjectKind; key: string; display: string };
   argsDigest: string;
   reasons: string[];
+  priorSubjectKeys?: string[];
 }
 
 export type ApprovalOutcome = true | CallToolResult | InputRequiredResult;
@@ -36,11 +37,7 @@ function consumeNonce(nonce: string): boolean {
       if (now - usedAt > APPROVAL_TIMEOUT_MS) usedNonces.delete(key);
     }
   }
-  while (usedNonces.size >= 10_000) {
-    const oldest = usedNonces.keys().next().value as string | undefined;
-    if (!oldest) break;
-    usedNonces.delete(oldest);
-  }
+  if (usedNonces.size >= 10_000) return false;
   usedNonces.set(nonce, now);
   return true;
 }
@@ -64,6 +61,11 @@ function matches(payload: ApprovalStatePayload, request: ApprovalRequest): boole
   return payload.version === 1 && payload.tool === request.tool &&
     payload.userId === request.userId && payload.subjectKey === request.subject.key &&
     payload.argsDigest === request.argsDigest;
+}
+
+function matchesPrior(payload: ApprovalStatePayload, request: ApprovalRequest): boolean {
+  return payload.version === 1 && payload.tool === request.tool && payload.userId === request.userId &&
+    payload.argsDigest === request.argsDigest && payload.priorSubjectKeys?.includes(request.subject.key) === true;
 }
 
 function renderMessage(request: ApprovalRequest): string {
@@ -95,36 +97,42 @@ export async function requestApproval(
 
   const state = ctx.mcpReq.requestState<ApprovalStatePayload>();
   if (state) {
+    if (matchesPrior(state, request)) return true;
     if (!matches(state, request)) {
-      return toolError("APPROVAL_DENIED", "Approval state does not match this operation.");
+      const continuingChain = usedNonces.has(state.nonce) &&
+        request.priorSubjectKeys?.includes(state.subjectKey) === true;
+      if (!continuingChain) {
+        return toolError("APPROVAL_DENIED", "Approval state does not match this operation.");
+      }
+    } else {
+      if (usedNonces.has(state.nonce)) {
+        return toolError("APPROVAL_DENIED", "Approval state has already been used.");
+      }
+      const response = acceptedContent(ctx.mcpReq.inputResponses, "approval", decisionSchema);
+      if (!response) {
+        return toolError("APPROVAL_DENIED", "Approval was declined, cancelled, or unavailable.");
+      }
+      if (!consumeNonce(state.nonce)) {
+        return toolError("APPROVAL_DENIED", "Approval state has already been used.");
+      }
+      if (response.decision === "deny") {
+        logDecision(request, "deny");
+        return toolError("APPROVAL_DENIED", "The user denied this operation.");
+      }
+      if (response.decision === "allow_session") {
+        approvalStore.rememberSession(request.userId, request.tool, request.subject.key);
+      } else if (response.decision === "allow_permanent") {
+        approvalStore.rememberPermanent(
+          request.userId,
+          request.tool,
+          request.subject.kind,
+          request.subject.key,
+          request.subject.display,
+        );
+      }
+      logDecision(request, response.decision);
+      return true;
     }
-    if (usedNonces.has(state.nonce)) {
-      return toolError("APPROVAL_DENIED", "Approval state has already been used.");
-    }
-    const response = acceptedContent(ctx.mcpReq.inputResponses, "approval", decisionSchema);
-    if (!response) {
-      return toolError("APPROVAL_DENIED", "Approval was declined, cancelled, or unavailable.");
-    }
-    if (!consumeNonce(state.nonce)) {
-      return toolError("APPROVAL_DENIED", "Approval state has already been used.");
-    }
-    if (response.decision === "deny") {
-      logDecision(request, "deny");
-      return toolError("APPROVAL_DENIED", "The user denied this operation.");
-    }
-    if (response.decision === "allow_session") {
-      approvalStore.rememberSession(request.userId, request.tool, request.subject.key);
-    } else if (response.decision === "allow_permanent") {
-      approvalStore.rememberPermanent(
-        request.userId,
-        request.tool,
-        request.subject.kind,
-        request.subject.key,
-        request.subject.display,
-      );
-    }
-    logDecision(request, response.decision);
-    return true;
   }
 
   if (!ctx.mcpReq.envelope) {
@@ -141,6 +149,9 @@ export async function requestApproval(
     subjectKey: request.subject.key,
     argsDigest: request.argsDigest,
     nonce: randomUUID(),
+    ...(request.priorSubjectKeys?.length
+      ? { priorSubjectKeys: [...new Set(request.priorSubjectKeys)].slice(0, 10) }
+      : {}),
   };
   const requestState = await mintApprovalState(payload, ctx);
   return inputRequired({
