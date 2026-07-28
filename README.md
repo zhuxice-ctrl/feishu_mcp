@@ -98,6 +98,25 @@ NON_INTERACTIVE=deny
 
 ### 3. 启动 MCP 服务
 
+#### Windows 一键启动本地服务与固定通道
+
+先在 `.env` 中配置 `NGROK_DOMAIN`，并完成一次 ngrok authtoken 配置。然后
+双击仓库根目录的：
+
+```text
+start-feishu-mcp.bat
+```
+
+启动器会自动构建项目、启动本地 MCP、建立固定 ngrok 通道，并验证本地和
+公网 `/health`。成功后会显示并复制飞书 Aily 所需的 `/mcp` 地址。按
+`Ctrl+C` 会清理本次启动的 Node 和 ngrok 子进程。
+
+启动器优先使用 PATH 中的 `ngrok`；若未加入 PATH，则会自动查找仓库同级
+`ngrok/ngrok.exe`。它不会打印 `.env` 中的 Bearer Token、PIN 或 ngrok
+authtoken。
+
+#### 手动启动本地服务
+
 ```bash
 npm run build
 npm start
@@ -172,7 +191,7 @@ ngrok http 3000 --domain=your-domain.ngrok-free.app
 curl https://your-domain.ngrok-free.app/health
 ```
 
-> **提示**：ngrok 免费版提供 1 个固定域名，完全满足个人使用。隧道需要保持运行，关闭终端会断开。Windows 可用 `scripts/start-ngrok.ps1` 一键启动服务 + 隧道。
+> **提示**：ngrok 免费版提供 1 个固定域名，完全满足个人使用。隧道需要保持运行，关闭终端会断开。Windows 推荐双击根目录的 `start-feishu-mcp.bat`；`scripts/start-ngrok.ps1` 保留为旧版手动入口。
 
 ### 5. 接入飞书 Aily
 
