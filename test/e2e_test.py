@@ -11,13 +11,18 @@ import json
 import sys
 import os
 import signal
+import secrets
+import shutil
+import tempfile
 import httpx
 
 SERVER_PORT = 3013
 BASE_URL = f"http://127.0.0.1:{SERVER_PORT}"
 MCP_URL = f"{BASE_URL}/mcp"
-TOKEN = "test-secret-token"
-WORKSPACE = "/tmp/mcp-test-workspace"
+TOKEN = secrets.token_hex(24)
+WORKSPACE = tempfile.mkdtemp(prefix="feishu-mcp-e2e-")
+APPROVAL_DATA_DIR = tempfile.mkdtemp(prefix="feishu-mcp-approval-")
+LOG_DIR = tempfile.mkdtemp(prefix="feishu-mcp-logs-")
 PROJECT_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
 HEADERS = {
@@ -91,10 +96,12 @@ def main():
     env["ALLOWED_DIRS"] = WORKSPACE
     env["MCP_AUTH_TOKEN"] = TOKEN
     env["AUTH_MODE"] = "none"
+    env["APPROVAL_DATA_DIR"] = APPROVAL_DATA_DIR
+    env["APPROVAL_STATE_SECRET"] = secrets.token_hex(32)
     env["CONSENT_ABSOLUTE_PATH"] = "allow"
     env["CONSENT_SENSITIVE_FILE"] = "deny"
     env["PORT"] = str(SERVER_PORT)
-    env["LOG_DIR"] = os.path.join(PROJECT_DIR, "logs")
+    env["LOG_DIR"] = LOG_DIR
 
     print("Starting server...")
     proc = subprocess.Popen(
@@ -141,7 +148,8 @@ def main():
     r = httpx.get(f"{BASE_URL}/health", timeout=5)
     health = r.json()
     test("Health check returns 200", r.status_code == 200)
-    test("Health shows 11 tools", len(health.get("tools", [])) == 11, f"got {len(health.get('tools', []))}")
+    test("Health shows 21 tools", len(health.get("tools", [])) == 21, f"got {len(health.get('tools', []))}")
+    test("Health shows concurrency limits", set(health.get("concurrency", {})) == {"global", "command", "search", "fetch"})
     test("Health shows auth enabled", health.get("authEnabled") == True)
 
     # === No Auth -> 401 ===
@@ -171,9 +179,9 @@ def main():
     tools = []
     if code == 200 and "result" in body:
         tools = [t["name"] for t in body["result"].get("tools", [])]
-    test("Tools list returns 11 tools", len(tools) == 11, f"got {len(tools)}: {tools}")
-    expected_tools = {"ping", "read_file", "write_file", "edit_file", "create_directory", "list_directory", "move_file", "search_files", "get_file_info", "list_allowed_directories", "auth"}
-    test("All expected tools present", expected_tools.issubset(set(tools)), f"missing: {expected_tools - set(tools)}")
+    test("Tools list returns 21 tools", len(tools) == 21, f"got {len(tools)}")
+    expected_tools = {"ping", "read_file", "write_file", "edit_file", "create_directory", "list_directory", "move_file", "search_files", "get_file_info", "list_allowed_directories", "auth", "execute_command", "search_content", "git_status", "git_diff", "compare_files", "apply_patch", "web_fetch", "todo_write", "todo_read", "ask_user"}
+    test("All expected tools present", set(tools) == expected_tools, f"missing: {expected_tools - set(tools)}")
 
     # === Ping Tool ===
     rid += 1
@@ -205,7 +213,7 @@ def main():
     rid += 1
     code, body = call_tool("read_file", {"path": f"{WORKSPACE}/.env"}, rid)
     text = extract_text(body.get("result", body))
-    test("Sensitive file (.env) blocked", "sensitive" in text.lower() or "blocked" in text.lower() or "error" in text.lower(), text[:100])
+    test("Sensitive file (.env) blocked", "sensitive" in text.lower() or "blocked" in text.lower() or "denied" in text.lower() or "error" in text.lower(), text[:100])
 
     # === Blocked Extension (.exe write should be denied) ===
     rid += 1
@@ -255,6 +263,29 @@ def main():
     text = extract_text(body.get("result", body))
     test("Search with exclude works", "config.json" not in text, text[:200])
 
+    # === Content Search ===
+    rid += 1
+    code, body = call_tool("search_content", {"path": WORKSPACE, "pattern": "Hello MCP"}, rid)
+    content_result = json.loads(extract_text(body.get("result", body)))
+    test("Content search returns line matches", content_result.get("matchCount", 0) >= 1)
+
+    # === Per-user Todo State ===
+    rid += 1
+    code, body = call_tool("todo_write", {"todos": [{"content": "run e2e", "status": "in_progress"}]}, rid)
+    todo_write = json.loads(extract_text(body.get("result", body)))
+    test("Todo write replaces the list", todo_write.get("counts", {}).get("total") == 1)
+    rid += 1
+    code, body = call_tool("todo_read", {}, rid)
+    todo_read = json.loads(extract_text(body.get("result", body)))
+    test("Todo read returns the current user's list", todo_read.get("todos", [{}])[0].get("content") == "run e2e")
+
+    # === Strict read-only Command ===
+    rid += 1
+    readonly_command = "dir" if os.name == "nt" else "pwd"
+    code, body = call_tool("execute_command", {"command": readonly_command, "workdir": WORKSPACE}, rid)
+    command_result = json.loads(extract_text(body.get("result", body)))
+    test("Read-only command executes without approval", command_result.get("exitCode") == 0)
+
     # === Get File Info ===
     rid += 1
     code, body = call_tool("get_file_info", {"path": f"{WORKSPACE}/test.txt"}, rid)
@@ -298,7 +329,7 @@ def main():
     )
 
     # === Audit Log Check ===
-    log_path = f"{PROJECT_DIR}/logs/mcp-operations.log"
+    log_path = os.path.join(LOG_DIR, "mcp-operations.log")
     try:
         with open(log_path) as f:
             log_lines = f.readlines()
@@ -318,6 +349,9 @@ def main():
     # Cleanup
     proc.send_signal(signal.SIGTERM)
     proc.wait()
+    shutil.rmtree(WORKSPACE, ignore_errors=True)
+    shutil.rmtree(APPROVAL_DATA_DIR, ignore_errors=True)
+    shutil.rmtree(LOG_DIR, ignore_errors=True)
 
     # Summary
     print(f"\n{'='*60}")

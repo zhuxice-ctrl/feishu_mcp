@@ -1,12 +1,13 @@
 #!/usr/bin/env python3
 """Debug: check raw MCP response format."""
-import subprocess, time, sys, os, signal, httpx, json
+import subprocess, time, sys, os, signal, httpx, json, secrets, tempfile, shutil
 
 PORT = 3012
 BASE = f"http://127.0.0.1:{PORT}"
 MCP = f"{BASE}/mcp"
-TOKEN = "test-secret-token"
-WS = "/tmp/mcp-test-workspace"
+TOKEN = secrets.token_hex(24)
+WS = tempfile.mkdtemp(prefix="feishu-mcp-debug-")
+APPROVAL_DATA_DIR = tempfile.mkdtemp(prefix="feishu-mcp-debug-approval-")
 
 os.makedirs(f"{WS}/subdir", exist_ok=True)
 with open(f"{WS}/test.txt", "w") as f: f.write("Hello MCP!")
@@ -17,6 +18,9 @@ env = os.environ.copy()
 env["ALLOWED_DIRS"] = WS
 env["MCP_AUTH_TOKEN"] = TOKEN
 env["PORT"] = str(PORT)
+env["AUTH_MODE"] = "none"
+env["APPROVAL_DATA_DIR"] = APPROVAL_DATA_DIR
+env["APPROVAL_STATE_SECRET"] = secrets.token_hex(32)
 
 proc = subprocess.Popen(["node", "dist/index.js"], env=env,
     cwd=os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
@@ -70,4 +74,6 @@ print(f"Body ({len(r.text)} chars): {r.text[:500]}")
 
 proc.send_signal(signal.SIGTERM)
 proc.wait()
+shutil.rmtree(WS, ignore_errors=True)
+shutil.rmtree(APPROVAL_DATA_DIR, ignore_errors=True)
 print("\n=== DONE ===")
