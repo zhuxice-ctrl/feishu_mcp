@@ -29,7 +29,7 @@ const decisionSchema = z.object({
 });
 const usedNonces = new Map<string, number>();
 
-function consumeNonce(nonce: string): boolean {
+export function consumeSignedNonce(nonce: string): boolean {
   const now = Date.now();
   if (usedNonces.has(nonce)) return false;
   if (usedNonces.size >= 4_096) {
@@ -112,7 +112,7 @@ export async function requestApproval(
       if (!response) {
         return toolError("APPROVAL_DENIED", "Approval was declined, cancelled, or unavailable.");
       }
-      if (!consumeNonce(state.nonce)) {
+      if (!consumeSignedNonce(state.nonce)) {
         return toolError("APPROVAL_DENIED", "Approval state has already been used.");
       }
       if (response.decision === "deny") {
