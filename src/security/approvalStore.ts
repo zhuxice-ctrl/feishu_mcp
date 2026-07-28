@@ -103,6 +103,12 @@ export class ApprovalStore {
     return relative === "" || (!relative.startsWith("..") && !path.isAbsolute(relative));
   }
 
+  containsInternalPath(candidate: string): boolean {
+    const resolved = path.resolve(candidate);
+    const relative = path.relative(resolved, this.dataDir);
+    return relative === "" || (!relative.startsWith("..") && !path.isAbsolute(relative));
+  }
+
   private load(): void {
     try {
       const parsed = JSON.parse(fs.readFileSync(this.filePath, "utf8")) as Partial<StoreFile>;
@@ -143,4 +149,9 @@ export const approvalStore = new ApprovalStore();
 
 export function isInternalApprovalPath(candidate: string): boolean {
   return approvalStore.isInternalPath(candidate);
+}
+
+/** True when a broad working directory could traverse into the protected store. */
+export function containsInternalApprovalPath(candidate: string): boolean {
+  return approvalStore.containsInternalPath(candidate);
 }

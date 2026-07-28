@@ -41,10 +41,32 @@ import {
   authorizeToolCall,
   toolAuthorizationMiddleware,
 } from "./security/toolAccess.js";
-import { consentGate } from "./security/consent.js";
+import { approvalStore } from "./security/approvalStore.js";
 import { approvalStateCodec } from "./security/approvalState.js";
 import { cleanupTrash } from "./security/trash.js";
+import { registerAskUserTool } from "./tools/askUser.js";
+import { registerCommandTool } from "./tools/command.js";
+import { concurrencySummary } from "./tools/concurrency.js";
+import { registerContentSearchTool } from "./tools/contentSearch.js";
+import { registerDiffTool } from "./tools/diff.js";
 import { registerFilesystemTools } from "./tools/filesystem.js";
+import { registerGitTools } from "./tools/git.js";
+import { registerPatchTool } from "./tools/patch.js";
+import { runTool } from "./tools/registry.js";
+import { registerTodoTools } from "./tools/todo.js";
+import { registerWebFetchTool } from "./tools/webFetch.js";
+
+const TOOL_NAMES = [
+  "ping", "read_file", "write_file", "edit_file", "create_directory",
+  "list_directory", "move_file", "search_files", "get_file_info",
+  "list_allowed_directories", "auth", "execute_command", "search_content",
+  "git_status", "git_diff", "compare_files", "apply_patch", "web_fetch",
+  "todo_write", "todo_read", "ask_user",
+] as const;
+
+const SERVER_INSTRUCTIONS =
+  "Complete local development MCP for Feishu. Guarded actions request " +
+  "in-conversation approval; unsupported clients are denied without fallback.";
 
 // ---------------------------------------------------------------------------
 // MCP server factory — one fresh instance per request
@@ -54,6 +76,7 @@ function createMcpServer(): McpServer {
   const server = new McpServer(
     { name: SERVER_NAME, version: SERVER_VERSION },
     {
+      instructions: SERVER_INSTRUCTIONS,
       inputRequired: {
         maxRounds: 4,
         roundTimeoutMs: APPROVAL_TIMEOUT_MS,
@@ -80,20 +103,35 @@ function createMcpServer(): McpServer {
     async (args) => {
       const accessError = authorizeToolCall("ping", args);
       if (accessError) return accessError;
-      return {
-        content: [
-          {
-            type: "text" as const,
-            text: `pong${args.message ? `: ${args.message}` : ""}`,
-          },
-        ],
-      };
+      return runTool(
+        {
+          name: "ping",
+          concurrency: "default",
+          subject: { kind: "path", key: "service", display: "service" },
+        },
+        async () => ({
+          content: [
+            {
+              type: "text" as const,
+              text: `pong${args.message ? `: ${args.message}` : ""}`,
+            },
+          ],
+        }),
+      );
     }
   );
 
   // --- Filesystem tools (9 tools, token read from AsyncLocalStorage) ---
   registerFilesystemTools(server);
   registerAuthTool(server);
+  registerCommandTool(server);
+  registerContentSearchTool(server);
+  registerGitTools(server);
+  registerDiffTool(server);
+  registerPatchTool(server);
+  registerWebFetchTool(server);
+  registerTodoTools(server);
+  registerAskUserTool(server);
 
   return server;
 }
@@ -221,21 +259,16 @@ app.get("/health", (_req: Request, res: Response) => {
     mcpEndpoint: MCP_ENDPOINT,
     authEnabled: AUTH_ENABLED,
     authMode: AUTH_MODE,
-    tools: [
-      "ping",
-      "read_file",
-      "write_file",
-      "edit_file",
-      "create_directory",
-      "list_directory",
-      "move_file",
-      "search_files",
-      "get_file_info",
-      "list_allowed_directories",
-      "auth",
-    ],
+    toolCount: TOOL_NAMES.length,
+    tools: TOOL_NAMES,
     auth: authSummary(),
-    consent: consentGate.summary(),
+    approval: {
+      mode: "feishu_input_required",
+      choices: ["allow_once", "allow_session", "allow_permanent", "deny"],
+      stored: approvalStore.summary(),
+      unsupportedClientPolicy: "deny",
+    },
+    concurrency: concurrencySummary(),
     timestamp: new Date().toISOString(),
   });
 });
@@ -267,9 +300,10 @@ app.listen(PORT, HOST, () => {
     `Allowed directories: ${ALLOWED_DIRS.join(", ") || "none"}`,
     `Bearer transport auth: ${AUTH_ENABLED ? "enabled" : "disabled"}`,
     `Tool auth mode: ${AUTH_MODE}`,
-    `Consent: ${JSON.stringify(consentGate.summary())}`,
-    `Terminal interactive: ${consentGate.isInteractive() ? "yes" : "no"}`,
-    "Tools: 11 (ping, 9 filesystem tools, auth)",
+    "Approval: Feishu input_required (unsupported clients denied)",
+    `Permanent approvals: ${approvalStore.summary().permanent}`,
+    `Concurrency: ${JSON.stringify(concurrencySummary())}`,
+    "Tools: 21",
   ];
   if (AUTH_MODE === "pin") lines.push("PIN: configured via AUTH_PIN (value hidden)");
   process.stderr.write(`${lines.join("\n")}\n`);

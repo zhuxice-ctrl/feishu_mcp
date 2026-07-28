@@ -18,10 +18,12 @@ import { z } from "zod";
 import type { McpServer } from "@modelcontextprotocol/server";
 import { getRequestToken } from "../security/requestContext.js";
 import { logOperation } from "../security/logger.js";
+import { isInternalApprovalPath } from "../security/approvalStore.js";
 import { getAllowedDirectories } from "../security/pathGuard.js";
 import { moveToTrash } from "../security/trash.js";
 import { atomicWriteFile } from "./atomicWrite.js";
 import { compileGlob, normalizeGlobPath } from "./globPattern.js";
+import { runTool } from "./registry.js";
 import {
   checkReadSize,
   checkWriteSize,
@@ -38,6 +40,7 @@ import {
  * Register all 9 filesystem tools + ping (ping stays in index.ts) on `server`.
  */
 export function registerFilesystemTools(server: McpServer): void {
+  server = withFilesystemExecutionControls(server);
   registerReadFile(server);
   registerWriteFile(server);
   registerEditFile(server);
@@ -47,6 +50,39 @@ export function registerFilesystemTools(server: McpServer): void {
   registerSearchFiles(server);
   registerGetFileInfo(server);
   registerListAllowedDirectories(server);
+}
+
+/**
+ * Existing filesystem callbacks predate the shared registry. Wrap their
+ * public registration point once so validation, approvals and the operation
+ * itself all run behind the same bounded execution gates.
+ */
+function withFilesystemExecutionControls(server: McpServer): McpServer {
+  return new Proxy(server, {
+    get(target, property, receiver) {
+      if (property !== "registerTool") return Reflect.get(target, property, receiver);
+      return (
+        name: string,
+        configuration: unknown,
+        handler: (args: Record<string, unknown>, ctx: unknown) => Promise<unknown>,
+      ) => (target.registerTool as (...items: unknown[]) => unknown)(
+        name,
+        configuration,
+        async (args: Record<string, unknown>, ctx: unknown) => runTool(
+          {
+            name,
+            concurrency: name === "search_files" ? "search" : "default",
+            subject: {
+              kind: name === "move_file" ? "paths" : "path",
+              key: name,
+              display: "filesystem target",
+            },
+          },
+          () => handler(args, ctx) as ReturnType<typeof runTool>,
+        ),
+      );
+    },
+  });
 }
 
 // ---------------------------------------------------------------------------
@@ -335,7 +371,8 @@ function registerListDirectory(server: McpServer): void {
       }
 
       return withToolHandler("list_directory", resolved, async () => {
-        const entries = fs.readdirSync(resolved, { withFileTypes: true });
+        const entries = fs.readdirSync(resolved, { withFileTypes: true })
+          .filter((entry) => !isInternalApprovalPath(path.join(resolved, entry.name)));
         const formatted = entries
           .map((entry) => `${entry.isDirectory() ? "[DIR]" : "[FILE]"} ${entry.name}`)
           .join("\n");
@@ -526,6 +563,7 @@ function registerSearchFiles(server: McpServer): void {
           catch { continue; }
           for (const entry of entries) {
             const fullPath = path.join(dir, entry.name);
+            if (isInternalApprovalPath(fullPath)) continue;
             const relativePath = normalizeGlobPath(path.relative(resolved, fullPath));
             if (excludeMatchers.some((matcher) => matcher(relativePath, entry.name))) continue;
             if (match(relativePath, entry.name)) {

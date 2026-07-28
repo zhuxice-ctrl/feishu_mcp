@@ -41,10 +41,11 @@ test("request state rejects tampering and a different user", async () => {
     { token: "", userId: "alice", email: null },
     () => approvalStateCodec.mint(payload, {}),
   );
+  const tampered = `${wire.slice(0, -1)}${wire.endsWith("x") ? "y" : "x"}`;
   await assert.rejects(
     runWithRequestContext(
       { token: "", userId: "alice", email: null },
-      () => approvalStateCodec.verify(`${wire.slice(0, -1)}x`, {}),
+      () => approvalStateCodec.verify(tampered, {}),
     ),
   );
   await assert.rejects(

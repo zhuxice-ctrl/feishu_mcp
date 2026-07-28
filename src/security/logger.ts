@@ -10,10 +10,14 @@
 import fs from "node:fs";
 import crypto from "node:crypto";
 import {
+  APPROVAL_STATE_SECRET,
+  AUTH_PIN,
   LOG_DIR,
   LOG_FILE,
   LOG_FORMAT,
   LOG_LEVEL,
+  MCP_AUTH_TOKEN,
+  NGROK_AUTHTOKEN,
   type LogLevel,
 } from "../config.js";
 
@@ -76,11 +80,30 @@ function isSecretField(key: string): boolean {
   );
 }
 
+const CONFIGURED_SECRET_VALUES = [
+  APPROVAL_STATE_SECRET,
+  AUTH_PIN,
+  MCP_AUTH_TOKEN,
+  NGROK_AUTHTOKEN,
+].filter((value) => value.length >= 4).sort((a, b) => b.length - a.length);
+
+function redactConfiguredValues(value: string): string {
+  return CONFIGURED_SECRET_VALUES.reduce(
+    (safe, secret) => safe.split(secret).join("[REDACTED]"),
+    value,
+  );
+}
+
 function redactValue(value: unknown, seen: WeakSet<object>): unknown {
   if (value instanceof Error) {
-    return { name: value.name, message: value.message, stack: value.stack };
+    return {
+      name: value.name,
+      message: redactConfiguredValues(value.message),
+      stack: value.stack ? redactConfiguredValues(value.stack) : value.stack,
+    };
   }
   if (Array.isArray(value)) return value.map((item) => redactValue(item, seen));
+  if (typeof value === "string") return redactConfiguredValues(value);
   if (value === null || typeof value !== "object") return value;
   if (seen.has(value)) return "[Circular]";
   seen.add(value);

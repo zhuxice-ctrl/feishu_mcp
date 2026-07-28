@@ -5,9 +5,10 @@ import path from "node:path";
 import test from "node:test";
 
 const workspace = await mkdtemp(path.join(os.tmpdir(), "feishu-command-tool-"));
+const approvalRoot = await mkdtemp(path.join(os.tmpdir(), "feishu-command-approval-"));
 process.env.AUTH_MODE = "none";
 process.env.ALLOWED_DIRS = workspace;
-process.env.APPROVAL_DATA_DIR = path.join(workspace, ".approval-state");
+process.env.APPROVAL_DATA_DIR = approvalRoot;
 process.env.APPROVAL_STATE_SECRET = "00112233445566778899aabbccddeeff";
 process.env.LOG_LEVEL = "error";
 
@@ -24,7 +25,10 @@ function context(modern = true) {
   };
 }
 
-test.after(async () => rm(workspace, { recursive: true, force: true }));
+test.after(async () => {
+  await rm(workspace, { recursive: true, force: true });
+  await rm(approvalRoot, { recursive: true, force: true });
+});
 
 test("executes a strictly read-only command without approval", async () => {
   const command = process.platform === "win32" ? "dir" : "pwd";

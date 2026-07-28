@@ -6,9 +6,10 @@ import path from "node:path";
 import test from "node:test";
 
 const root = await mkdtemp(path.join(os.tmpdir(), "feishu-git-tools-"));
+const approvalRoot = await mkdtemp(path.join(os.tmpdir(), "feishu-git-approval-"));
 process.env.AUTH_MODE = "none";
 process.env.ALLOWED_DIRS = root;
-process.env.APPROVAL_DATA_DIR = path.join(root, ".approval-state");
+process.env.APPROVAL_DATA_DIR = approvalRoot;
 process.env.APPROVAL_STATE_SECRET = "22334455667788990011aabbccddeeff";
 process.env.CONSENT_ABSOLUTE_PATH = "allow";
 process.env.CONSENT_SENSITIVE_FILE = "allow";
@@ -26,7 +27,10 @@ await writeFile(path.join(root, "file.txt"), "two\n");
 const { gitStatus, gitDiff } = await import("../dist/tools/git.js");
 const ctx = { mcpReq: { requestState: () => undefined, inputResponses: undefined, signal: new AbortController().signal } };
 
-test.after(async () => rm(root, { recursive: true, force: true }));
+test.after(async () => {
+  await rm(root, { recursive: true, force: true });
+  await rm(approvalRoot, { recursive: true, force: true });
+});
 
 test("git_status parses branch and dirty files", async () => {
   const result = await gitStatus({ path: root }, ctx);

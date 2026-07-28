@@ -3,6 +3,7 @@ import { z } from "zod";
 import type { McpServer, ServerContext } from "@modelcontextprotocol/server";
 import { GIT_TIMEOUT_MS, COMMAND_MAX_OUTPUT_BYTES } from "../config.js";
 import { authorizeToolCall } from "../security/toolAccess.js";
+import { containsInternalApprovalPath } from "../security/approvalStore.js";
 import { validatePath } from "../security/pathGuard.js";
 import { resolveGuardAndAuthorize } from "./helpers.js";
 import { runProcess } from "./processRunner.js";
@@ -39,6 +40,9 @@ export async function gitStatus(args: GitBaseArgs, ctx: ServerContext) {
   const guard = await gitRoot("git_status", args, ctx);
   if (!guard.ok) return guard.result ?? toolError("OUTSIDE_ALLOWED_DIRS", guard.error ?? "Invalid path");
   const cwd = guard.resolvedPath;
+  if (containsInternalApprovalPath(cwd)) {
+    return toolError("SENSITIVE_PATH", "The selected Git directory contains internal approval data.");
+  }
   return runTool(
     { name: "git_status", concurrency: "default", subject: { kind: "path", key: cwd, display: cwd } },
     async () => {
@@ -59,6 +63,9 @@ export async function gitDiff(args: GitDiffArgs, ctx: ServerContext) {
   const guard = await gitRoot("git_diff", args, ctx);
   if (!guard.ok) return guard.result ?? toolError("OUTSIDE_ALLOWED_DIRS", guard.error ?? "Invalid path");
   const cwd = guard.resolvedPath;
+  if (containsInternalApprovalPath(cwd)) {
+    return toolError("SENSITIVE_PATH", "The selected Git directory contains internal approval data.");
+  }
   const command = ["-c", "core.fsmonitor=false", "diff", "--no-ext-diff", "--no-textconv"];
   if (args.staged) command.push("--cached");
   if (args.file) {

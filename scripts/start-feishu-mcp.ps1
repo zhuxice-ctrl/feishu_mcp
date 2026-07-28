@@ -59,6 +59,22 @@ function Require-Value([string]$Name) {
     return $value.Trim()
 }
 
+function Get-BoundedPositiveInt(
+    [string]$Name,
+    [int64]$Default,
+    [int64]$Maximum
+) {
+    $raw = [Environment]::GetEnvironmentVariable($Name, "Process")
+    if ([string]::IsNullOrWhiteSpace($raw)) {
+        return $Default
+    }
+    $parsed = [int64]0
+    if (-not [int64]::TryParse($raw, [ref]$parsed) -or $parsed -lt 1 -or $parsed -gt $Maximum) {
+        throw "$Name must be an integer between 1 and $Maximum"
+    }
+    return $parsed
+}
+
 function Resolve-Ngrok([string]$Requested) {
     if ($Requested) {
         if (-not (Test-Path -LiteralPath $Requested -PathType Leaf)) {
@@ -219,9 +235,53 @@ function Invoke-Launcher {
         throw "NGROK_DOMAIN must contain only a hostname"
     }
 
-    $script:SensitiveValues = @($transportToken, $pin) |
+    $approvalSecret = [Environment]::GetEnvironmentVariable("APPROVAL_STATE_SECRET", "Process")
+    $ngrokToken = [Environment]::GetEnvironmentVariable("NGROK_AUTHTOKEN", "Process")
+    $script:SensitiveValues = @($transportToken, $pin, $approvalSecret, $ngrokToken) |
         Where-Object { -not [string]::IsNullOrEmpty($_) } |
         Sort-Object Length -Descending
+
+    $limitMaximum = 64
+    $timeoutMaximum = 3600000
+    $responseMaximum = 104857600
+    $maxConcurrentTools = Get-BoundedPositiveInt "MAX_CONCURRENT_TOOLS" 8 $limitMaximum
+    $maxConcurrentCommands = Get-BoundedPositiveInt "MAX_CONCURRENT_COMMANDS" 2 $limitMaximum
+    $maxConcurrentSearches = Get-BoundedPositiveInt "MAX_CONCURRENT_SEARCHES" 2 $limitMaximum
+    $maxConcurrentFetches = Get-BoundedPositiveInt "MAX_CONCURRENT_FETCHES" 4 $limitMaximum
+    [void](Get-BoundedPositiveInt "TOOL_QUEUE_TIMEOUT_MS" 30000 $timeoutMaximum)
+    [void](Get-BoundedPositiveInt "COMMAND_TIMEOUT_MS" 30000 $timeoutMaximum)
+    [void](Get-BoundedPositiveInt "COMMAND_MAX_TIMEOUT_MS" 300000 $timeoutMaximum)
+    [void](Get-BoundedPositiveInt "COMMAND_MAX_OUTPUT_BYTES" 1048576 $responseMaximum)
+    [void](Get-BoundedPositiveInt "SEARCH_TIMEOUT_MS" 30000 $timeoutMaximum)
+    [void](Get-BoundedPositiveInt "SEARCH_MAX_FILES" 10000 $responseMaximum)
+    [void](Get-BoundedPositiveInt "SEARCH_MAX_RESULTS" 1000 $responseMaximum)
+    [void](Get-BoundedPositiveInt "GIT_TIMEOUT_MS" 30000 $timeoutMaximum)
+    [void](Get-BoundedPositiveInt "FETCH_TIMEOUT_MS" 30000 $timeoutMaximum)
+    [void](Get-BoundedPositiveInt "FETCH_MAX_TIMEOUT_MS" 120000 $timeoutMaximum)
+    [void](Get-BoundedPositiveInt "FETCH_MAX_BYTES" 5242880 $responseMaximum)
+    [void](Get-BoundedPositiveInt "FETCH_MAX_REDIRECTS" 5 $responseMaximum)
+    [void](Get-BoundedPositiveInt "APPROVAL_TIMEOUT_MS" 600000 $timeoutMaximum)
+
+    $approvalDataDir = [Environment]::GetEnvironmentVariable("APPROVAL_DATA_DIR", "Process")
+    if ([string]::IsNullOrWhiteSpace($approvalDataDir)) {
+        $localDataRoot = [Environment]::GetFolderPath("LocalApplicationData")
+        if ([string]::IsNullOrWhiteSpace($localDataRoot)) {
+            $localDataRoot = $env:TEMP
+        }
+        $approvalDataDir = Join-Path $localDataRoot "feishu-mcp"
+        $env:APPROVAL_DATA_DIR = $approvalDataDir
+    }
+    New-Item -ItemType Directory -Path $approvalDataDir -Force | Out-Null
+    $approvalFile = Join-Path $approvalDataDir "approvals.json"
+    $approvalCount = 0
+    if (Test-Path -LiteralPath $approvalFile -PathType Leaf) {
+        try {
+            $approvalDocument = Get-Content -LiteralPath $approvalFile -Raw -Encoding UTF8 | ConvertFrom-Json
+            $approvalCount = @($approvalDocument.approvals).Count
+        } catch {
+            throw "Approval store is not valid JSON"
+        }
+    }
 
     $node = Get-Command node.exe -ErrorAction SilentlyContinue
     if (-not $node) {
@@ -249,6 +309,14 @@ function Invoke-Launcher {
             authMode = $authMode
             ngrokDomain = $domain
             ngrokPath = $resolvedNgrok
+            toolCount = 21
+            concurrency = @{
+                global = $maxConcurrentTools
+                command = $maxConcurrentCommands
+                search = $maxConcurrentSearches
+                fetch = $maxConcurrentFetches
+            }
+            permanentApprovalCount = $approvalCount
         } | ConvertTo-Json -Compress
         return
     }
@@ -290,10 +358,10 @@ function Invoke-Launcher {
 
         $localHealthUrl = "http://127.0.0.1:$port/health"
         $localHealth = Wait-Json $localHealthUrl 30 $server
-        if ($localHealth.version -ne "1.0.0" -or @($localHealth.tools).Count -ne 11) {
-            throw "Local health response did not report version 1.0.0 and 11 tools"
+        if ($localHealth.version -ne "1.0.0" -or @($localHealth.tools).Count -ne 21) {
+            throw "Local health response did not report version 1.0.0 and 21 tools"
         }
-        Write-Host "Local health passed (11 tools, auth mode $($localHealth.authMode))." -ForegroundColor Green
+        Write-Host "Local health passed (21 tools, auth mode $($localHealth.authMode))." -ForegroundColor Green
 
         Write-Host "Starting fixed ngrok tunnel..." -ForegroundColor Cyan
         $ngrokArguments = @(
@@ -318,8 +386,8 @@ function Invoke-Launcher {
 
         $publicHeaders = @{ "ngrok-skip-browser-warning" = "true" }
         $publicHealth = Wait-Json "$expectedUrl/health" 45 $ngrok $publicHeaders
-        if ($publicHealth.version -ne "1.0.0" -or @($publicHealth.tools).Count -ne 11) {
-            throw "Public health response did not report version 1.0.0 and 11 tools"
+        if ($publicHealth.version -ne "1.0.0" -or @($publicHealth.tools).Count -ne 21) {
+            throw "Public health response did not report version 1.0.0 and 21 tools"
         }
 
         $mcpUrl = "$expectedUrl/mcp"

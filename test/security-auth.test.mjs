@@ -145,6 +145,9 @@ test("PIN authentication is isolated per request identity", async () => {
     if (!ready) throw new Error(`server did not become ready: ${lastError}\n${output}`);
 
     const health = await (await fetch(`${baseUrl}/health`)).json();
+    assert.equal(health.toolCount, 21);
+    assert.equal(health.tools.length, 21);
+    assert.deepEqual(Object.keys(health.concurrency).sort(), ["command", "fetch", "global", "search"]);
     const fixedHostHealth = await rawHealthRequest(port, {
       host: "fixed-test.ngrok-free.dev",
       origin: "https://fixed-test.ngrok-free.dev",
@@ -355,6 +358,8 @@ test("structured event fields are recursively redacted", async () => {
     LOG_FORMAT: "json",
     AUTH_MODE: "none",
     AUTH_PIN: "",
+    MCP_AUTH_TOKEN: "configured-transport-secret",
+    APPROVAL_STATE_SECRET: "configured-approval-secret",
     AUTH_MULTI_USER: "false",
     AUTH_MAX_USERS: "8",
   };
@@ -377,6 +382,7 @@ test("structured event fields are recursively redacted", async () => {
       request: {
         profile: [{ pin: "12345678", name: "alice" }],
         Cookie: "session=secret",
+        note: "configured-transport-secret and configured-approval-secret",
       },
     };
     logger.info("suppressed_event", fields);
@@ -388,10 +394,12 @@ test("structured event fields are recursively redacted", async () => {
     assert.deepEqual(event.request, {
       profile: [{ pin: "[REDACTED]", name: "alice" }],
       Cookie: "[REDACTED]",
+      note: "[REDACTED] and [REDACTED]",
     });
     assert.equal(event.authorization, "[REDACTED]");
     assert.equal(event["proxy-authorization"], "[REDACTED]");
     assert.equal(event["set-cookie"], "[REDACTED]");
+    assert.doesNotMatch(output[0], /configured-transport-secret|configured-approval-secret/);
   } finally {
     process.stderr.write = originalWrite;
     for (const [name, value] of Object.entries(previousEnvironment)) {

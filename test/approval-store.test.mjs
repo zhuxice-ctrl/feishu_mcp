@@ -20,6 +20,8 @@ test("approval store isolates session grants and persists exact permanent grants
     assert.equal(reloaded.has("alice", "web_fetch", "https://example.com:443"), true);
     assert.equal(reloaded.isInternalPath(path.join(root, "approval.key")), true);
     assert.equal(reloaded.isInternalPath(path.join(root, "..", "outside.txt")), false);
+    assert.equal(reloaded.containsInternalPath(root), true);
+    assert.equal(reloaded.containsInternalPath(path.join(root, "..", "outside")), false);
     assert.equal(reloaded.revoke(record.id), true);
     assert.equal(reloaded.has("alice", "web_fetch", "https://example.com:443"), false);
     const parsed = JSON.parse(await readFile(path.join(root, "approvals.json"), "utf8"));

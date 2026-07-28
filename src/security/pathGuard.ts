@@ -12,6 +12,7 @@
 import fs from "node:fs";
 import path from "node:path";
 import { ALLOWED_DIRS } from "../config.js";
+import { isInternalApprovalPath } from "./approvalStore.js";
 
 export interface PathValidationResult {
   ok: boolean;
@@ -95,6 +96,13 @@ export function validatePath(inputPath: string): PathValidationResult {
     };
   }
 
+  if (isInternalApprovalPath(resolved)) {
+    return {
+      ok: false,
+      error: `Path "${inputPath}" is an internal protected path.`,
+    };
+  }
+
   // Resolve an existing target or its nearest existing ancestor. Checking only
   // an existing final target would allow writes through a symlinked directory.
   try {
@@ -110,6 +118,12 @@ export function validatePath(inputPath: string): PathValidationResult {
       return {
         ok: false,
         error: `Path "${inputPath}" resolves (via symlink) outside allowed directories.`,
+      };
+    }
+    if (isInternalApprovalPath(physicalPath)) {
+      return {
+        ok: false,
+        error: `Path "${inputPath}" is an internal protected path.`,
       };
     }
     resolved = physicalPath;

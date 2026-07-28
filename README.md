@@ -11,12 +11,12 @@
 ```
 飞书 Aily (云端)  →  HTTPS  →  ngrok 隧道  →  本地 MCP Server  →  文件系统
                         ↑                        ↑
-              Bearer 传输鉴权（可选）   工具授权 + 目录白名单 + consent
+              Bearer 传输鉴权（可选）   工具授权 + 目录白名单 + 飞书窗口内确认
 ```
 
 ## 功能
 
-提供 11 个 MCP 工具，覆盖完整的文件系统操作与用户授权：
+提供 21 个 MCP 工具，组成完整的本地开发环境：
 
 | 工具 | 功能 | 读/写 |
 |------|------|-------|
@@ -31,6 +31,16 @@
 | `get_file_info` | 获取文件元数据（大小、权限、修改时间） | 读 |
 | `list_allowed_directories` | 列出当前允许访问的目录 | 读 |
 | `auth` | 使用 PIN 为当前请求身份取得工具权限 | — |
+| `execute_command` | 在允许目录内运行命令；高风险命令先请求确认 | 执行 |
+| `search_content` | 按文本或正则搜索文件内容 | 读 |
+| `git_status` | 查看 Git 分支与工作区状态 | 读 |
+| `git_diff` | 查看暂存或未暂存差异 | 读 |
+| `compare_files` | 比较两个文件并返回 unified diff | 读 |
+| `apply_patch` | 事务式应用单文件或多文件补丁，失败时回滚 | 写 |
+| `web_fetch` | 获取 HTTP/HTTPS 内容；按来源域确认 | 网络 |
+| `todo_write` | 替换当前用户的内存任务列表 | 状态 |
+| `todo_read` | 读取当前用户的内存任务列表 | 状态 |
+| `ask_user` | 在飞书对话中显示补充信息/选择卡片 | 交互 |
 
 ## 安全特性
 
@@ -41,7 +51,11 @@
 - **目录白名单** — 仅允许 `ALLOWED_DIRS` 配置的目录，其余路径一律拒绝
 - **路径穿越防护** — 解析后检查是否在白名单内，检测符号链接逃逸
 - **文件类型黑名单** — 拦截 `.exe` / `.bat` / `.ps1` / `.dll` 等可执行文件
-- **边界确认闸门** — 绝对路径与敏感文件分别支持 `allow` / `confirm` / `deny`，无 TTY 默认拒绝
+- **飞书窗口内确认** — 需要授权时显示 `本次允许`、`本次启动期间允许`、`永久允许`、`拒绝`；不要求回到终端
+- **严格客户端策略** — 客户端不支持 MCP `input_required` 时拒绝受保护操作，不回退到终端、浏览器或纯文本确认
+- **精确永久授权** — 永久许可按用户、工具与目标精确保存，可用 `manage-feishu-mcp-approvals.bat` 查看或撤销
+- **命令风险分类** — 仅明确识别的只读命令自动执行；写操作、管道、重定向、解释器、包管理器和不明确命令均需确认
+- **有界并发** — 全局以及命令、搜索、网络分别设置并发上限，互不依赖的调用可并行执行
 - **文件大小限制** — 读取 10MB / 写入 5MB
 - **频率限制** — 每分钟 60 次请求（可配置）
 - **操作审计日志** — JSON 格式记录所有操作，Token 哈希存储
@@ -81,10 +95,16 @@ AUTH_MODE=pin
 AUTH_PIN=replace-with-a-strong-pin
 AUTH_USER_HEADER=x-aily-user
 
-# 绝对路径/敏感文件可选 allow、confirm 或 deny；无 TTY 时 confirm 默认拒绝
+# 绝对路径/敏感文件可选 allow、confirm 或 deny；confirm 在飞书窗口内显示确认卡片
 CONSENT_ABSOLUTE_PATH=confirm
 CONSENT_SENSITIVE_FILE=confirm
 NON_INTERACTIVE=deny
+
+# 可按机器性能调整；默认总并发 8、命令 2、搜索 2、网络 4
+MAX_CONCURRENT_TOOLS=8
+MAX_CONCURRENT_COMMANDS=2
+MAX_CONCURRENT_SEARCHES=2
+MAX_CONCURRENT_FETCHES=4
 ```
 
 ### 两层鉴权的区别
@@ -95,6 +115,18 @@ NON_INTERACTIVE=deny
 - `AUTH_MODE=header` 信任上游注入的身份头。通过公网使用时，必须由可信网关删除客户端自带身份头后重新注入；不要让 ngrok 直接把任意客户端身份头透传给此模式。
 
 完整配置项见 `.env.example`。
+
+### 确认卡片与永久授权
+
+高风险命令、首次访问的网络来源，以及策略要求确认的路径会在当前飞书对话中显示补充信息卡片。选择“永久允许”只会保存卡片上展示的精确范围，不会给整个磁盘或全部命令放行。管理本地永久许可：
+
+```text
+manage-feishu-mcp-approvals.bat
+```
+
+任务列表仅保存在当前 Node 进程内并按 `x-aily-user` 隔离，重启服务后自动清空。
+
+并发与超时可通过 `MAX_CONCURRENT_*`、`*_TIMEOUT_MS`、搜索上限和响应字节上限调整；完整默认值见 `.env.example`。
 
 ### 3. 启动 MCP 服务
 
@@ -180,7 +212,7 @@ ngrok config add-authtoken YOUR_NGROK_AUTHTOKEN
 
 ```bash
 # 将本地 3000 端口映射到你的固定域名
-ngrok http 3000 --domain=your-domain.ngrok-free.app
+ngrok http http://127.0.0.1:3000 --url=https://your-domain.ngrok-free.app
 ```
 
 看到 `Forwarding https://your-domain.ngrok-free.app -> http://localhost:3000` 就说明隧道已建立。
@@ -227,6 +259,14 @@ curl https://your-domain.ngrok-free.app/health
 请列出 D:\AilyWorkspace 目录的内容
 请读取 D:\AilyWorkspace\hello.txt 文件
 请搜索 D:\AilyWorkspace 下所有 .py 文件
+请在 D:\AilyWorkspace 中搜索包含 TODO 的代码，并按文件汇总
+请查看这个仓库的 git status 和未暂存 diff
+请比较 D:\AilyWorkspace\before.txt 与 after.txt
+请应用下面这个多文件补丁；写入前把变更目标告诉我
+请在当前仓库运行只读命令 git status
+请读取 https://example.com 的正文；如果需要来源授权就在飞书里让我确认
+请建立一个任务列表，把“修复测试”标成进行中
+请在飞书窗口里问我选择开发、测试还是发布环境
 ```
 
 AI 会通过 MCP 工具直接操作你本机的文件。

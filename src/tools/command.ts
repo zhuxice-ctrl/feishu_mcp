@@ -10,7 +10,10 @@ import {
 } from "../config.js";
 import { getRequestUserId } from "../security/requestContext.js";
 import { validatePath } from "../security/pathGuard.js";
-import { isInternalApprovalPath } from "../security/approvalStore.js";
+import {
+  containsInternalApprovalPath,
+  isInternalApprovalPath,
+} from "../security/approvalStore.js";
 import { digestArguments, requestApproval } from "../security/approval.js";
 import { authorizeToolCall } from "../security/toolAccess.js";
 import { classifyCommand } from "./commandPolicy.js";
@@ -40,7 +43,7 @@ export async function executeCommand(
     return toolError("OUTSIDE_ALLOWED_DIRS", checked.error ?? "Invalid working directory.");
   }
   const workdir = checked.resolvedPath;
-  if (isInternalApprovalPath(workdir)) {
+  if (isInternalApprovalPath(workdir) || containsInternalApprovalPath(workdir)) {
     return toolError("OUTSIDE_ALLOWED_DIRS", "The internal approval directory cannot be used as a working directory.");
   }
   if (!fs.existsSync(workdir) || !fs.statSync(workdir).isDirectory()) {
