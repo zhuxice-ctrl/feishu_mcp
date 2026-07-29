@@ -412,7 +412,7 @@ git commit -m "feat: run recoverable development workers"
 - Modify: `src/index.ts`
 - Modify: `test/tools-list.test.mjs`
 
-- [ ] **Step 1: Write failing tool tests**
+- [x] **Step 1: Write failing tool tests**
 
 Register the tools on an in-memory MCP server or call exported handlers. Assert owner-only access, cross-owner denial, unknown-task denial, cursor pagination, byte and line limits, path-free artifact summaries, queued cancellation, running cancellation, terminal-task idempotence, and no launch spec leakage.
 
@@ -425,25 +425,25 @@ assert.equal("worker" in body.task, false);
 assert.equal("launch" in body.task, false);
 ```
 
-- [ ] **Step 2: Run tests and verify failure**
+- [x] **Step 2: Run tests and verify failure**
 
 Run: `npm run build; node --test test/development-task-tools.test.mjs`
 
 Expected: FAIL because tool handlers do not exist.
 
-- [ ] **Step 3: Implement `get_development_task`**
+- [x] **Step 3: Implement `get_development_task`**
 
 Schema: `{ taskId: z.string().uuid() }`. Return ID, tool, action, state, stage, timestamps, redacted exit summary, and artifact names/kinds/sizes/hashes. Return paths only when they remain inside a currently authorized owner directory; otherwise return a stable artifact ID.
 
-- [ ] **Step 4: Implement `read_development_task_logs`**
+- [x] **Step 4: Implement `read_development_task_logs`**
 
 Schema: task UUID, stream enum `stdout|stderr|both`, optional `{ stdout, stderr }` nonnegative byte cursors, max bytes 65,536, and max lines 500. Open logs read-only, start at UTF-8-safe byte boundaries, and return `{ cursors, nextCursors, eof, truncated, stdout, stderr }`. Keeping independent cursors prevents one stream from skipping bytes in the other. Do not follow symlinks.
 
-- [ ] **Step 5: Implement `cancel_development_task`**
+- [x] **Step 5: Implement `cancel_development_task`**
 
 Schema: task UUID. Cancel queued work through the scheduler; for running work atomically change state to `cancel_requested` and create `cancel-request`. Return terminal tasks unchanged with `alreadyTerminal: true`.
 
-- [ ] **Step 6: Register exactly three new tools**
+- [x] **Step 6: Register exactly three new tools**
 
 Import and call `registerDevelopmentTaskTools(server)` after current tool registration. Append the three names to `TOOL_NAMES` in this order and update the startup line to use `TOOL_NAMES.length`:
 
@@ -455,13 +455,13 @@ Import and call `registerDevelopmentTaskTools(server)` after current tool regist
 
 Update `tools-list.test.mjs` to expect 24 tools at this phase.
 
-- [ ] **Step 7: Run focused and HTTP inventory tests**
+- [x] **Step 7: Run focused and HTTP inventory tests**
 
 Run: `npm run build; node --test test/development-task-tools.test.mjs test/tools-list.test.mjs`
 
 Expected: all tests pass and `tools/list` contains exactly 24 unique names.
 
-- [ ] **Step 8: Commit**
+- [x] **Step 8: Commit**
 
 ```powershell
 git add src/tools/developmentTasks.ts src/index.ts test/development-task-tools.test.mjs test/tools-list.test.mjs
@@ -477,7 +477,7 @@ git commit -m "feat: expose development task controls"
 - Modify: `test/health-concurrency.test.mjs`
 - Create: `test/development-task-retention.test.mjs`
 
-- [ ] **Step 1: Write failing retention and health tests**
+- [x] **Step 1: Write failing retention and health tests**
 
 Assert cleanup deletes only terminal tasks older than retention, respects the total-byte cap oldest-first, never deletes project artifacts, leaves queued/running tasks untouched, and health exposes only counts and limits.
 
@@ -492,21 +492,21 @@ assert.deepEqual(health.developmentTasks, {
 assert.doesNotMatch(JSON.stringify(health), /taskId|ownerKey|device|project|worker|heartbeat/i);
 ```
 
-- [ ] **Step 2: Run tests and verify failure**
+- [x] **Step 2: Run tests and verify failure**
 
 Run: `npm run build; node --test test/development-task-retention.test.mjs test/health-concurrency.test.mjs`
 
 Expected: FAIL because cleanup and the health summary are not wired.
 
-- [ ] **Step 3: Implement safe retention**
+- [x] **Step 3: Implement safe retention**
 
 Compute task-directory sizes without following symlinks. Select only terminal records. Delete by canonical task directory using exact UUID names, first by age and then oldest-first until under the byte cap. Log counts only.
 
-- [ ] **Step 4: Add health summary and scheduled cleanup**
+- [x] **Step 4: Add health summary and scheduled cleanup**
 
 Add `developmentTasks: coordinator.summary()` to `/health`. Start recovery before listening, perform initial cleanup after recovery, and schedule cleanup hourly. The summary must contain only aggregate counts and configured limits.
 
-- [ ] **Step 5: Run the complete Phase 1 gate**
+- [x] **Step 5: Run the complete Phase 1 gate**
 
 ```powershell
 npm run typecheck
@@ -518,7 +518,7 @@ git diff --check
 
 Expected: every command exits 0, existing 21-tool behavior remains intact apart from the intentional inventory increase to 24, and secret fixture scans find no raw values in task storage or output.
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```powershell
 git add src/development/tasks/store.ts src/development/tasks/coordinator.ts src/index.ts test/health-concurrency.test.mjs test/development-task-retention.test.mjs
