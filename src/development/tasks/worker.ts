@@ -22,9 +22,14 @@ import {
 import { DevelopmentTaskStore } from "./store.js";
 import { StreamingTaskRedactor } from "./redaction.js";
 import type { DevelopmentLaunchSpec } from "./types.js";
+import { terminateProcessTree, type ProcessTreeTermination } from "./processTree.js";
+import { collectDevelopmentArtifacts } from "./artifacts.js";
+import { safeRuntimeEnvironment } from "./runtimeEnvironment.js";
 import {
   TASK_DIR_ENV,
   WORKER_TOKEN_ENV,
+  ARTIFACT_MANIFEST_ENV,
+  artifactManifestPath,
   heartbeatPath,
   isCancelRequested,
   stdoutLogPath,
@@ -82,7 +87,11 @@ async function runWorker(): Promise<void> {
   const stdoutFd = fs.openSync(stdoutLogPath(taskDir), "a", 0o600);
   const stderrFd = fs.openSync(stderrLogPath(taskDir), "a", 0o600);
 
-  const childEnv = { ...process.env, ...spec.env };
+  const childEnv = {
+    ...safeRuntimeEnvironment(),
+    ...spec.env,
+    [ARTIFACT_MANIFEST_ENV]: artifactManifestPath(taskDir),
+  };
   const child = spawn(spec.executable, spec.args, {
     cwd: spec.cwd,
     env: childEnv,
@@ -96,6 +105,8 @@ async function runWorker(): Promise<void> {
   const pid = child.pid ?? 0;
   let finalized = false;
   let cancelled = false;
+  let timedOut = false;
+  let termination: ProcessTreeTermination | undefined;
 
   const heartbeat = () => writeHeartbeat(taskDir, { pid, nonce, heartbeatAt: new Date().toISOString() });
   heartbeat();
@@ -105,12 +116,13 @@ async function runWorker(): Promise<void> {
     if (isCancelRequested(taskDir)) {
       cancelled = true;
       try { store.update(taskId, "running", { state: "cancel_requested" }); } catch {}
-      safeKill(child);
+      requestTermination();
     }
   }, Math.max(250, Math.floor(DEV_TASK_HEARTBEAT_MS / 2)));
 
   const runtimeTimer = setTimeout(() => {
-    safeKill(child);
+    timedOut = true;
+    requestTermination();
   }, Math.min(DEV_TASK_MAX_RUNTIME_MS, spec.timeoutMs || DEV_TASK_MAX_RUNTIME_MS));
 
   child.stdout?.on("data", (chunk: Buffer) => {
@@ -126,24 +138,9 @@ async function runWorker(): Promise<void> {
     child.stdin.end(spec.stdin);
   }
 
-  function safeKill(target: ReturnType<typeof spawn>): void {
-    try {
-      if (target.pid) {
-        // Signal the whole process group (child was spawned detached).
-        try { process.kill(-target.pid, "SIGTERM"); } catch { process.kill(target.pid, "SIGTERM"); }
-      }
-    } catch {
-      // already dead
-    }
-    setTimeout(() => {
-      try {
-        if (target.pid) {
-          try { process.kill(-target.pid, "SIGKILL"); } catch { process.kill(target.pid, "SIGKILL"); }
-        }
-      } catch {
-        // already dead
-      }
-    }, DEV_TASK_CANCEL_GRACE_MS).unref();
+  function requestTermination(): void {
+    if (termination || !child.pid) return;
+    termination = terminateProcessTree(child.pid, { graceMs: DEV_TASK_CANCEL_GRACE_MS });
   }
 
   function finalize(code: number | null): void {
@@ -152,6 +149,7 @@ async function runWorker(): Promise<void> {
     clearInterval(heartbeatTimer);
     clearInterval(cancelTimer);
     clearTimeout(runtimeTimer);
+    termination?.cancel();
     const tailOut = stdoutRedactor.flush();
     if (tailOut) fs.writeSync(stdoutFd, tailOut);
     const tailErr = stderrRedactor.flush();
@@ -160,12 +158,25 @@ async function runWorker(): Promise<void> {
     try { fs.closeSync(stderrFd); } catch {}
     const endedAt = new Date().toISOString();
     const success = !cancelled && (code !== null && spec.successExitCodes.includes(code));
+    const artifacts = cancelled
+      ? []
+      : collectDevelopmentArtifacts(taskDir!, spec.artifactRoots ?? []);
     try {
       const expected = cancelled ? "cancel_requested" : "running";
       store.update(taskId, expected, {
         state: cancelled ? "cancelled" : success ? "succeeded" : "failed",
         endedAt,
-        exit: { code, errorCode: cancelled ? "TASK_CANCELLED" : success ? undefined : "PROCESS_FAILED" },
+        artifacts,
+        exit: {
+          code,
+          errorCode: cancelled
+            ? "TASK_CANCELLED"
+            : timedOut
+              ? "PROCESS_TIMEOUT"
+              : success
+                ? undefined
+                : "PROCESS_FAILED",
+        },
       });
     } catch {
       // already terminal

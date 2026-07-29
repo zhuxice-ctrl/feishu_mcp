@@ -29,6 +29,83 @@ const VALID_STATES: readonly DevelopmentTaskState[] = [
 const VALID_CLASSES = new Set(["default", "build", "privileged"]);
 
 const MAX_STDIN_BYTES = 4096;
+const MAX_LAUNCH_BYTES = 1_048_576;
+const MAX_ARGUMENTS = 1024;
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return Boolean(value && typeof value === "object" && !Array.isArray(value));
+}
+
+function stringRecord(value: unknown, field: string, maxEntries: number): Record<string, string> {
+  if (!isRecord(value) || Object.keys(value).length > maxEntries) {
+    throw new DevelopmentTaskStoreError(`invalid launch ${field}`);
+  }
+  const result: Record<string, string> = {};
+  for (const [key, entry] of Object.entries(value)) {
+    if (!key || typeof entry !== "string" || Buffer.byteLength(entry, "utf8") > 32_768) {
+      throw new DevelopmentTaskStoreError(`invalid launch ${field}`);
+    }
+    result[key] = entry;
+  }
+  return result;
+}
+
+function validateLaunchSpec(value: unknown): DevelopmentLaunchSpec {
+  if (!isRecord(value)) throw new DevelopmentTaskStoreError("invalid launch spec");
+  if (typeof value.executable !== "string" || !path.isAbsolute(value.executable)) {
+    throw new DevelopmentTaskStoreError("launch executable must be an absolute path");
+  }
+  if (typeof value.cwd !== "string" || !path.isAbsolute(value.cwd)) {
+    throw new DevelopmentTaskStoreError("launch cwd must be an absolute path");
+  }
+  if (
+    !Array.isArray(value.args) || value.args.length > MAX_ARGUMENTS ||
+    value.args.some((arg) => typeof arg !== "string" || Buffer.byteLength(arg, "utf8") > 32_768)
+  ) {
+    throw new DevelopmentTaskStoreError("invalid launch args");
+  }
+  const env = stringRecord(value.env, "env", 256);
+  const secretEnvRefs = value.secretEnvRefs === undefined
+    ? undefined
+    : stringRecord(value.secretEnvRefs, "secretEnvRefs", 64);
+  if (
+    value.stdin !== undefined &&
+    (typeof value.stdin !== "string" || Buffer.byteLength(value.stdin, "utf8") > MAX_STDIN_BYTES)
+  ) {
+    throw new DevelopmentTaskStoreError(`stdin exceeds ${MAX_STDIN_BYTES} bytes`);
+  }
+  if (!Number.isSafeInteger(value.timeoutMs) || (value.timeoutMs as number) <= 0 || (value.timeoutMs as number) > 86_400_000) {
+    throw new DevelopmentTaskStoreError("invalid launch timeoutMs");
+  }
+  if (
+    !Array.isArray(value.successExitCodes) || value.successExitCodes.length === 0 ||
+    value.successExitCodes.length > 256 ||
+    value.successExitCodes.some((code) => !Number.isSafeInteger(code))
+  ) {
+    throw new DevelopmentTaskStoreError("invalid launch successExitCodes");
+  }
+  let artifactRoots: string[] | undefined;
+  if (value.artifactRoots !== undefined) {
+    if (
+      !Array.isArray(value.artifactRoots) || value.artifactRoots.length > 64 ||
+      value.artifactRoots.some((root) => typeof root !== "string" || !path.isAbsolute(root))
+    ) {
+      throw new DevelopmentTaskStoreError("artifactRoots must contain absolute paths");
+    }
+    artifactRoots = [...new Set(value.artifactRoots as string[])];
+  }
+  return {
+    executable: value.executable,
+    args: [...value.args] as string[],
+    cwd: value.cwd,
+    env,
+    ...(secretEnvRefs === undefined ? {} : { secretEnvRefs }),
+    ...(value.stdin === undefined ? {} : { stdin: value.stdin as string }),
+    timeoutMs: value.timeoutMs as number,
+    successExitCodes: [...value.successExitCodes] as number[],
+    ...(artifactRoots === undefined ? {} : { artifactRoots }),
+  };
+}
 
 export class DevelopmentTaskStoreError extends Error {}
 
@@ -173,16 +250,9 @@ export class DevelopmentTaskStore {
     secrets: readonly string[] = [],
   ): void {
     validateTaskId(id);
-    if (!spec.executable) throw new DevelopmentTaskStoreError("executable is required");
-    if (!Array.isArray(spec.args)) throw new DevelopmentTaskStoreError("args must be an array");
-    if (!spec.cwd) throw new DevelopmentTaskStoreError("cwd is required");
-    if (!Array.isArray(spec.successExitCodes)) {
-      throw new DevelopmentTaskStoreError("successExitCodes must be an array");
-    }
-    if (spec.stdin && Buffer.byteLength(spec.stdin, "utf8") > MAX_STDIN_BYTES) {
-      throw new DevelopmentTaskStoreError(`stdin exceeds ${MAX_STDIN_BYTES} bytes`);
-    }
-    for (const [name, value] of Object.entries(spec.env)) {
+    if (!this.get(id)) throw new DevelopmentTaskStoreError(`task not found: ${id}`);
+    const validated = validateLaunchSpec(spec);
+    for (const [name, value] of Object.entries(validated.env)) {
       if (isSensitiveEnvEntry(name, value, secrets)) {
         throw new DevelopmentTaskStoreError(
           `refusing to persist sensitive env entry: ${name}`,
@@ -195,7 +265,7 @@ export class DevelopmentTaskStore {
     try {
       const fd = fs.openSync(temporary, "wx", 0o600);
       try {
-        fs.writeFileSync(fd, `${JSON.stringify(spec, null, 2)}\n`, "utf8");
+        fs.writeFileSync(fd, `${JSON.stringify(validated, null, 2)}\n`, "utf8");
         fs.fsyncSync(fd);
       } finally {
         fs.closeSync(fd);
@@ -211,7 +281,17 @@ export class DevelopmentTaskStore {
     validateTaskId(id);
     const file = this.launchPath(id);
     try {
-      return JSON.parse(fs.readFileSync(file, "utf8")) as DevelopmentLaunchSpec;
+      const stat = fs.lstatSync(file);
+      if (!stat.isFile() || stat.isSymbolicLink() || stat.size > MAX_LAUNCH_BYTES) {
+        throw new DevelopmentTaskStoreError("invalid launch file");
+      }
+      const flags = fs.constants.O_RDONLY | (fs.constants.O_NOFOLLOW ?? 0);
+      const fd = fs.openSync(file, flags);
+      try {
+        return validateLaunchSpec(JSON.parse(fs.readFileSync(fd, "utf8")));
+      } finally {
+        fs.closeSync(fd);
+      }
     } catch (error) {
       if ((error as NodeJS.ErrnoException).code === "ENOENT") return undefined;
       throw error;

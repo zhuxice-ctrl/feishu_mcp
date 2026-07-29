@@ -15,6 +15,7 @@ const expectedTools = [
   "list_allowed_directories", "auth", "execute_command", "search_content",
   "git_status", "git_diff", "compare_files", "apply_patch", "web_fetch",
   "todo_write", "todo_read", "ask_user",
+  "get_development_task", "read_development_task_logs", "cancel_development_task",
 ];
 
 async function freePort() {

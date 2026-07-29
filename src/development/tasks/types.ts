@@ -41,6 +41,8 @@ export interface DevelopmentLaunchSpec {
   stdin?: string;
   timeoutMs: number;
   successExitCodes: number[];
+  /** Canonical output roots inside already-authorized project directories. */
+  artifactRoots?: string[];
 }
 
 export interface DevelopmentWorkerHandle {

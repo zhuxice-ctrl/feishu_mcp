@@ -53,7 +53,7 @@ function normalize(resources: readonly string[]): string[] {
 export class DevelopmentTaskScheduler {
   private readonly options: Required<DevelopmentSchedulerOptions>;
   private readonly active = new Map<string, ActiveRecord>();
-  private readonly heldResources = new Set<string>();
+  private readonly heldResources = new Map<string, number>();
   private readonly waiters: Waiter<unknown>[] = [];
   private activeBuilds = 0;
   private activePrivileged = 0;
@@ -87,6 +87,10 @@ export class DevelopmentTaskScheduler {
   ): Promise<T> {
     const normalized = normalize(resources);
     return new Promise<T>((resolve, reject) => {
+      if (this.active.has(taskId) || this.waiters.some((waiter) => waiter.taskId === taskId)) {
+        reject(new Error(`development task is already scheduled: ${taskId}`));
+        return;
+      }
       const attempt = (): boolean => {
         if (this.canStart(taskClass, normalized)) {
           this.start(taskId, taskClass, normalized, fn, resolve, reject);
@@ -119,6 +123,27 @@ export class DevelopmentTaskScheduler {
     });
   }
 
+  /**
+   * Restore occupancy for a worker that survived a coordinator restart.
+   * Adoption deliberately bypasses admission limits because the work is
+   * already running; counting it prevents a restart from creating extra
+   * capacity or releasing its project/device locks early.
+   */
+  adopt(
+    taskId: string,
+    taskClass: "default" | "build" | "privileged",
+    resources: readonly string[],
+    watch: () => Promise<unknown>,
+  ): boolean {
+    if (this.active.has(taskId) || this.waiters.some((waiter) => waiter.taskId === taskId)) {
+      return false;
+    }
+    const normalized = normalize(resources);
+    this.reserve(taskId, taskClass, normalized);
+    void this.runAdopted(taskId, taskClass, normalized, watch);
+    return true;
+  }
+
   cancel(taskId: string): boolean {
     const idx = this.waiters.findIndex((w) => w.taskId === taskId);
     if (idx === -1) return false;
@@ -147,11 +172,38 @@ export class DevelopmentTaskScheduler {
     resolve: (value: T) => void,
     reject: (error: unknown) => void,
   ): void {
-    for (const r of resources) this.heldResources.add(r);
+    this.reserve(taskId, taskClass, resources);
+    void this.runTask(taskId, taskClass, resources, fn, resolve, reject);
+  }
+
+  private reserve(
+    taskId: string,
+    taskClass: "default" | "build" | "privileged",
+    resources: readonly string[],
+  ): void {
+    for (const resource of resources) {
+      this.heldResources.set(resource, (this.heldResources.get(resource) ?? 0) + 1);
+    }
     this.active.set(taskId, { taskId, taskClass, resources: [...resources] });
     if (taskClass === "build") this.activeBuilds += 1;
     if (taskClass === "privileged") this.activePrivileged += 1;
-    void this.runTask(taskId, taskClass, resources, fn, resolve, reject);
+  }
+
+  private async runAdopted(
+    taskId: string,
+    taskClass: "default" | "build" | "privileged",
+    resources: readonly string[],
+    watch: () => Promise<unknown>,
+  ): Promise<void> {
+    try {
+      await watch();
+    } catch {
+      // The persisted task state is authoritative. Occupancy must still be
+      // released if the watcher fails while reconciling it.
+    } finally {
+      this.release(taskId, taskClass, resources);
+      this.drain();
+    }
   }
 
   private async runTask<T>(
@@ -177,8 +229,12 @@ export class DevelopmentTaskScheduler {
     taskClass: "default" | "build" | "privileged",
     resources: readonly string[],
   ): void {
-    this.active.delete(taskId);
-    for (const r of resources) this.heldResources.delete(r);
+    if (!this.active.delete(taskId)) return;
+    for (const resource of resources) {
+      const remaining = (this.heldResources.get(resource) ?? 1) - 1;
+      if (remaining <= 0) this.heldResources.delete(resource);
+      else this.heldResources.set(resource, remaining);
+    }
     if (taskClass === "build") this.activeBuilds -= 1;
     if (taskClass === "privileged") this.activePrivileged -= 1;
   }

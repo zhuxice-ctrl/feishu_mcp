@@ -16,6 +16,8 @@ import { spawn } from "node:child_process";
 import path from "node:path";
 import {
   DEV_TASK_HEARTBEAT_MS,
+  DEV_TASK_CANCEL_GRACE_MS,
+  DEV_TASK_MAX_RUNTIME_MS,
   DEV_TASK_MAX_TOTAL_BYTES,
   DEV_TASK_RETENTION_DAYS,
 } from "../../config.js";
@@ -42,11 +44,19 @@ import {
   readHeartbeat,
   requestCancel,
 } from "./workerProtocol.js";
+import { safeRuntimeEnvironment } from "./runtimeEnvironment.js";
 
 const STALE_HEARTBEAT_MS = DEV_TASK_HEARTBEAT_MS * 3;
+const OWNER_KEY_RE = /^[0-9a-f]{64}$/;
 
 export interface DevelopmentCoordinatorOptions {
   workerScript?: string;
+  /** Test hook; production uses three configured heartbeat intervals. */
+  heartbeatStaleMs?: number;
+  /** Test hook; production allows slow Windows worker bootstrap. */
+  startupGraceMs?: number;
+  /** Test hook for deterministic heartbeat-loss checks. */
+  pollIntervalMs?: number;
 }
 
 export interface DevelopmentEnqueueInput extends DevelopmentTaskCreateInput {
@@ -62,7 +72,9 @@ export class DevelopmentTaskCoordinator {
   readonly store: DevelopmentTaskStore;
   readonly scheduler: DevelopmentTaskScheduler;
   private readonly workerScript: string;
-  private readonly adopted = new Set<string>();
+  private readonly heartbeatStaleMs: number;
+  private readonly startupGraceMs: number;
+  private readonly pollIntervalMs: number;
 
   constructor(
     store: DevelopmentTaskStore,
@@ -72,10 +84,16 @@ export class DevelopmentTaskCoordinator {
     this.store = store;
     this.scheduler = scheduler;
     this.workerScript = options.workerScript ?? path.resolve(process.cwd(), "dist/development/tasks/worker.js");
+    this.heartbeatStaleMs = options.heartbeatStaleMs ?? STALE_HEARTBEAT_MS;
+    this.startupGraceMs = options.startupGraceMs ?? Math.max(this.heartbeatStaleMs, 5_000);
+    this.pollIntervalMs = options.pollIntervalMs ?? Math.min(250, DEV_TASK_HEARTBEAT_MS);
     this.recover();
   }
 
   enqueue(input: DevelopmentEnqueueInput): DevelopmentTaskRecord {
+    if (!OWNER_KEY_RE.test(input.ownerKey)) {
+      throw new Error("invalid development task owner key");
+    }
     const record = this.store.create({
       ownerKey: input.ownerKey,
       tool: input.tool,
@@ -139,13 +157,29 @@ export class DevelopmentTaskCoordinator {
       const child = spawn(process.execPath, [this.workerScript], {
         cwd: process.cwd(),
         env: {
-          ...process.env,
+          ...safeRuntimeEnvironment(),
+          AUTH_MODE: "none",
+          APPROVAL_DATA_DIR: path.dirname(this.store.root),
+          DEV_TASK_DATA_DIR: this.store.root,
+          DEV_TASK_HEARTBEAT_MS: String(DEV_TASK_HEARTBEAT_MS),
+          DEV_TASK_CANCEL_GRACE_MS: String(DEV_TASK_CANCEL_GRACE_MS),
+          DEV_TASK_MAX_RUNTIME_MS: String(DEV_TASK_MAX_RUNTIME_MS),
           FEISHU_MCP_TASK_DIR: this.store.taskDir(taskId),
           FEISHU_MCP_WORKER_TOKEN: token,
         },
         detached: true,
         stdio: "ignore",
       });
+      if (child.pid) {
+        const current = this.store.get(taskId);
+        if (current?.state === "running") {
+          try {
+            this.store.update(taskId, "running", {
+              worker: { pid: child.pid, nonce, heartbeatAt: startedAt },
+            });
+          } catch {}
+        }
+      }
       try { child.unref(); } catch {}
       await this.waitForTerminal(taskId);
     });
@@ -153,13 +187,55 @@ export class DevelopmentTaskCoordinator {
 
   private waitForTerminal(taskId: string): Promise<void> {
     return new Promise((resolve) => {
+      const initial = this.store.get(taskId);
+      let lastFreshAt = Date.parse(initial?.startedAt ?? initial?.updatedAt ?? "");
+      if (!Number.isFinite(lastFreshAt)) lastFreshAt = Date.now();
+      let observedHeartbeat = false;
       const poll = () => {
         const record = this.store.get(taskId);
         if (!record || ["succeeded", "failed", "cancelled", "interrupted"].includes(record.state)) {
           resolve();
           return;
         }
-        setTimeout(poll, 100);
+        const now = Date.now();
+        const beat = readHeartbeat(this.store.taskDir(taskId));
+        const beatAt = beat ? Date.parse(beat.heartbeatAt) : Number.NaN;
+        const validBeat = Boolean(
+          beat &&
+          Number.isInteger(beat.pid) && beat.pid > 0 &&
+          record.worker?.nonce && beat.nonce === record.worker.nonce &&
+          Number.isFinite(beatAt) && beatAt <= now + this.heartbeatStaleMs &&
+          now - beatAt < this.heartbeatStaleMs
+        );
+        if (validBeat && beat) {
+          observedHeartbeat = true;
+          lastFreshAt = Math.max(lastFreshAt, beatAt);
+          if (
+            record.worker?.pid !== beat.pid ||
+            record.worker?.heartbeatAt !== beat.heartbeatAt
+          ) {
+            try {
+              this.store.update(taskId, record.state, {
+                worker: { pid: beat.pid, nonce: beat.nonce, heartbeatAt: beat.heartbeatAt },
+              });
+            } catch {}
+          }
+        } else if (now - lastFreshAt >= (observedHeartbeat ? this.heartbeatStaleMs : this.startupGraceMs)) {
+          try {
+            this.store.update(taskId, record.state, {
+              state: "interrupted",
+              endedAt: new Date(now).toISOString(),
+              exit: {
+                code: null,
+                errorCode: "TASK_INTERRUPTED",
+                message: "worker heartbeat lost",
+              },
+            });
+          } catch {}
+          resolve();
+          return;
+        }
+        setTimeout(poll, this.pollIntervalMs).unref();
       };
       poll();
     });
@@ -169,7 +245,32 @@ export class DevelopmentTaskCoordinator {
     const records = this.store.list();
     const now = Date.now();
     for (const record of records) {
+      if (
+        ["queued", "running", "cancel_requested"].includes(record.state) &&
+        !OWNER_KEY_RE.test(record.ownerKey)
+      ) {
+        try {
+          this.store.update(record.id, record.state, {
+            state: "interrupted",
+            endedAt: new Date().toISOString(),
+            exit: { code: null, errorCode: "TASK_INTERRUPTED", message: "invalid recovered owner key" },
+          });
+        } catch {}
+        continue;
+      }
       if (record.state === "queued") {
+        try {
+          if (!this.store.loadLaunchSpec(record.id)) throw new Error("launch spec missing");
+        } catch {
+          try {
+            this.store.update(record.id, "queued", {
+              state: "interrupted",
+              endedAt: new Date().toISOString(),
+              exit: { code: null, errorCode: "TASK_INTERRUPTED", message: "invalid recovered launch spec" },
+            });
+          } catch {}
+          continue;
+        }
         // Re-admit previously queued work.
         this.dispatch(record.id, record.class, record.resources).catch(() => {
           try { this.store.update(record.id, "queued", { state: "interrupted", endedAt: new Date().toISOString() }); } catch {}
@@ -178,11 +279,23 @@ export class DevelopmentTaskCoordinator {
       }
       if (record.state === "running" || record.state === "cancel_requested") {
         const beat = readHeartbeat(this.store.taskDir(record.id));
-        const fresh = beat && now - Date.parse(beat.heartbeatAt) < STALE_HEARTBEAT_MS;
+        const beatAt = beat ? Date.parse(beat.heartbeatAt) : Number.NaN;
+        const fresh = Boolean(
+          beat &&
+          Number.isInteger(beat.pid) && beat.pid > 0 &&
+          record.worker?.nonce && beat.nonce === record.worker.nonce &&
+          Number.isFinite(beatAt) && beatAt <= now + this.heartbeatStaleMs &&
+          now - beatAt < this.heartbeatStaleMs
+        );
         if (fresh) {
-          // Adopt: keep the record as-is and watch for its terminal state.
-          this.adopted.add(record.id);
-          this.waitForTerminal(record.id).catch(() => {});
+          // Adopt the already-running worker and restore every scheduler
+          // counter/resource lock until its persisted state becomes terminal.
+          this.scheduler.adopt(
+            record.id,
+            record.class,
+            record.resources,
+            () => this.waitForTerminal(record.id),
+          );
         } else {
           try {
             this.store.update(record.id, record.state, {

@@ -115,7 +115,7 @@ test("launch spec is persisted mode 0600 and rejects sensitive env", () => {
   const store = new DevelopmentTaskStore(path.join(root, "i"));
   const created = create(store);
   store.saveLaunchSpec(created.id, {
-    executable: "node",
+    executable: process.execPath,
     args: ["-v"],
     cwd: root,
     env: { PATH: "/usr/bin" },
@@ -123,11 +123,11 @@ test("launch spec is persisted mode 0600 and rejects sensitive env", () => {
     successExitCodes: [0],
   });
   const spec = store.loadLaunchSpec(created.id);
-  assert.equal(spec?.executable, "node");
+  assert.equal(spec?.executable, process.execPath);
   assert.throws(
     () =>
       store.saveLaunchSpec(created.id, {
-        executable: "node",
+        executable: process.execPath,
         args: [],
         cwd: root,
         env: { MY_PASSWORD: "hunter2" },
@@ -136,4 +136,18 @@ test("launch spec is persisted mode 0600 and rejects sensitive env", () => {
       }),
     /sensitive env/i,
   );
+});
+
+test("loadLaunchSpec rejects a tampered executable", async () => {
+  const store = new DevelopmentTaskStore(path.join(root, "j"));
+  const created = create(store);
+  await writeFile(store.launchPath(created.id), JSON.stringify({
+    executable: "cmd.exe",
+    args: ["/c", "whoami"],
+    cwd: root,
+    env: {},
+    timeoutMs: 1000,
+    successExitCodes: [0],
+  }));
+  assert.throws(() => store.loadLaunchSpec(created.id), /absolute|invalid launch/i);
 });

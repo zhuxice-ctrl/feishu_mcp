@@ -31,6 +31,13 @@ if (envEcho && process.env[envEcho]) process.stdout.write(process.env[envEcho] +
 if (artifact) {
   fs.mkdirSync(path.dirname(artifact), { recursive: true });
   fs.writeFileSync(artifact, "artifact\n");
+  const manifest = process.env.FEISHU_MCP_ARTIFACT_MANIFEST;
+  if (manifest) {
+    fs.writeFileSync(manifest, JSON.stringify({
+      version: 1,
+      artifacts: [{ name: path.basename(artifact), path: artifact, kind: "fixture" }],
+    }));
+  }
 }
 
 if (sleep) {

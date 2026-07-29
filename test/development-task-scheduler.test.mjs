@@ -124,6 +124,40 @@ test("locks are released after a rejected task", async () => {
   assert.equal(scheduler.summary().active, 0);
 });
 
+test("adopted work restores capacity and resource locks until it settles", async () => {
+  const scheduler = new DevelopmentTaskScheduler({ total: 2, builds: 1, queueTimeoutMs: 1000 });
+  const adoptedGate = gate();
+  const adopted = scheduler.adopt(
+    "recovered",
+    "build",
+    ["project:x", "device:emulator-1"],
+    () => adoptedGate.promise,
+  );
+  assert.equal(adopted, true);
+  assert.deepEqual(scheduler.summary(), { active: 1, queued: 0, totalLimit: 2, buildLimit: 1 });
+
+  const conflicting = scheduler.run("next", "build", ["project:x"], async () => "next");
+  await tick();
+  assert.equal(scheduler.summary().queued, 1, "adopted build and project lock must block new work");
+
+  adoptedGate.resolve();
+  assert.equal(await conflicting, "next");
+  assert.equal(scheduler.summary().active, 0);
+});
+
+test("adoption restores privileged occupancy and rejects duplicate task ids", async () => {
+  const scheduler = new DevelopmentTaskScheduler({ total: 4, builds: 2, privileged: 1, queueTimeoutMs: 1000 });
+  const adoptedGate = gate();
+  assert.equal(scheduler.adopt("recovered", "privileged", ["environment:windows"], () => adoptedGate.promise), true);
+  assert.equal(scheduler.adopt("recovered", "privileged", [], async () => {}), false);
+
+  const next = scheduler.run("next", "privileged", ["environment:other"], async () => "next");
+  await tick();
+  assert.equal(scheduler.summary().queued, 1, "privileged limit must survive recovery");
+  adoptedGate.resolve();
+  assert.equal(await next, "next");
+});
+
 test("summary never exposes task ids or resources", () => {
   const scheduler = new DevelopmentTaskScheduler({ total: 4, builds: 2, queueTimeoutMs: 1000 });
   scheduler.run("secret-task", "build", ["project:secret"], () => gate().promise);

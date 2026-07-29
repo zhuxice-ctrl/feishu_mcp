@@ -106,3 +106,90 @@ test("a stale running task is marked interrupted on recovery", async () => {
   assert.equal(after?.state, "interrupted");
   assert.equal(after?.exit?.errorCode, "TASK_INTERRUPTED");
 });
+
+test("a fresh adopted task restores health, capacity, and resource occupancy", async () => {
+  const taskDir = path.join(root, "tasks-adopt-locks");
+  const store = new DevelopmentTaskStore(taskDir);
+  const record = store.create({
+    ownerKey, tool: "windows_development", action: "adopted",
+    class: "build", resources: ["project:shared", "device:emulator-1"],
+  });
+  const startedAt = new Date().toISOString();
+  store.update(record.id, "queued", {
+    state: "running",
+    startedAt,
+    worker: { pid: 12345, nonce: "fresh-nonce", heartbeatAt: startedAt },
+  });
+  const { writeHeartbeat } = await import("../dist/development/tasks/workerProtocol.js");
+  writeHeartbeat(store.taskDir(record.id), {
+    pid: 12345, nonce: "fresh-nonce", heartbeatAt: new Date().toISOString(),
+  });
+
+  const scheduler = new DevelopmentTaskScheduler({ total: 1, builds: 1, queueTimeoutMs: 5_000 });
+  const coordinator = new DevelopmentTaskCoordinator(store, scheduler, {
+    heartbeatStaleMs: 5_000,
+    pollIntervalMs: 20,
+  });
+  assert.deepEqual(coordinator.healthSummary(), {
+    queued: 0, running: 1, terminal: 0, totalLimit: 1, buildLimit: 1,
+  });
+
+  const next = scheduler.run("next", "build", ["project:shared"], async () => "started");
+  await new Promise((resolve) => setTimeout(resolve, 30));
+  assert.equal(scheduler.summary().queued, 1);
+  store.update(record.id, "running", { state: "succeeded", endedAt: new Date().toISOString() });
+  assert.equal(await next, "started");
+  assert.equal(scheduler.summary().active, 0);
+});
+
+test("a worker that exits before heartbeat becomes interrupted and releases locks", async () => {
+  const taskDir = path.join(root, "tasks-worker-died");
+  const store = new DevelopmentTaskStore(taskDir);
+  const scheduler = new DevelopmentTaskScheduler({ total: 1, builds: 1, queueTimeoutMs: 5_000 });
+  const coordinator = new DevelopmentTaskCoordinator(store, scheduler, {
+    workerScript: path.join(root, "missing-worker-script.mjs"),
+    heartbeatStaleMs: 250,
+    startupGraceMs: 250,
+    pollIntervalMs: 20,
+  });
+  const task = coordinator.enqueue({
+    ownerKey, tool: "windows_development", action: "missing-worker",
+    class: "build", resources: ["project:worker-died"],
+    launch: launch(),
+  });
+  const final = await waitForState(store, task.id, "interrupted", 3_000);
+  assert.equal(final.exit?.errorCode, "TASK_INTERRUPTED");
+  const releaseDeadline = Date.now() + 1_000;
+  while (scheduler.summary().active !== 0 && Date.now() < releaseDeadline) {
+    await new Promise((resolve) => setTimeout(resolve, 10));
+  }
+  assert.equal(scheduler.summary().active, 0);
+  assert.equal(scheduler.summary().queued, 0);
+});
+
+test("queued recovery rejects an invalid owner key or tampered launch spec", async () => {
+  const taskDir = path.join(root, "tasks-invalid-recovery");
+  const store = new DevelopmentTaskStore(taskDir);
+  const invalidOwner = store.create({
+    ownerKey: "raw-owner-id", tool: "windows_development", action: "invalid-owner",
+    class: "default", resources: [],
+  });
+  store.saveLaunchSpec(invalidOwner.id, launch());
+
+  const invalidLaunch = store.create({
+    ownerKey, tool: "windows_development", action: "invalid-launch",
+    class: "default", resources: [],
+  });
+  store.saveLaunchSpec(invalidLaunch.id, launch());
+  const { writeFileSync } = await import("node:fs");
+  writeFileSync(store.launchPath(invalidLaunch.id), JSON.stringify({
+    executable: "cmd.exe", args: ["/c", "whoami"], cwd: root,
+    env: {}, timeoutMs: 1000, successExitCodes: [0],
+  }));
+
+  const scheduler = new DevelopmentTaskScheduler({ total: 2, builds: 1, queueTimeoutMs: 5_000 });
+  new DevelopmentTaskCoordinator(store, scheduler);
+  assert.equal(store.get(invalidOwner.id)?.state, "interrupted");
+  assert.equal(store.get(invalidLaunch.id)?.state, "interrupted");
+  assert.deepEqual(scheduler.summary(), { active: 0, queued: 0, totalLimit: 2, buildLimit: 1 });
+});

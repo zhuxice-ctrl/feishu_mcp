@@ -41,7 +41,9 @@ test("request state rejects tampering and a different user", async () => {
     { token: "", userId: "alice", email: null },
     () => approvalStateCodec.mint(payload, {}),
   );
-  const tampered = `${wire.slice(0, -1)}${wire.endsWith("x") ? "y" : "x"}`;
+  // Mutate the first Base64URL character: unlike the final character, all of
+  // its bits are significant and cannot decode to the same byte sequence.
+  const tampered = `${wire.startsWith("A") ? "B" : "A"}${wire.slice(1)}`;
   await assert.rejects(
     runWithRequestContext(
       { token: "", userId: "alice", email: null },

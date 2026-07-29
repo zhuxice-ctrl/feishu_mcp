@@ -10,8 +10,12 @@ process.env.APPROVAL_DATA_DIR = root;
 process.env.APPROVAL_STATE_SECRET = "worker-test-secret-0123456789abcdef";
 process.env.OWNER_USER_ID = "owner";
 process.env.LOG_LEVEL = "error";
-process.env.DEV_TASK_HEARTBEAT_MS = "300";
+// Exercise the production default. The dedicated recovery test injects a
+// 250ms stale window to cover prompt missing-worker interruption.
+process.env.DEV_TASK_HEARTBEAT_MS = "2000";
 process.env.DEV_TASK_CANCEL_GRACE_MS = "300";
+process.env.MCP_AUTH_TOKEN = "must-not-reach-development-worker";
+process.env.AUTH_PIN = "must-not-reach-development-worker-pin";
 
 const { DevelopmentTaskStore } = await import("../dist/development/tasks/store.js");
 const { DevelopmentTaskScheduler } = await import("../dist/development/tasks/scheduler.js");
@@ -99,6 +103,71 @@ test("secret env values are redacted from logs", async () => {
   const log = await readFile(path.join(c.store.taskDir(task.id), "stdout.log"), "utf8");
   assert.doesNotMatch(log, /super-secret-value/);
   assert.match(log, /\[REDACTED\]/);
+});
+
+test("worker children do not inherit MCP credentials or worker tokens", async () => {
+  const c = newCoordinator();
+  const task = c.enqueue({
+    ownerKey, tool: "windows_development", action: "environment-isolation",
+    class: "default", resources: ["project:environment-isolation"],
+    launch: launch({ args: [fixture, "--env-echo", "MCP_AUTH_TOKEN"] }),
+  });
+  const final = await waitForTerminal(c.store, task.id);
+  assert.equal(final.state, "succeeded");
+  const taskDir = c.store.taskDir(task.id);
+  const stdout = await readFile(path.join(taskDir, "stdout.log"), "utf8");
+  const launchJson = await readFile(path.join(taskDir, "launch.json"), "utf8");
+  assert.doesNotMatch(stdout, /must-not-reach|FEISHU_MCP_WORKER_TOKEN/);
+  assert.doesNotMatch(launchJson, /must-not-reach|FEISHU_MCP_WORKER_TOKEN/);
+});
+
+test("worker records only artifacts inside authorized real output roots", async () => {
+  const c = newCoordinator();
+  const outputRoot = path.join(root, "authorized-output");
+  await mkdir(outputRoot, { recursive: true });
+  const artifact = path.join(outputRoot, "app.apk");
+  const task = c.enqueue({
+    ownerKey, tool: "android_development", action: "build",
+    class: "build", resources: ["project:artifact-safe"],
+    launch: launch({
+      args: [fixture, "--artifact", artifact],
+      artifactRoots: [outputRoot],
+    }),
+  });
+  const final = await waitForTerminal(c.store, task.id);
+  assert.equal(final.state, "succeeded");
+  assert.equal(final.artifacts.length, 1);
+  assert.deepEqual(
+    { name: final.artifacts[0].name, kind: final.artifacts[0].kind, size: final.artifacts[0].size },
+    { name: "app.apk", kind: "fixture", size: Buffer.byteLength("artifact\n") },
+  );
+  assert.match(final.artifacts[0].sha256, /^[0-9a-f]{64}$/);
+  assert.equal(final.artifacts[0].path, await import("node:fs/promises").then((fs) => fs.realpath(artifact)));
+});
+
+test("worker rejects artifact manifests outside roots and through junctions", async () => {
+  const c = newCoordinator();
+  const outputRoot = path.join(root, "authorized-output-links");
+  const outsideRoot = path.join(root, "outside-output");
+  await mkdir(outputRoot, { recursive: true });
+  await mkdir(outsideRoot, { recursive: true });
+  const linked = path.join(outputRoot, "linked");
+  await import("node:fs/promises").then((fs) =>
+    fs.symlink(outsideRoot, linked, process.platform === "win32" ? "junction" : "dir")
+  );
+  const escapedArtifact = path.join(linked, "escaped.apk");
+  const task = c.enqueue({
+    ownerKey, tool: "android_development", action: "build",
+    class: "build", resources: ["project:artifact-link"],
+    launch: launch({
+      args: [fixture, "--artifact", escapedArtifact],
+      artifactRoots: [outputRoot],
+    }),
+  });
+  const final = await waitForTerminal(c.store, task.id);
+  assert.equal(final.state, "succeeded");
+  assert.deepEqual(final.artifacts, []);
+  assert.equal(await readFile(path.join(outsideRoot, "escaped.apk"), "utf8"), "artifact\n");
 });
 
 test("cancel while running reaches cancelled", async () => {

@@ -17,6 +17,7 @@ import { randomBytes } from "node:crypto";
 
 export const TASK_DIR_ENV = "FEISHU_MCP_TASK_DIR";
 export const WORKER_TOKEN_ENV = "FEISHU_MCP_WORKER_TOKEN";
+export const ARTIFACT_MANIFEST_ENV = "FEISHU_MCP_ARTIFACT_MANIFEST";
 
 export interface WorkerHeartbeat {
   pid: number;
@@ -42,6 +43,10 @@ export function stdoutLogPath(taskDir: string): string {
 
 export function stderrLogPath(taskDir: string): string {
   return path.join(taskDir, "stderr.log");
+}
+
+export function artifactManifestPath(taskDir: string): string {
+  return path.join(taskDir, "artifact-manifest.json");
 }
 
 /** Generate and persist a fresh 32-byte worker token (mode 0600). */

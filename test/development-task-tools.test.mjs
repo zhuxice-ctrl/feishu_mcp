@@ -241,9 +241,10 @@ test("read_development_task_logs refuses symlinked log files", async () => {
   const coordinator = freshCoordinator();
   const record = createTask(coordinator.store);
   const dir = coordinator.store.taskDir(record.id);
-  const target = path.join(root, "elsewhere.log");
-  await writeFile(target, "outside content\n");
-  await symlink(target, path.join(dir, "stdout.log"));
+  const target = path.join(root, "elsewhere-log");
+  await import("node:fs/promises").then((fsm) => fsm.mkdir(target));
+  await writeFile(path.join(target, "outside.log"), "outside content\n");
+  await symlink(target, path.join(dir, "stdout.log"), process.platform === "win32" ? "junction" : "dir");
 
   const result = await readDevelopmentTaskLogs(
     { taskId: record.id, stream: "stdout" },

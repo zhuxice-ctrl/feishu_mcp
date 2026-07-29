@@ -146,7 +146,7 @@ test("cleanup never touches non-UUID entries or follows symlinks", async () => {
   await mkdir(outside, { recursive: true });
   await writeFile(path.join(outside, "keep.txt"), "do not delete");
   const linkName = path.join(store.root, "11111111-2222-3333-4444-555555555555");
-  await symlink(outside, linkName);
+  await symlink(outside, linkName, process.platform === "win32" ? "junction" : "dir");
 
   cleanupDevelopmentTasks(store, { retentionDays: 0, maxTotalBytes: 0 });
 
@@ -160,9 +160,10 @@ test("directorySize does not follow symlinks", async () => {
   const record = createTask(store);
   const dir = store.taskDir(record.id);
   await writeFile(path.join(dir, "real.bin"), Buffer.alloc(512, 1));
-  const outside = path.join(root, "size-outside.bin");
-  await writeFile(outside, Buffer.alloc(8192, 2));
-  await symlink(outside, path.join(dir, "linked.bin"));
+  const outside = path.join(root, "size-outside");
+  await mkdir(outside);
+  await writeFile(path.join(outside, "large.bin"), Buffer.alloc(8192, 2));
+  await symlink(outside, path.join(dir, "linked"), process.platform === "win32" ? "junction" : "dir");
 
   const size = store.directorySize(record.id);
   assert.equal(size < 8192, true, "symlinked content must not be counted");
