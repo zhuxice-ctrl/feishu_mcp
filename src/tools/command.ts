@@ -3,13 +3,12 @@ import { createHash } from "node:crypto";
 import { z } from "zod";
 import type { McpServer, ServerContext } from "@modelcontextprotocol/server";
 import {
-  ALLOWED_DIRS,
   COMMAND_MAX_OUTPUT_BYTES,
   COMMAND_MAX_TIMEOUT_MS,
   COMMAND_TIMEOUT_MS,
 } from "../config.js";
 import { getRequestUserId } from "../security/requestContext.js";
-import { validatePath } from "../security/pathGuard.js";
+import { directoryGrantStore } from "../security/directoryGrantStore.js";
 import {
   containsInternalApprovalPath,
   isInternalApprovalPath,
@@ -20,6 +19,7 @@ import { classifyCommand } from "./commandPolicy.js";
 import { runProcess } from "./processRunner.js";
 import { runTool } from "./registry.js";
 import { toolError, toolJson } from "./results.js";
+import { resolvePathsGuardAndAuthorize } from "./helpers.js";
 
 export interface ExecuteCommandArgs {
   command: string;
@@ -36,13 +36,19 @@ export async function executeCommand(
   ctx: ServerContext,
 ) {
   const risk = classifyCommand(args.command);
-  const requestedWorkdir = args.workdir ?? ALLOWED_DIRS[0];
+  const requestedWorkdir = args.workdir ??
+    directoryGrantStore.effectiveRoots(getRequestUserId())[0]?.logicalRoot;
   if (!requestedWorkdir) return toolError("OUTSIDE_ALLOWED_DIRS", "No allowed working directory is configured.");
-  const checked = validatePath(requestedWorkdir);
-  if (!checked.ok || !checked.resolvedPath) {
-    return toolError("OUTSIDE_ALLOWED_DIRS", checked.error ?? "Invalid working directory.");
+  const workdirGuard = await resolvePathsGuardAndAuthorize(
+    "execute_command",
+    [{ argName: "workdir", inputPath: requestedWorkdir, operation: "read", scope: "directory", access: "command" }],
+    args,
+    ctx,
+  );
+  if (!workdirGuard.ok) {
+    return workdirGuard.result ?? toolError("OUTSIDE_ALLOWED_DIRS", workdirGuard.error ?? "Invalid working directory.");
   }
-  const workdir = checked.resolvedPath;
+  const workdir = workdirGuard.paths[0].resolvedPath;
   if (isInternalApprovalPath(workdir) || containsInternalApprovalPath(workdir)) {
     return toolError("OUTSIDE_ALLOWED_DIRS", "The internal approval directory cannot be used as a working directory.");
   }
@@ -60,6 +66,7 @@ export async function executeCommand(
       },
       argsDigest: digestArguments(args),
       reasons: risk.reasons,
+      authorizedDirectoryRootsDigest: workdirGuard.directoryProof?.rootsDigest,
     });
     if (approval !== true) return approval;
   }

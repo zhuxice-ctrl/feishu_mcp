@@ -15,7 +15,7 @@ import { inspectPath } from "../security/consent.js";
 import { requestApproval, digestArguments } from "../security/approval.js";
 import { isInternalApprovalPath } from "../security/approvalStore.js";
 import { authorizeToolCall } from "../security/toolAccess.js";
-import { resolveAndGuard } from "./helpers.js";
+import { resolvePathsGuardAndAuthorize } from "./helpers.js";
 import {
   applyStructuredHunks,
   applyUnifiedHunks,
@@ -80,18 +80,37 @@ function rawTargets(format: "structured" | "unified", operations: PatchOperation
 
 async function guardTargets(args: ApplyPatchArgs, targets: string[], ctx: ServerContext) {
   if (!targets.length) return toolError("INVALID_PATCH", "A unified patch requires the path parameter.");
-  const resolved: Array<{ raw: string; path: string; kinds: ReturnType<typeof inspectPath> }> = [];
+  const authorization = await resolvePathsGuardAndAuthorize(
+    "apply_patch",
+    targets.map((target) => ({
+      argName: "path",
+      inputPath: target,
+      operation: "write" as const,
+      scope: "file" as const,
+      access: "patch" as const,
+    })),
+    args,
+    ctx,
+  );
+  if (!authorization.ok) {
+    return authorization.result ?? toolError("OUTSIDE_ALLOWED_DIRS", authorization.error ?? "Invalid patch targets.");
+  }
+  const resolved: Array<{
+    raw: string;
+    path: string;
+    kinds: ReturnType<typeof inspectPath>;
+  }> = [];
   const seen = new Set<string>();
-  for (const raw of targets) {
-    const guard = resolveAndGuard(raw, "write");
-    if (!guard.ok) return toolError("OUTSIDE_ALLOWED_DIRS", guard.error ?? "Invalid patch target.");
-    if (isInternalApprovalPath(guard.resolvedPath)) {
+  for (const item of authorization.paths) {
+    if (isInternalApprovalPath(item.resolvedPath)) {
       return toolError("OUTSIDE_ALLOWED_DIRS", "Patch targets cannot access the internal approval directory.");
     }
-    const key = process.platform === "win32" ? guard.resolvedPath.toLowerCase() : guard.resolvedPath;
-    if (seen.has(key)) return toolError("INVALID_PATCH", `Patch target appears more than once: ${raw}`);
+    const key = process.platform === "win32" ? item.resolvedPath.toLowerCase() : item.resolvedPath;
+    if (seen.has(key)) return toolError("INVALID_PATCH", `Patch target appears more than once: ${item.inputPath}`);
     seen.add(key);
-    resolved.push({ raw, path: guard.resolvedPath, kinds: inspectPath("apply_patch", raw, guard.resolvedPath) });
+    const kinds = inspectPath("apply_patch", item.inputPath, item.resolvedPath)
+      .filter((kind) => !(item.boundarySource !== "static" && kind === "absolute_path"));
+    resolved.push({ raw: item.inputPath, path: item.resolvedPath, kinds });
   }
   const kinds = new Set(resolved.flatMap((item) => item.kinds));
   if ((kinds.has("absolute_path") && CONSENT_ABSOLUTE_PATH === "deny") ||
@@ -115,6 +134,7 @@ async function guardTargets(args: ApplyPatchArgs, targets: string[], ctx: Server
         ...(kinds.has("absolute_path") ? ["The patch contains absolute target paths."] : []),
         ...(kinds.has("sensitive_file") ? ["The patch touches sensitive files."] : []),
       ],
+      authorizedDirectoryRootsDigest: authorization.directoryProof?.rootsDigest,
     });
     if (approval !== true) return approval;
   }

@@ -27,7 +27,10 @@ export interface SearchContentArgs {
 
 export async function searchContent(args: SearchContentArgs, ctx: ServerContext) {
   const rawRoot = args.path ?? ".";
-  const guard = await resolveGuardAndAuthorize("search_content", "path", rawRoot, "read", args, ctx);
+  const guard = await resolveGuardAndAuthorize(
+    "search_content", "path", rawRoot, "read", args, ctx,
+    { scope: "directory", access: "search" },
+  );
   if (!guard.ok) return guard.result ?? toolError("OUTSIDE_ALLOWED_DIRS", guard.error ?? "Invalid path");
   let expression: RegExp;
   try { expression = new RegExp(args.pattern); }

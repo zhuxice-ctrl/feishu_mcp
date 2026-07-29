@@ -60,12 +60,12 @@ test("applies a unified patch to one file", async () => {
   assert.equal(await readFile(path.join(dir, "a.txt"), "utf8"), "changed\nsame\n");
 });
 
-test("rejects path traversal embedded in a patch", async () => {
+test("requires a stable identity before authorizing a formerly out-of-root patch", async () => {
   const result = await applyPatch({ patch: `*** Begin Patch
 *** Add File: ../outside.txt
 +blocked
 *** End Patch` }, ctx);
-  assert.equal(JSON.parse(result.content[0].text).code, "OUTSIDE_ALLOWED_DIRS");
+  assert.equal(JSON.parse(result.content[0].text).code, "DIRECTORY_IDENTITY_REQUIRED");
 });
 
 test("restores every original when a later commit rename fails", async () => {

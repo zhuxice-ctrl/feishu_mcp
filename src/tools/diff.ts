@@ -3,18 +3,47 @@ import { createTwoFilesPatch, diffLines } from "diff";
 import { z } from "zod";
 import type { McpServer, ServerContext } from "@modelcontextprotocol/server";
 import { MAX_READ_BYTES } from "../config.js";
-import { authorizeToolCall } from "../security/toolAccess.js";
-import { resolveGuardAndAuthorize } from "./helpers.js";
+import {
+  authorizeFilePath,
+  authorizeToolCall,
+  fileApprovalSubjectKey,
+} from "../security/toolAccess.js";
+import { resolvePathsGuardAndAuthorize } from "./helpers.js";
 import { runTool } from "./registry.js";
 import { toolError, toolJson } from "./results.js";
 
 interface CompareArgs { path_a: string; path_b: string }
 
 export async function compareFiles(args: CompareArgs, ctx: ServerContext) {
-  const first = await resolveGuardAndAuthorize("compare_files", "path_a", args.path_a, "read", args, ctx);
-  if (!first.ok) return first.result ?? toolError("OUTSIDE_ALLOWED_DIRS", first.error ?? "Invalid first path");
-  const second = await resolveGuardAndAuthorize("compare_files", "path_b", args.path_b, "read", args, ctx);
-  if (!second.ok) return second.result ?? toolError("OUTSIDE_ALLOWED_DIRS", second.error ?? "Invalid second path");
+  const guarded = await resolvePathsGuardAndAuthorize(
+    "compare_files",
+    [
+      { argName: "path_a", inputPath: args.path_a, operation: "read", scope: "file", access: "read" },
+      { argName: "path_b", inputPath: args.path_b, operation: "read", scope: "file", access: "read" },
+    ],
+    args,
+    ctx,
+  );
+  if (!guarded.ok) return guarded.result ?? toolError("OUTSIDE_ALLOWED_DIRS", guarded.error ?? "Invalid paths");
+  const priorSubjectKeys: string[] = [];
+  for (const item of guarded.paths) {
+    const directoryAuthorized = item.boundarySource !== "static";
+    const approval = await authorizeFilePath(
+      "compare_files", item.argName, item.inputPath, item.resolvedPath, args, ctx,
+      {
+        directoryAuthorized,
+        authorizedDirectoryRootsDigest: guarded.directoryProof?.rootsDigest,
+        priorSubjectKeys,
+      },
+    );
+    if (approval !== true) return approval;
+    const key = fileApprovalSubjectKey(
+      "compare_files", item.inputPath, item.resolvedPath, directoryAuthorized,
+    );
+    if (key) priorSubjectKeys.push(key);
+  }
+  const first = guarded.paths.find((item) => item.argName === "path_a")!;
+  const second = guarded.paths.find((item) => item.argName === "path_b")!;
   return runTool(
     {
       name: "compare_files",

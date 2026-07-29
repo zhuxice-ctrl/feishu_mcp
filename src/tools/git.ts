@@ -4,7 +4,8 @@ import type { McpServer, ServerContext } from "@modelcontextprotocol/server";
 import { GIT_TIMEOUT_MS, COMMAND_MAX_OUTPUT_BYTES } from "../config.js";
 import { authorizeToolCall } from "../security/toolAccess.js";
 import { containsInternalApprovalPath } from "../security/approvalStore.js";
-import { validatePath } from "../security/pathGuard.js";
+import { isInternalApprovalPath } from "../security/approvalStore.js";
+import { isInsideDirectory, resolveThroughExistingAncestor } from "../security/directoryRoots.js";
 import { resolveGuardAndAuthorize } from "./helpers.js";
 import { runProcess } from "./processRunner.js";
 import { runTool } from "./registry.js";
@@ -23,7 +24,10 @@ const gitEnv: NodeJS.ProcessEnv = {
 
 async function gitRoot(tool: string, args: GitBaseArgs, ctx: ServerContext) {
   const raw = args.path ?? ".";
-  return resolveGuardAndAuthorize(tool, "path", raw, "read", args, ctx);
+  return resolveGuardAndAuthorize(
+    tool, "path", raw, "read", args, ctx,
+    { scope: "directory", access: "git" },
+  );
 }
 
 async function runGit(cwd: string, args: string[], signal: AbortSignal) {
@@ -69,9 +73,15 @@ export async function gitDiff(args: GitDiffArgs, ctx: ServerContext) {
   const command = ["-c", "core.fsmonitor=false", "diff", "--no-ext-diff", "--no-textconv"];
   if (args.staged) command.push("--cached");
   if (args.file) {
-    const target = validatePath(path.resolve(cwd, args.file));
-    if (!target.ok || !target.resolvedPath) return toolError("OUTSIDE_ALLOWED_DIRS", target.error ?? "Invalid file path");
-    const relative = path.relative(cwd, target.resolvedPath);
+    const logicalTarget = path.resolve(cwd, args.file);
+    let resolvedTarget: string;
+    try { resolvedTarget = resolveThroughExistingAncestor(logicalTarget); }
+    catch { return toolError("OUTSIDE_ALLOWED_DIRS", "The diff file could not be safely resolved."); }
+    if (isInternalApprovalPath(logicalTarget) || isInternalApprovalPath(resolvedTarget) ||
+        !isInsideDirectory(resolvedTarget, cwd)) {
+      return toolError("OUTSIDE_ALLOWED_DIRS", "The diff file must be inside the selected repository.");
+    }
+    const relative = path.relative(cwd, resolvedTarget);
     if (relative.startsWith("..") || path.isAbsolute(relative)) {
       return toolError("OUTSIDE_ALLOWED_DIRS", "The diff file must be inside the selected repository.");
     }
