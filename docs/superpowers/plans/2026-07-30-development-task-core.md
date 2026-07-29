@@ -347,7 +347,7 @@ git commit -m "feat: schedule bounded development tasks"
 - Create: `test/development-task-worker.test.mjs`
 - Create: `test/development-task-recovery.test.mjs`
 
-- [ ] **Step 1: Write failing worker tests**
+- [x] **Step 1: Write failing worker tests**
 
 The fixture must print staged output, optionally sleep, write an artifact, and exit with a requested code. Test success, nonzero exit, timeout, log redaction, artifact validation, cancel-before-start, cancel-while-running, and a server-side coordinator restart while the detached worker remains alive.
 
@@ -365,39 +365,39 @@ await coordinator.cancel(task.id, ownerKey);
 assert.equal((await waitForTerminal(store, task.id)).state, "cancelled");
 ```
 
-- [ ] **Step 2: Run tests and verify failure**
+- [x] **Step 2: Run tests and verify failure**
 
 Run: `npm run build; node --test test/development-task-worker.test.mjs test/development-task-recovery.test.mjs`
 
 Expected: FAIL because worker and coordinator modules do not exist.
 
-- [ ] **Step 3: Implement the file protocol**
+- [x] **Step 3: Implement the file protocol**
 
 Use these files inside each task directory: `metadata.json`, `launch.json`, `worker-token`, `heartbeat.json`, `stdout.log`, `stderr.log`, and `cancel-request`. The token is 32 random bytes in hex and mode `0600`. The worker receives only task directory and token through environment variables and exits if the token file differs.
 
-- [ ] **Step 4: Implement the worker process**
+- [x] **Step 4: Implement the worker process**
 
 Spawn the validated launch spec with `shell: false`, `windowsHide: true`, and piped stdout/stderr. Reject secret-looking keys or configured secret values in persisted `env`. Permit at most 4096 bytes of internal adapter-provided stdin, write it once, and close stdin; MCP schemas never expose this field. Phase 1 accepts only an empty `secretEnvRefs` map; the DPAPI resolver added in the Android phase resolves opaque references in worker memory immediately before spawn. Redact output before append. Refresh heartbeat atomically every `DEV_TASK_HEARTBEAT_MS`. Poll `cancel-request`; on cancellation, terminate only the worker's own child tree, wait `DEV_TASK_CANCEL_GRACE_MS`, then use `taskkill.exe /PID <child.pid> /T /F` on Windows. Finalize metadata exactly once.
 
-- [ ] **Step 5: Implement coordinator dispatch**
+- [x] **Step 5: Implement coordinator dispatch**
 
 Persist queued metadata and launch spec before scheduler admission. Start `process.execPath` with `dist/development/tasks/worker.js`, `detached: true`, `stdio: "ignore"`, a minimal environment, and `unref()`. The coordinator never launches a caller-provided spec; only internal adapters may call `enqueueInternal`.
 
-- [ ] **Step 6: Implement restart recovery**
+- [x] **Step 6: Implement restart recovery**
 
 On construction, scan validated metadata. Rebuild resource occupancy for running tasks with a heartbeat newer than three heartbeat intervals. Mark stale running/cancel-requested tasks `interrupted`. Requeue previously queued tasks only when their launch spec and owner key validate. Never call `taskkill` from the recovered coordinator.
 
-- [ ] **Step 7: Validate artifacts safely**
+- [x] **Step 7: Validate artifacts safely**
 
 The worker accepts an artifact manifest only from its own child protocol file. Canonicalize every artifact and keep only paths inside the authorized project/output roots recorded by the internal adapter. Record size and SHA-256 after the child exits; never read artifact contents into metadata.
 
-- [ ] **Step 8: Run focused tests**
+- [x] **Step 8: Run focused tests**
 
 Run: `npm run build; node --test test/development-task-worker.test.mjs test/development-task-recovery.test.mjs test/development-task-scheduler.test.mjs`
 
 Expected: all tests pass; the recovery test observes the same task ID before and after coordinator reconstruction.
 
-- [ ] **Step 9: Commit**
+- [x] **Step 9: Commit**
 
 ```powershell
 git add src/development/tasks test/fixtures/development-worker-fixture.mjs test/development-task-worker.test.mjs test/development-task-recovery.test.mjs
