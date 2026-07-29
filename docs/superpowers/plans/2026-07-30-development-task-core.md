@@ -16,6 +16,7 @@
 - Modify: `src/config.ts`
 - Modify: `src/security/toolAccess.ts`
 - Modify: `src/security/approval.ts`
+- Modify: `src/security/approvalState.ts`
 - Modify: `src/security/approvalStore.ts`
 - Modify: `src/tools/registry.ts`
 - Modify: `src/tools/results.ts`
@@ -26,7 +27,7 @@
 - Create: `test/development-single-use-approval.test.mjs`
 - Modify: `test/approval-store.test.mjs`
 
-- [ ] **Step 1: Write the failing configuration tests**
+- [x] **Step 1: Write the failing configuration tests**
 
 Create subprocess-based tests so each case imports a fresh `dist/config.js`. Assert defaults of 4 total tasks, 2 builds, 14 retention days, a 2-hour task runtime, and a task directory exactly one level below `APPROVAL_DATA_DIR`. Assert limits above 16 tasks, above 8 builds, above 365 retention days, above a 24-hour runtime, and a task directory outside `APPROVAL_DATA_DIR` terminate with a nonzero exit.
 
@@ -47,7 +48,7 @@ assert.deepEqual(JSON.parse(result.stdout), {
 });
 ```
 
-- [ ] **Step 2: Write the failing owner authorization tests**
+- [x] **Step 2: Write the failing owner authorization tests**
 
 Import `authorizeOwnerToolCall` inside `runWithRequestContext`. Assert configured owner succeeds, a different authenticated identity receives `OWNER_REQUIRED`, and a missing `OWNER_USER_ID` receives `OWNER_NOT_CONFIGURED`.
 
@@ -59,13 +60,13 @@ const result = await runWithRequestContext(
 assert.equal(JSON.parse(result.content[0].text).code, "OWNER_REQUIRED");
 ```
 
-- [ ] **Step 3: Run the new tests and verify failure**
+- [x] **Step 3: Run the new tests and verify failure**
 
 Run: `npm run build; node --test test/development-config.test.mjs test/development-owner-access.test.mjs`
 
 Expected: FAIL because the development exports and `authorizeOwnerToolCall` do not exist.
 
-- [ ] **Step 4: Add bounded configuration**
+- [x] **Step 4: Add bounded configuration**
 
 Export these exact values from `src/config.ts` and require `DEV_TASK_DATA_DIR` to be inside `APPROVAL_DATA_DIR` using `path.relative` rather than string prefixes:
 
@@ -96,7 +97,7 @@ if (taskDataRelative.startsWith("..") || path.isAbsolute(taskDataRelative)) {
 }
 ```
 
-- [ ] **Step 5: Add owner authorization and error codes**
+- [x] **Step 5: Add owner authorization and error codes**
 
 Add `OWNER_REQUIRED`, `OWNER_NOT_CONFIGURED`, `TASK_NOT_FOUND`, `TASK_QUEUE_FULL`, `TASK_INTERRUPTED`, and `TASK_CANCELLED` to `ToolErrorCode`. Add this function to `toolAccess.ts` without changing `authorizeToolCall`:
 
@@ -106,14 +107,17 @@ export function authorizeOwnerToolCall(toolName: string, args: unknown): ToolAcc
   if (authenticated) return authenticated;
   if (!OWNER_USER_ID) return toolError("OWNER_NOT_CONFIGURED", "Development tools require OWNER_USER_ID.");
   if (getRequestUserId() !== OWNER_USER_ID) {
-    logger.warn("owner_tool_authorization_denied", { toolName, userId: getRequestUserId() });
+    logger.warn("owner_tool_authorization_denied", {
+      toolName,
+      identityPresent: getRequestUserId() !== null,
+    });
     return toolError("OWNER_REQUIRED", "This development tool is restricted to the configured owner.");
   }
   return null;
 }
 ```
 
-- [ ] **Step 6: Add single-use approval mode**
+- [x] **Step 6: Add single-use approval mode**
 
 Before documentation, add a failing approval test that calls `requestApproval` with `decisionMode: "single_use"`. Assert the elicitation enum is exactly `allow_once, deny`, an injected `allow_session` or `allow_permanent` response is rejected, and standard approvals retain all four current choices. Then add `decisionMode?: "standard" | "single_use"` to `ApprovalRequest`; default it to `standard`, generate the matching enum, and validate the accepted response against the same mode before storing any decision.
 
@@ -130,7 +134,9 @@ Run: `npm run build; node --test test/development-single-use-approval.test.mjs t
 
 Expected: both tests pass; standard approval behavior is unchanged.
 
-- [ ] **Step 7: Extend typed approval subjects**
+Single-use requests must bypass remembered session and permanent grants. Persist the normalized decision mode in `ApprovalStatePayload`, treat a missing legacy value as `standard`, and compare it in direct, prior-subject, and continuation matching. Tests must prove both stored grant types are ignored and signed states cannot switch between standard and single-use modes.
+
+- [x] **Step 7: Extend typed approval subjects**
 
 Add `development`, `environment_plan`, `device`, and `credential` to both `ApprovalSubjectKind` and `ToolSubject.kind`. Update approval-store parsing to accept exactly the old and new values, and extend `approval-store.test.mjs` to persist/reload one record of every new kind. Existing stored approvals remain valid without migration.
 
@@ -140,20 +146,20 @@ export type ApprovalSubjectKind =
   | "development" | "environment_plan" | "device" | "credential";
 ```
 
-- [ ] **Step 8: Document and ignore local task data**
+- [x] **Step 8: Document and ignore local task data**
 
-Add the nine configuration names to `.env.example` with their defaults. Add `tasks/`, `.development-data/`, `*.task.json`, `*.heartbeat`, and `*.cancel-request` to `.gitignore`. Do not ignore the future tracked `broker/` source directory.
+Add the nine bounded configuration names plus `DEV_TASK_DATA_DIR` to `.env.example` with their defaults. Add `/tasks/`, `/.development-data/`, `*.task.json`, `*.heartbeat`, and `*.cancel-request` to `.gitignore`. Root-anchor directory rules so the future tracked `src/development/tasks/` source directory remains visible to Git. Do not ignore the future tracked `broker/` source directory.
 
-- [ ] **Step 9: Run focused and existing authorization tests**
+- [x] **Step 9: Run focused and existing authorization tests**
 
-Run: `npm run build; node --test test/development-config.test.mjs test/development-owner-access.test.mjs test/development-single-use-approval.test.mjs test/approval-elicitation.test.mjs test/approval-store.test.mjs test/security-auth.test.mjs test/auth-modes.test.mjs`
+Run: `npm run build; node --test test/development-config.test.mjs test/development-owner-access.test.mjs test/development-single-use-approval.test.mjs test/approval-elicitation.test.mjs test/approval-state.test.mjs test/approval-store.test.mjs test/security-auth.test.mjs test/auth-modes.test.mjs`
 
 Expected: all tests pass.
 
-- [ ] **Step 10: Commit**
+- [x] **Step 10: Commit**
 
 ```powershell
-git add src/config.ts src/security/toolAccess.ts src/security/approval.ts src/security/approvalStore.ts src/tools/registry.ts src/tools/results.ts .env.example .gitignore test/development-config.test.mjs test/development-owner-access.test.mjs test/development-single-use-approval.test.mjs test/approval-store.test.mjs
+git add src/config.ts src/security/toolAccess.ts src/security/approval.ts src/security/approvalState.ts src/security/approvalStore.ts src/tools/registry.ts src/tools/results.ts .env.example .gitignore test/development-config.test.mjs test/development-owner-access.test.mjs test/development-single-use-approval.test.mjs test/approval-store.test.mjs docs/superpowers/plans/2026-07-30-development-task-core.md
 git commit -m "feat: gate development tools to owner"
 ```
 

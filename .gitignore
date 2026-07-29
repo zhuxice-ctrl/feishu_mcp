@@ -8,8 +8,8 @@ logs/
 approval.key
 approvals.json
 directory-grants.json
-tasks/
-.development-data/
+/tasks/
+/.development-data/
 *.task.json
 *.heartbeat
 *.cancel-request

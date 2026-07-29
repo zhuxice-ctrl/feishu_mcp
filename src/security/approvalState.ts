@@ -13,6 +13,8 @@ import {
 import { getRequestUserId } from "./requestContext.js";
 import type { CanonicalDirectoryRoot } from "./directoryRoots.js";
 
+export type ApprovalDecisionMode = "standard" | "single_use";
+
 export interface ApprovalStatePayload {
   version: 1;
   tool: string;
@@ -20,6 +22,8 @@ export interface ApprovalStatePayload {
   subjectKey: string;
   argsDigest: string;
   nonce: string;
+  /** Absent only on states minted before decision modes were introduced. */
+  decisionMode?: ApprovalDecisionMode;
   priorSubjectKeys?: string[];
   authorizedDirectoryRootsDigest?: string;
 }

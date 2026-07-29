@@ -12,6 +12,7 @@ import { APPROVAL_TIMEOUT_MS } from "../config.js";
 import { approvalStore, type ApprovalSubjectKind } from "./approvalStore.js";
 import {
   mintApprovalState,
+  type ApprovalDecisionMode,
   type ApprovalStatePayload,
   type DirectoryApprovalStatePayload,
   type LegacyDirectoryChallengePayload,
@@ -28,7 +29,7 @@ export interface ApprovalRequest {
   priorSubjectKeys?: string[];
   authorizedDirectoryRootsDigest?: string;
   /** Restrict the elicitation to a single allow_once/deny decision. */
-  decisionMode?: "standard" | "single_use";
+  decisionMode?: ApprovalDecisionMode;
 }
 
 export type ApprovalOutcome = true | CallToolResult | InputRequiredResult;
@@ -66,10 +67,19 @@ export function digestArguments(args: unknown): string {
   return createHash("sha256").update(canonical(args)).digest("hex");
 }
 
+function requestDecisionMode(request: ApprovalRequest): ApprovalDecisionMode {
+  return request.decisionMode ?? "standard";
+}
+
+function payloadDecisionMode(payload: ApprovalStatePayload): ApprovalDecisionMode {
+  return payload.decisionMode ?? "standard";
+}
+
 function matches(payload: ApprovalStatePayload, request: ApprovalRequest): boolean {
   return payload.version === 1 && payload.tool === request.tool &&
     payload.userId === request.userId && payload.subjectKey === request.subject.key &&
-    payload.argsDigest === request.argsDigest;
+    payload.argsDigest === request.argsDigest &&
+    payloadDecisionMode(payload) === requestDecisionMode(request);
 }
 
 function isDirectoryState(value: SignedRequestStatePayload): value is DirectoryApprovalStatePayload {
@@ -84,7 +94,9 @@ function isLegacyDirectoryState(
 
 function matchesPrior(payload: ApprovalStatePayload, request: ApprovalRequest): boolean {
   return payload.version === 1 && payload.tool === request.tool && payload.userId === request.userId &&
-    payload.argsDigest === request.argsDigest && payload.priorSubjectKeys?.includes(request.subject.key) === true;
+    payload.argsDigest === request.argsDigest &&
+    payloadDecisionMode(payload) === requestDecisionMode(request) &&
+    payload.priorSubjectKeys?.includes(request.subject.key) === true;
 }
 
 function renderMessage(request: ApprovalRequest): string {
@@ -109,7 +121,11 @@ export async function requestApproval(
   ctx: ServerContext,
   request: ApprovalRequest,
 ): Promise<ApprovalOutcome> {
-  if (approvalStore.has(request.userId, request.tool, request.subject.key)) {
+  const decisionMode = requestDecisionMode(request);
+  if (
+    decisionMode !== "single_use" &&
+    approvalStore.has(request.userId, request.tool, request.subject.key)
+  ) {
     logDecision(request, "remembered");
     return true;
   }
@@ -130,6 +146,7 @@ export async function requestApproval(
     } else if (matchesPrior(state, request)) return true;
     else if (!matches(state, request)) {
       const continuingChain = usedNonces.has(state.nonce) &&
+        payloadDecisionMode(state) === decisionMode &&
         request.priorSubjectKeys?.includes(state.subjectKey) === true;
       if (!continuingChain) {
         return toolError("APPROVAL_DENIED", "Approval state does not match this operation.");
@@ -145,7 +162,7 @@ export async function requestApproval(
       if (!consumeSignedNonce(state.nonce)) {
         return toolError("APPROVAL_DENIED", "Approval state has already been used.");
       }
-      const allowedDecisions = request.decisionMode === "single_use"
+      const allowedDecisions = decisionMode === "single_use"
         ? (["allow_once", "deny"] as const)
         : (["allow_once", "allow_session", "allow_permanent", "deny"] as const);
       if (!(allowedDecisions as readonly string[]).includes(response.decision)) {
@@ -178,7 +195,6 @@ export async function requestApproval(
     );
   }
 
-  const decisionMode = request.decisionMode === "single_use" ? "single_use" : "standard";
   const decisionEnum = decisionMode === "single_use"
     ? ["allow_once", "deny"]
     : ["allow_once", "allow_session", "allow_permanent", "deny"];
@@ -189,6 +205,7 @@ export async function requestApproval(
     subjectKey: request.subject.key,
     argsDigest: request.argsDigest,
     nonce: randomUUID(),
+    decisionMode,
     ...(request.priorSubjectKeys?.length
       ? { priorSubjectKeys: [...new Set(request.priorSubjectKeys)].slice(0, 10) }
       : {}),

@@ -86,7 +86,10 @@ export function authorizeOwnerToolCall(
     return toolError("OWNER_NOT_CONFIGURED", "Development tools require OWNER_USER_ID.");
   }
   if (getRequestUserId() !== OWNER_USER_ID) {
-    logger.warn("owner_tool_authorization_denied", { toolName, userId: getRequestUserId() });
+    logger.warn("owner_tool_authorization_denied", {
+      toolName,
+      identityPresent: getRequestUserId() !== null,
+    });
     return toolError("OWNER_REQUIRED", "This development tool is restricted to the configured owner.");
   }
   return null;

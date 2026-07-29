@@ -12,6 +12,7 @@ process.env.LOG_LEVEL = "error";
 
 const { requestApproval, digestArguments } = await import("../dist/security/approval.js");
 const { approvalStateCodec } = await import("../dist/security/approvalState.js");
+const { approvalStore } = await import("../dist/security/approvalStore.js");
 
 function context({ state, decision } = {}) {
   return {
@@ -91,6 +92,64 @@ test("single-use allow_once completes without persisting a session grant", async
   );
   const replay = await requestApproval(context(), request("single-once", "single_use"));
   assert.equal(replay.resultType, "input_required");
+});
+
+test("single-use approval ignores an existing session grant", async () => {
+  const pending = request("single-existing-session", "single_use");
+  approvalStore.rememberSession(pending.userId, pending.tool, pending.subject.key);
+  const result = await requestApproval(context(), pending);
+  assert.equal(result.resultType, "input_required");
+  assert.deepEqual(findDecisionEnum(result.inputRequests.approval), ["allow_once", "deny"]);
+});
+
+test("single-use approval ignores an existing permanent grant", async () => {
+  const pending = request("single-existing-permanent", "single_use");
+  approvalStore.rememberPermanent(
+    pending.userId,
+    pending.tool,
+    pending.subject.kind,
+    pending.subject.key,
+    pending.subject.display,
+  );
+  const result = await requestApproval(context(), pending);
+  assert.equal(result.resultType, "input_required");
+  assert.deepEqual(findDecisionEnum(result.inputRequests.approval), ["allow_once", "deny"]);
+});
+
+test("a standard signed state cannot authorize a single-use retry", async () => {
+  const initial = await requestApproval(context(), request("mode-standard-to-single", "standard"));
+  const state = await approvalStateCodec.verify(initial.requestState, context());
+  const result = await requestApproval(
+    context({ state, decision: "allow_once" }),
+    request("mode-standard-to-single", "single_use"),
+  );
+  assert.equal(JSON.parse(result.content[0].text).code, "APPROVAL_DENIED");
+});
+
+test("a single-use signed state cannot authorize a standard retry", async () => {
+  const initial = await requestApproval(context(), request("mode-single-to-standard", "single_use"));
+  const state = await approvalStateCodec.verify(initial.requestState, context());
+  const result = await requestApproval(
+    context({ state, decision: "allow_once" }),
+    request("mode-single-to-standard", "standard"),
+  );
+  assert.equal(JSON.parse(result.content[0].text).code, "APPROVAL_DENIED");
+});
+
+test("a legacy signed state without a mode remains standard", async () => {
+  const pending = request("mode-legacy-standard", "standard");
+  const state = {
+    version: 1,
+    tool: pending.tool,
+    userId: pending.userId,
+    subjectKey: pending.subject.key,
+    argsDigest: pending.argsDigest,
+    nonce: "legacy-standard-mode-nonce",
+  };
+  assert.equal(
+    await requestApproval(context({ state, decision: "allow_once" }), pending),
+    true,
+  );
 });
 
 test("standard approvals still elicit all four choices", async () => {

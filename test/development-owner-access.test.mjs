@@ -83,3 +83,29 @@ test("an unauthenticated caller is rejected before the owner check", async () =>
   assert.equal(out.isError, true);
   assert.match(out.content[0].text, /Authentication/i);
 });
+
+test("owner denial audit does not log the raw request identity", async () => {
+  const rawIdentity = "raw-sensitive-request-identity-7f3a";
+  const script =
+    `import('./dist/security/requestContext.js').then(async(r)=>{const a=await import('./dist/security/toolAccess.js');await r.runWithRequestContext({token:'',userId:${JSON.stringify(rawIdentity)},email:null},()=>a.authorizeOwnerToolCall('get_development_task',{}));})`;
+  const result = spawnSync(
+    process.execPath,
+    ["--input-type=module", "-e", script],
+    {
+      cwd: projectDir,
+      encoding: "utf8",
+      env: {
+        ...process.env,
+        AUTH_MODE: "none",
+        APPROVAL_DATA_DIR: root,
+        APPROVAL_STATE_SECRET: "owner-log-secret-0123456789abcdef",
+        OWNER_USER_ID: "owner",
+        LOG_LEVEL: "warn",
+        LOG_FORMAT: "json",
+      },
+    },
+  );
+  assert.equal(result.status, 0, result.stderr);
+  assert.match(result.stderr, /owner_tool_authorization_denied/);
+  assert.doesNotMatch(result.stderr, new RegExp(rawIdentity));
+});
