@@ -3,6 +3,7 @@ import { z } from "zod";
 import { getRequestUserId } from "../security/requestContext.js";
 import { logger } from "../security/logger.js";
 import { attemptAuth, getActiveUsers, getMode } from "./pinAuth.js";
+import { submitLegacyDirectoryDecision } from "../security/legacyDirectoryApproval.js";
 
 export function registerAuthTool(server: McpServer): void {
   server.registerTool(
@@ -11,9 +12,20 @@ export function registerAuthTool(server: McpServer): void {
       description: "Authenticate the current request identity for access to MCP tools.",
       inputSchema: {
         pin: z.string().optional().describe("The server PIN when AUTH_MODE=pin"),
+        directoryApproval: z.object({
+          challenge: z.string().min(1),
+          decision: z.enum(["allow_once", "allow_session", "allow_permanent", "deny"]),
+        }).optional(),
       },
     },
-    async (args) => {
+    async (args, ctx) => {
+      if (args.directoryApproval) {
+        return submitLegacyDirectoryDecision(
+          ctx,
+          args.directoryApproval.challenge,
+          args.directoryApproval.decision,
+        );
+      }
       const mode = getMode();
       const userId = getRequestUserId();
       const result = attemptAuth(args.pin, userId);

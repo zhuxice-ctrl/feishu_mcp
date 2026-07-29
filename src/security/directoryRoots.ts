@@ -1,5 +1,6 @@
 import fs from "node:fs";
 import path from "node:path";
+import { createHash } from "node:crypto";
 
 export type DirectoryScopeKind = "file" | "directory";
 
@@ -61,4 +62,13 @@ export function deduplicateRoots(
     seen.add(key);
     return true;
   });
+}
+
+export function digestDirectoryRoots(roots: CanonicalDirectoryRoot[]): string {
+  return createHash("sha256")
+    .update(JSON.stringify(deduplicateRoots(roots).map((root) => ({
+      logicalRoot: root.logicalRoot,
+      physicalRoot: root.physicalRoot,
+    }))))
+    .digest("hex");
 }

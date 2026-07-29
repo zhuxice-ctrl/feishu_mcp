@@ -1,4 +1,4 @@
-import { createHash, randomUUID } from "node:crypto";
+import { randomUUID } from "node:crypto";
 import {
   acceptedContent,
   inputRequired,
@@ -13,6 +13,7 @@ import {
 } from "./directoryGrantStore.js";
 import {
   deduplicateRoots,
+  digestDirectoryRoots,
   type CanonicalDirectoryRoot,
 } from "./directoryRoots.js";
 import {
@@ -51,12 +52,6 @@ function canonicalRoots(roots: CanonicalDirectoryRoot[]): CanonicalDirectoryRoot
     logicalRoot: root.logicalRoot,
     physicalRoot: root.physicalRoot,
   }));
-}
-
-export function digestDirectoryRoots(roots: CanonicalDirectoryRoot[]): string {
-  return createHash("sha256")
-    .update(JSON.stringify(canonicalRoots(roots)))
-    .digest("hex");
 }
 
 function isDirectoryState(value: unknown): value is DirectoryApprovalStatePayload {

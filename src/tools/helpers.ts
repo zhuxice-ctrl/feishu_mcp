@@ -46,11 +46,11 @@ import {
 import {
   canonicalizeDirectoryScope,
   deduplicateRoots,
+  digestDirectoryRoots,
   type CanonicalDirectoryRoot,
   type DirectoryScopeKind,
 } from "../security/directoryRoots.js";
 import {
-  digestDirectoryRoots,
   requestDirectoryAuthorization,
   type DirectoryAuthorizationAllowed,
   type DirectoryAuthorizationOutcome,
