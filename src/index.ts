@@ -22,6 +22,10 @@ import {
   APPROVAL_TIMEOUT_MS,
   AUTH_ENABLED,
   AUTH_MODE,
+  DEV_MAX_BUILDS,
+  DEV_MAX_TASKS,
+  DEV_TASK_DATA_DIR,
+  DEV_TASK_QUEUE_TIMEOUT_MS,
   DIRECTORY_APPROVAL_FALLBACK,
   HOST,
   MCP_ENDPOINT,
@@ -47,10 +51,14 @@ import { approvalStore } from "./security/approvalStore.js";
 import { approvalStateCodec } from "./security/approvalState.js";
 import { cleanupTrash } from "./security/trash.js";
 import { directoryGrantStore } from "./security/directoryGrantStore.js";
+import { DevelopmentTaskCoordinator } from "./development/tasks/coordinator.js";
+import { DevelopmentTaskScheduler } from "./development/tasks/scheduler.js";
+import { DevelopmentTaskStore } from "./development/tasks/store.js";
 import { registerAskUserTool } from "./tools/askUser.js";
 import { registerCommandTool } from "./tools/command.js";
 import { concurrencySummary } from "./tools/concurrency.js";
 import { registerContentSearchTool } from "./tools/contentSearch.js";
+import { registerDevelopmentTaskTools } from "./tools/developmentTasks.js";
 import { registerDiffTool } from "./tools/diff.js";
 import { registerFilesystemTools } from "./tools/filesystem.js";
 import { registerGitTools } from "./tools/git.js";
@@ -65,6 +73,7 @@ const TOOL_NAMES = [
   "list_allowed_directories", "auth", "execute_command", "search_content",
   "git_status", "git_diff", "compare_files", "apply_patch", "web_fetch",
   "todo_write", "todo_read", "ask_user",
+  "get_development_task", "read_development_task_logs", "cancel_development_task",
 ] as const;
 
 const SERVER_INSTRUCTIONS =
@@ -73,6 +82,19 @@ const SERVER_INSTRUCTIONS =
   "wait for an explicit choice, submit the signed challenge through auth.directoryApproval, " +
   "then immediately retry the original tool with identical arguments. Never suggest editing " +
   "ALLOWED_DIRS or restarting the service for this error.";
+
+// ---------------------------------------------------------------------------
+// Development task subsystem — one coordinator per process
+// ---------------------------------------------------------------------------
+
+const developmentTaskCoordinator = new DevelopmentTaskCoordinator(
+  new DevelopmentTaskStore(DEV_TASK_DATA_DIR),
+  new DevelopmentTaskScheduler({
+    total: DEV_MAX_TASKS,
+    builds: DEV_MAX_BUILDS,
+    queueTimeoutMs: DEV_TASK_QUEUE_TIMEOUT_MS,
+  }),
+);
 
 // ---------------------------------------------------------------------------
 // MCP server factory — one fresh instance per request
@@ -138,6 +160,7 @@ function createMcpServer(): McpServer {
   registerWebFetchTool(server);
   registerTodoTools(server);
   registerAskUserTool(server);
+  registerDevelopmentTaskTools(server, developmentTaskCoordinator);
 
   return server;
 }
@@ -318,7 +341,7 @@ app.listen(PORT, HOST, () => {
     `Directory authorization: Feishu input_required (owner defaults ${OWNER_DEFAULT_DIRS.length}, permanent ${directoryGrantStore.summary().permanent})`,
     `Directory fallback: ${DIRECTORY_APPROVAL_FALLBACK}`,
     `Concurrency: ${JSON.stringify(concurrencySummary())}`,
-    "Tools: 21",
+    `Tools: ${TOOL_NAMES.length}`,
   ];
   if (AUTH_MODE === "pin") lines.push("PIN: configured via AUTH_PIN (value hidden)");
   process.stderr.write(`${lines.join("\n")}\n`);
