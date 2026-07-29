@@ -134,18 +134,33 @@ export const APPROVAL_DATA_DIR = process.env.APPROVAL_DATA_DIR || path.join(loca
 // Allowed directories (Phase 2 — directory whitelist)
 // ---------------------------------------------------------------------------
 
-const rawDirs = process.env.ALLOWED_DIRS || "";
+function envPathList(name: string): string[] {
+  const seen = new Set<string>();
+  const values: string[] = [];
+  for (const raw of (process.env[name] ?? "").split(",")) {
+    const trimmed = raw.trim();
+    if (!trimmed) continue;
+    const resolved = path.resolve(trimmed);
+    const key = process.platform === "win32" ? resolved.toLowerCase() : resolved;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    values.push(resolved);
+  }
+  return values;
+}
 
 /**
  * Resolved absolute paths of directories the server is allowed to operate in.
  * Empty array when ALLOWED_DIRS is unset — all file tools will refuse to run
  * until the operator configures at least one root.
  */
-export const ALLOWED_DIRS: string[] = rawDirs
-  .split(",")
-  .map((d) => d.trim())
-  .filter(Boolean)
-  .map((d) => path.resolve(d));
+export const ALLOWED_DIRS = envPathList("ALLOWED_DIRS");
+export const OWNER_USER_ID = process.env.OWNER_USER_ID?.trim() ?? "";
+export const OWNER_DEFAULT_DIRS = envPathList("OWNER_DEFAULT_DIRS");
+
+if (OWNER_DEFAULT_DIRS.length > 0 && !OWNER_USER_ID) {
+  throw new Error("OWNER_USER_ID is required when OWNER_DEFAULT_DIRS is configured");
+}
 
 // ---------------------------------------------------------------------------
 // Authentication (Phase 3 — Bearer Token)
