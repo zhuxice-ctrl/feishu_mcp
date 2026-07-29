@@ -157,9 +157,18 @@ function envPathList(name: string): string[] {
 export const ALLOWED_DIRS = envPathList("ALLOWED_DIRS");
 export const OWNER_USER_ID = process.env.OWNER_USER_ID?.trim() ?? "";
 export const OWNER_DEFAULT_DIRS = envPathList("OWNER_DEFAULT_DIRS");
+export type DirectoryApprovalFallback = "deny" | "owner";
+export const DIRECTORY_APPROVAL_FALLBACK: DirectoryApprovalFallback = envEnum(
+  "DIRECTORY_APPROVAL_FALLBACK",
+  ["deny", "owner"] as const,
+  "deny",
+);
 
 if (OWNER_DEFAULT_DIRS.length > 0 && !OWNER_USER_ID) {
   throw new Error("OWNER_USER_ID is required when OWNER_DEFAULT_DIRS is configured");
+}
+if (DIRECTORY_APPROVAL_FALLBACK === "owner" && !OWNER_USER_ID) {
+  throw new Error("OWNER_USER_ID is required when directory approval fallback is owner");
 }
 
 // ---------------------------------------------------------------------------

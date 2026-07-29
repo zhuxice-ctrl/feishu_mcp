@@ -14,6 +14,7 @@ import {
   mintApprovalState,
   type ApprovalStatePayload,
   type DirectoryApprovalStatePayload,
+  type LegacyDirectoryChallengePayload,
   type SignedRequestStatePayload,
 } from "./approvalState.js";
 import { toolError } from "../tools/results.js";
@@ -73,6 +74,12 @@ function isDirectoryState(value: SignedRequestStatePayload): value is DirectoryA
   return "kind" in value && value.kind === "directory";
 }
 
+function isLegacyDirectoryState(
+  value: SignedRequestStatePayload,
+): value is LegacyDirectoryChallengePayload {
+  return "kind" in value && value.kind === "legacy_directory";
+}
+
 function matchesPrior(payload: ApprovalStatePayload, request: ApprovalRequest): boolean {
   return payload.version === 1 && payload.tool === request.tool && payload.userId === request.userId &&
     payload.argsDigest === request.argsDigest && payload.priorSubjectKeys?.includes(request.subject.key) === true;
@@ -107,7 +114,9 @@ export async function requestApproval(
 
   const state = ctx.mcpReq.requestState<SignedRequestStatePayload>();
   if (state) {
-    if (isDirectoryState(state)) {
+    if (isLegacyDirectoryState(state)) {
+      return toolError("APPROVAL_DENIED", "Legacy directory state cannot authorize this operation.");
+    } else if (isDirectoryState(state)) {
       const continuingDirectoryChain = usedNonces.has(state.nonce) &&
         request.authorizedDirectoryRootsDigest !== undefined &&
         state.rootsDigest === request.authorizedDirectoryRootsDigest &&

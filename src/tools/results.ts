@@ -2,7 +2,8 @@ export type ToolErrorCode =
   | "AUTHENTICATION_REQUIRED" | "CLIENT_ELICITATION_UNSUPPORTED"
   | "APPROVAL_REQUIRED" | "APPROVAL_DENIED" | "APPROVAL_EXPIRED"
   | "DIRECTORY_APPROVAL_DENIED" | "DIRECTORY_GRANT_PERSIST_FAILED"
-  | "DIRECTORY_IDENTITY_REQUIRED"
+  | "DIRECTORY_IDENTITY_REQUIRED" | "DIRECTORY_APPROVAL_REQUIRED"
+  | "DIRECTORY_APPROVAL_EXPIRED"
   | "QUEUE_TIMEOUT" | "EXECUTION_TIMEOUT" | "OUTSIDE_ALLOWED_DIRS"
   | "SENSITIVE_PATH" | "INVALID_ARGUMENT" | "INVALID_PATTERN"
   | "INVALID_PATCH" | "PROCESS_FAILED" | "GIT_FAILED"
@@ -16,7 +17,12 @@ export function toolJson(value: unknown) {
   };
 }
 
-export function toolError(code: ToolErrorCode, message: string, retryable = false) {
-  const body = { ok: false, code, message, retryable };
+export function toolError(
+  code: ToolErrorCode,
+  message: string,
+  retryable = false,
+  details: Record<string, unknown> = {},
+) {
+  const body = { ok: false, code, message, retryable, ...details };
   return { ...toolJson(body), isError: true };
 }

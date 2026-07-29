@@ -11,7 +11,8 @@ function readConfig(overrides) {
     "process.stdout.write(JSON.stringify({",
     " ownerUserId: c.OWNER_USER_ID,",
     " ownerDefaultDirs: c.OWNER_DEFAULT_DIRS,",
-    " allowedDirs: c.ALLOWED_DIRS",
+    " allowedDirs: c.ALLOWED_DIRS,",
+    " directoryApprovalFallback: c.DIRECTORY_APPROVAL_FALLBACK",
     "}));",
   ].join("\n");
   return spawnSync(process.execPath, ["--input-type=module", "--eval", source], {
@@ -23,6 +24,7 @@ function readConfig(overrides) {
       ALLOWED_DIRS: "",
       OWNER_USER_ID: "",
       OWNER_DEFAULT_DIRS: "",
+      DIRECTORY_APPROVAL_FALLBACK: "",
       ...overrides,
     },
     encoding: "utf8",
@@ -36,11 +38,29 @@ test("owner defaults are empty unless both settings are configured", () => {
     ownerUserId: "",
     ownerDefaultDirs: [],
     allowedDirs: [],
+    directoryApprovalFallback: "deny",
   });
 
   const missingIdentity = readConfig({ OWNER_DEFAULT_DIRS: "F:\\" });
   assert.notEqual(missingIdentity.status, 0);
   assert.match(missingIdentity.stderr, /OWNER_USER_ID.*required/i);
+});
+
+test("legacy directory fallback defaults to deny and owner mode requires an owner", () => {
+  const defaults = readConfig({});
+  assert.equal(defaults.status, 0, defaults.stderr);
+  assert.equal(JSON.parse(defaults.stdout).directoryApprovalFallback, "deny");
+
+  const missingOwner = readConfig({ DIRECTORY_APPROVAL_FALLBACK: "owner" });
+  assert.notEqual(missingOwner.status, 0);
+  assert.match(missingOwner.stderr, /OWNER_USER_ID.*required.*fallback/i);
+
+  const owner = readConfig({
+    OWNER_USER_ID: "owner",
+    DIRECTORY_APPROVAL_FALLBACK: "owner",
+  });
+  assert.equal(owner.status, 0, owner.stderr);
+  assert.equal(JSON.parse(owner.stdout).directoryApprovalFallback, "owner");
 });
 
 test("path lists trim, resolve and deduplicate case-insensitively on Windows", () => {

@@ -11,6 +11,7 @@ import {
   APPROVAL_TIMEOUT_MS,
 } from "../config.js";
 import { getRequestUserId } from "./requestContext.js";
+import type { CanonicalDirectoryRoot } from "./directoryRoots.js";
 
 export interface ApprovalStatePayload {
   version: 1;
@@ -33,7 +34,22 @@ export interface DirectoryApprovalStatePayload {
   nonce: string;
 }
 
-export type SignedRequestStatePayload = ApprovalStatePayload | DirectoryApprovalStatePayload;
+export interface LegacyDirectoryChallengePayload {
+  version: 1;
+  kind: "legacy_directory";
+  userId: string;
+  tool: string;
+  argsDigest: string;
+  rootsDigest: string;
+  roots: CanonicalDirectoryRoot[];
+  nonce: string;
+  expiresAt: string;
+}
+
+export type SignedRequestStatePayload =
+  | ApprovalStatePayload
+  | DirectoryApprovalStatePayload
+  | LegacyDirectoryChallengePayload;
 
 function loadOrCreateApprovalKey(): string {
   if (APPROVAL_STATE_SECRET) {
