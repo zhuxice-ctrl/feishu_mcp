@@ -25,6 +25,7 @@ import {
   HOST,
   MCP_ENDPOINT,
   NGROK_DOMAIN,
+  OWNER_DEFAULT_DIRS,
   PORT,
   SERVER_NAME,
   SERVER_VERSION,
@@ -44,6 +45,7 @@ import {
 import { approvalStore } from "./security/approvalStore.js";
 import { approvalStateCodec } from "./security/approvalState.js";
 import { cleanupTrash } from "./security/trash.js";
+import { directoryGrantStore } from "./security/directoryGrantStore.js";
 import { registerAskUserTool } from "./tools/askUser.js";
 import { registerCommandTool } from "./tools/command.js";
 import { concurrencySummary } from "./tools/concurrency.js";
@@ -268,6 +270,12 @@ app.get("/health", (_req: Request, res: Response) => {
       stored: approvalStore.summary(),
       unsupportedClientPolicy: "deny",
     },
+    directoryAuthorization: {
+      enabled: true,
+      ownerDefaults: OWNER_DEFAULT_DIRS.length,
+      ...directoryGrantStore.summary(),
+      unsupportedClientPolicy: "deny",
+    },
     concurrency: concurrencySummary(),
     timestamp: new Date().toISOString(),
   });
@@ -297,11 +305,12 @@ app.listen(PORT, HOST, () => {
     `Server: http://${HOST}:${PORT}`,
     `MCP endpoint: http://${HOST}:${PORT}${MCP_ENDPOINT}`,
     `Health check: http://${HOST}:${PORT}/health`,
-    `Allowed directories: ${ALLOWED_DIRS.join(", ") || "none"}`,
+    `Configured static directory roots: ${ALLOWED_DIRS.length}`,
     `Bearer transport auth: ${AUTH_ENABLED ? "enabled" : "disabled"}`,
     `Tool auth mode: ${AUTH_MODE}`,
     "Approval: Feishu input_required (unsupported clients denied)",
     `Permanent approvals: ${approvalStore.summary().permanent}`,
+    `Directory authorization: Feishu input_required (owner defaults ${OWNER_DEFAULT_DIRS.length}, permanent ${directoryGrantStore.summary().permanent})`,
     `Concurrency: ${JSON.stringify(concurrencySummary())}`,
     "Tools: 21",
   ];

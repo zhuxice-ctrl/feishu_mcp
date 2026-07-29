@@ -16,7 +16,9 @@ async function fixture(overrides = {}) {
   const values = {
     PORT: "3000",
     HOST: "127.0.0.1",
-    ALLOWED_DIRS: root,
+    ALLOWED_DIRS: "",
+    OWNER_USER_ID: "owner",
+    OWNER_DEFAULT_DIRS: path.join(root, "owner-default-directory"),
     MCP_AUTH_TOKEN: "transport-secret-value",
     AUTH_MODE: "pin",
     AUTH_PIN: "pin-secret-value",
@@ -91,6 +93,8 @@ test(
           toolCount: output.toolCount,
           concurrency: output.concurrency,
           permanentApprovalCount: output.permanentApprovalCount,
+          ownerDefaultCount: output.ownerDefaultCount,
+          permanentDirectoryGrantCount: output.permanentDirectoryGrantCount,
         },
         {
           status: "ready",
@@ -101,8 +105,42 @@ test(
           toolCount: 21,
           concurrency: { search: 3, fetch: 4, global: 6, command: 2 },
           permanentApprovalCount: 0,
+          ownerDefaultCount: 1,
+          permanentDirectoryGrantCount: 0,
         }
       );
+      assert.doesNotMatch(result.stdout + result.stderr, /(?:^|[^A-Za-z])owner(?:$|[^A-Za-z])/);
+      assert.equal((result.stdout + result.stderr).includes(path.join(item.root, "owner-default-directory")), false);
+    } finally {
+      await rm(item.root, { recursive: true, force: true });
+    }
+  }
+);
+
+test(
+  "launcher requires an owner identity when owner defaults are configured",
+  { skip: process.platform !== "win32" },
+  async () => {
+    const item = await fixture({ OWNER_USER_ID: "" });
+    try {
+      const result = checkOnly(item.envFile, item.fakeNgrok);
+      assert.notEqual(result.status, 0);
+      assert.match(result.stderr, /OWNER_USER_ID.*required/i);
+    } finally {
+      await rm(item.root, { recursive: true, force: true });
+    }
+  }
+);
+
+test(
+  "launcher requires either static or owner default directories",
+  { skip: process.platform !== "win32" },
+  async () => {
+    const item = await fixture({ ALLOWED_DIRS: "", OWNER_DEFAULT_DIRS: "" });
+    try {
+      const result = checkOnly(item.envFile, item.fakeNgrok);
+      assert.notEqual(result.status, 0);
+      assert.match(result.stderr, /ALLOWED_DIRS or OWNER_DEFAULT_DIRS/i);
     } finally {
       await rm(item.root, { recursive: true, force: true });
     }

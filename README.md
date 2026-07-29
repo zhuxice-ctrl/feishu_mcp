@@ -107,6 +107,19 @@ MAX_CONCURRENT_SEARCHES=2
 MAX_CONCURRENT_FETCHES=4
 ```
 
+企业内部、仅设备所有者使用的部署可改用以下固定身份配置（不在此处放入任何
+Token、PIN 或其他密钥）：
+
+```env
+ALLOWED_DIRS=
+OWNER_USER_ID=owner
+OWNER_DEFAULT_DIRS=F:\
+```
+
+在这种部署中，企业内部 MCP 工具必须只对设备所有者可见：Aily 配置固定请求头
+`x-aily-user=owner`，不要把该 MCP 暴露给会携带其他身份的用户。`F:\` 只会作为
+`owner` 的默认目录，其他身份不能继承它。
+
 ### 两层鉴权的区别
 
 - `MCP_AUTH_TOKEN` 是可选的传输层共享密钥，适合保护 ngrok 公网入口。
@@ -116,13 +129,20 @@ MAX_CONCURRENT_FETCHES=4
 
 完整配置项见 `.env.example`。
 
-### 确认卡片与永久授权
+### 目录确认卡片与永久授权
 
-高风险命令、首次访问的网络来源，以及策略要求确认的路径会在当前飞书对话中显示补充信息卡片。选择“永久允许”只会保存卡片上展示的精确范围，不会给整个磁盘或全部命令放行。管理本地永久许可：
+高风险命令、首次访问的网络来源，以及策略要求确认的路径会在当前飞书对话中显示补充信息卡片。目录首次超出当前范围时，会显示四个选择：“本次允许”、“当前服务进程内允许”、“永久允许”和“拒绝”。批准后，原工具调用会自动重试；拒绝时不会执行该操作。选择“永久允许”只会保存卡片上展示的精确范围，不会给整个磁盘或全部命令放行。
+
+MCP 自身的授权数据目录、审批数据库、签名密钥及其子路径是唯一不可授权的内部数据范围。管理本地永久操作许可与目录许可：
 
 ```text
 manage-feishu-mcp-approvals.bat
+manage-feishu-mcp-approvals.bat -ListDirectories
+manage-feishu-mcp-approvals.bat -RemoveDirectory <编号或ID前缀>
+manage-feishu-mcp-approvals.bat -ClearDirectories
 ```
+
+目录列表只显示编号、ID 前缀、不可逆用户哈希、磁盘/卷标与目录名，不显示完整路径或原始身份。目录授权不会增加 MCP 工具：`tools/list` 始终返回 21 个工具。
 
 任务列表仅保存在当前 Node 进程内并按 `x-aily-user` 隔离，重启服务后自动清空。
 

@@ -71,7 +71,38 @@ Bearer Token 只保护 HTTP/ngrok 入口；工具调用还受 `AUTH_MODE` 控制
 
 PIN 不会输出到 stdout、stderr 或日志。请通过安全渠道把它交给需要认证的操作者，不要写入普通对话或公开配置。
 
-### 5. 在 Aily 中添加并测试 MCP
+### 5. 配置仅所有者可见的企业内部目录
+
+若该企业内部 MCP 应只让设备所有者使用，请在服务部署中配置以下值（不包含
+Token、PIN 或其他密钥）：
+
+```env
+ALLOWED_DIRS=
+OWNER_USER_ID=owner
+OWNER_DEFAULT_DIRS=F:\
+```
+
+同时在 Aily 为该 MCP 固定配置 `x-aily-user=owner` 请求头，并仅让所有者看见该
+MCP 工具。该固定身份是 `F:\` 默认目录只对 owner 生效的前提；其他用户不能共享
+或继承此范围。目录授权不会新增工具，`tools/list` 始终保持 21 个工具。
+
+当工具首次访问范围外目录时，飞书会显示“本次允许”、“当前服务进程内允许”、
+“永久允许”和“拒绝”四个选择。批准后服务会自动重试原始调用；拒绝则不产生文件
+系统副作用。唯一不可授权的内部数据范围是 MCP 的授权数据目录、审批数据库、
+签名密钥及其子路径。
+
+查看或撤销本机的永久目录授权：
+
+```text
+manage-feishu-mcp-approvals.bat -ListDirectories
+manage-feishu-mcp-approvals.bat -RemoveDirectory <编号或ID前缀>
+manage-feishu-mcp-approvals.bat -ClearDirectories
+```
+
+输出使用编号、ID 前缀、不可逆用户哈希和目录名/卷标，绝不显示完整路径或原始用户
+身份。
+
+### 6. 在 Aily 中添加并测试 MCP
 
 1. 在 Aily 助手对话中，添加该 MCP
 2. 输入你的 Bearer Token
@@ -100,7 +131,7 @@ PIN 不会输出到 stdout、stderr 或日志。请通过安全渠道把它交�
 
 需要授权时，飞书客户端应显示四个选择：本次允许、当前服务进程内允许、永久允许、拒绝。客户端若不支持 MCP `input_required`，服务会拒绝受保护操作，不会退回终端、浏览器或普通文本确认。永久许可按用户、工具和精确目标保存，可在服务所在电脑运行 `manage-feishu-mcp-approvals.bat` 查看或撤销。
 
-### 6. 端到端验证清单
+### 7. 端到端验证清单
 
 - [ ] `ping` 工具返回 `pong`
 - [ ] `list_allowed_directories` 返回配置的目录
@@ -121,7 +152,7 @@ PIN 不会输出到 stdout、stderr 或日志。请通过安全渠道把它交�
 - [ ] `todo_write` / `todo_read` 按用户隔离
 - [ ] `ask_user` 在飞书对话内返回文本或选项结果
 
-### 7. 安全验证清单
+### 8. 安全验证清单
 
 - [ ] 未提供 Token 时请求被拒绝（401）
 - [ ] 提供错误 Token 时请求被拒绝（401）

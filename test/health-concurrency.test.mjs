@@ -1,12 +1,16 @@
 import assert from "node:assert/strict";
 import { spawn } from "node:child_process";
-import { mkdtemp, rm } from "node:fs/promises";
+import { mkdir, mkdtemp, rm } from "node:fs/promises";
 import net from "node:net";
 import os from "node:os";
 import path from "node:path";
 import test from "node:test";
 
 const projectDir = path.resolve(import.meta.dirname, "..");
+
+function escapeRegExp(value) {
+  return value.replace(/[.*+?^\${}()|[\]\\]/g, "\\$&");
+}
 
 async function freePort() {
   const server = net.createServer();
@@ -29,6 +33,9 @@ async function stop(child) {
 
 test("health exposes redacted approval and concurrency summaries", async () => {
   const root = await mkdtemp(path.join(os.tmpdir(), "feishu-health-"));
+  const ownerRoot = path.join(root, "private-owner-default");
+  const ownerId = "health-owner-identity";
+  await mkdir(ownerRoot);
   const port = await freePort();
   const child = spawn(process.execPath, ["dist/index.js"], {
     cwd: projectDir,
@@ -36,7 +43,9 @@ test("health exposes redacted approval and concurrency summaries", async () => {
       ...process.env,
       HOST: "127.0.0.1",
       PORT: String(port),
-      ALLOWED_DIRS: root,
+      ALLOWED_DIRS: "",
+      OWNER_USER_ID: ownerId,
+      OWNER_DEFAULT_DIRS: ownerRoot,
       APPROVAL_DATA_DIR: path.join(root, "approvals"),
       LOG_DIR: path.join(root, "logs"),
       MCP_AUTH_TOKEN: "",
@@ -73,7 +82,17 @@ test("health exposes redacted approval and concurrency summaries", async () => {
     }
     assert.deepEqual(health.approval.stored, { session: 0, permanent: 0 });
     assert.equal(health.approval.unsupportedClientPolicy, "deny");
-    assert.doesNotMatch(JSON.stringify(health), /subjectKey|userId|approval\.key|approvals\.json/i);
+    assert.deepEqual(health.directoryAuthorization, {
+      enabled: true,
+      ownerDefaults: 1,
+      session: 0,
+      permanent: 0,
+      unsupportedClientPolicy: "deny",
+    });
+    const serialized = JSON.stringify(health);
+    assert.doesNotMatch(serialized, /subjectKey|userId|approval\.key|approvals\.json/i);
+    assert.doesNotMatch(serialized, new RegExp(escapeRegExp(ownerId)));
+    assert.doesNotMatch(serialized, new RegExp(escapeRegExp(ownerRoot.replace(/\\/g, "\\\\"))));
   } finally {
     await stop(child);
     await rm(root, { recursive: true, force: true });

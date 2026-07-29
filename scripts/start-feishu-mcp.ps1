@@ -218,7 +218,16 @@ function Invoke-Launcher {
         throw "HOST must be 127.0.0.1 for the tunnel launcher"
     }
 
-    [void](Require-Value "ALLOWED_DIRS")
+    $allowedDirs = [Environment]::GetEnvironmentVariable("ALLOWED_DIRS", "Process")
+    $ownerDirs = [Environment]::GetEnvironmentVariable("OWNER_DEFAULT_DIRS", "Process")
+    $ownerId = [Environment]::GetEnvironmentVariable("OWNER_USER_ID", "Process")
+    if ([string]::IsNullOrWhiteSpace($allowedDirs) -and [string]::IsNullOrWhiteSpace($ownerDirs)) {
+        throw "ALLOWED_DIRS or OWNER_DEFAULT_DIRS must configure at least one directory"
+    }
+    if (-not [string]::IsNullOrWhiteSpace($ownerDirs) -and [string]::IsNullOrWhiteSpace($ownerId)) {
+        throw "OWNER_USER_ID is required when OWNER_DEFAULT_DIRS is configured"
+    }
+    $ownerDefaultCount = @($ownerDirs -split ',' | Where-Object { $_.Trim() }).Count
     $transportToken = Require-Value "MCP_AUTH_TOKEN"
     $authMode = [Environment]::GetEnvironmentVariable("AUTH_MODE", "Process")
     if ([string]::IsNullOrWhiteSpace($authMode)) {
@@ -273,6 +282,7 @@ function Invoke-Launcher {
     }
     New-Item -ItemType Directory -Path $approvalDataDir -Force | Out-Null
     $approvalFile = Join-Path $approvalDataDir "approvals.json"
+    $directoryGrantFile = Join-Path $approvalDataDir "directory-grants.json"
     $approvalCount = 0
     if (Test-Path -LiteralPath $approvalFile -PathType Leaf) {
         try {
@@ -280,6 +290,18 @@ function Invoke-Launcher {
             $approvalCount = @($approvalDocument.approvals).Count
         } catch {
             throw "Approval store is not valid JSON"
+        }
+    }
+    $directoryGrantCount = 0
+    if (Test-Path -LiteralPath $directoryGrantFile -PathType Leaf) {
+        try {
+            $directoryDocument = Get-Content -LiteralPath $directoryGrantFile -Raw -Encoding UTF8 | ConvertFrom-Json
+            if ($directoryDocument.version -ne 1 -or $null -eq $directoryDocument.grants) {
+                throw "invalid directory grant schema"
+            }
+            $directoryGrantCount = @($directoryDocument.grants).Count
+        } catch {
+            throw "Directory grant store is not valid JSON"
         }
     }
 
@@ -317,6 +339,8 @@ function Invoke-Launcher {
                 fetch = $maxConcurrentFetches
             }
             permanentApprovalCount = $approvalCount
+            ownerDefaultCount = $ownerDefaultCount
+            permanentDirectoryGrantCount = $directoryGrantCount
         } | ConvertTo-Json -Compress
         return
     }
