@@ -1,0 +1,237 @@
+{
+  "version": 1,
+  "components": [
+    {
+      "id": "microsoft.openjdk.17",
+      "target": "android",
+      "displayName": "Microsoft OpenJDK 17",
+      "versions": ["17.0.13", "17.0.12"],
+      "discovery": {
+        "kind": "registry",
+        "values": [
+          "HKLM\\SOFTWARE\\Microsoft\\JDK\\17",
+          "HKLM\\SOFTWARE\\JavaSoft\\JDK\\17"
+        ]
+      },
+      "publishers": ["Microsoft Corporation"],
+      "install": { "kind": "winget", "packageId": "Microsoft.OpenJDK.17", "source": "winget" }
+    },
+    {
+      "id": "org.gradle.distribution",
+      "target": "android",
+      "displayName": "Gradle distribution",
+      "versions": ["8.10.2"],
+      "discovery": {
+        "kind": "fixed_candidates",
+        "values": [
+          "%GRADLE_HOME%\\bin\\gradle.bat",
+          "C:\\Program Files\\Gradle\\gradle-8.10.2\\bin\\gradle.bat"
+        ]
+      },
+      "publishers": ["Gradle Inc."],
+      "install": {
+        "kind": "verified_archive",
+        "artifactId": "gradle-8.10.2-bin",
+        "url": "https://services.gradle.org/distributions/gradle-8.10.2-bin.zip",
+        "sha256": "31c55713e40233a8303827ceb42ca48a47267a0ad4bab9177123121e71524c26"
+      }
+    },
+    {
+      "id": "google.android.commandlinetools",
+      "target": "android",
+      "displayName": "Android command-line tools (latest)",
+      "versions": ["13.0"],
+      "discovery": {
+        "kind": "fixed_candidates",
+        "values": [
+          "%ANDROID_HOME%\\cmdline-tools\\latest\\bin\\sdkmanager.bat",
+          "%LOCALAPPDATA%\\Android\\Sdk\\cmdline-tools\\latest\\bin\\sdkmanager.bat"
+        ]
+      },
+      "publishers": ["Google LLC"],
+      "install": { "kind": "android_sdk", "packageId": "cmdline-tools;latest" }
+    },
+    {
+      "id": "google.android.platform-tools",
+      "target": "android",
+      "displayName": "Android platform-tools",
+      "versions": ["35.0.2"],
+      "discovery": {
+        "kind": "fixed_candidates",
+        "values": [
+          "%ANDROID_HOME%\\platform-tools\\adb.exe",
+          "%LOCALAPPDATA%\\Android\\Sdk\\platform-tools\\adb.exe"
+        ]
+      },
+      "publishers": ["Google LLC"],
+      "install": { "kind": "android_sdk", "packageId": "platform-tools" }
+    },
+    {
+      "id": "google.android.emulator",
+      "target": "android",
+      "displayName": "Android emulator",
+      "versions": ["35.1.4"],
+      "discovery": {
+        "kind": "fixed_candidates",
+        "values": [
+          "%ANDROID_HOME%\\emulator\\emulator.exe",
+          "%LOCALAPPDATA%\\Android\\Sdk\\emulator\\emulator.exe"
+        ]
+      },
+      "publishers": ["Google LLC"],
+      "install": { "kind": "android_sdk", "packageId": "emulator" }
+    },
+    {
+      "id": "google.android.platform.35",
+      "target": "android",
+      "displayName": "Android 15 (API 35) platform",
+      "versions": ["android-35"],
+      "discovery": {
+        "kind": "sdkmanager",
+        "values": ["platforms;android-35"]
+      },
+      "publishers": ["Google LLC"],
+      "install": { "kind": "android_sdk", "packageId": "platforms;android-35" }
+    },
+    {
+      "id": "google.android.build-tools.35",
+      "target": "android",
+      "displayName": "Android build-tools 35.0.0",
+      "versions": ["35.0.0"],
+      "discovery": {
+        "kind": "sdkmanager",
+        "values": ["build-tools;35.0.0"]
+      },
+      "publishers": ["Google LLC"],
+      "install": { "kind": "android_sdk", "packageId": "build-tools;35.0.0" }
+    },
+    {
+      "id": "google.android.system-image.35",
+      "target": "android",
+      "displayName": "Android 35 google_apis x86_64 system image",
+      "versions": ["android-35"],
+      "discovery": {
+        "kind": "sdkmanager",
+        "values": ["system-images;android-35;google_apis;x86_64"]
+      },
+      "publishers": ["Google LLC"],
+      "install": { "kind": "android_sdk", "packageId": "system-images;android-35;google_apis;x86_64" }
+    },
+    {
+      "id": "microsoft.dotnet.sdk.8",
+      "target": "dotnet",
+      "displayName": ".NET SDK 8",
+      "versions": ["8.0.404"],
+      "discovery": {
+        "kind": "fixed_candidates",
+        "values": [
+          "%ProgramFiles%\\dotnet\\dotnet.exe",
+          "C:\\Program Files\\dotnet\\dotnet.exe"
+        ]
+      },
+      "publishers": ["Microsoft Corporation"],
+      "install": { "kind": "winget", "packageId": "Microsoft.DotNet.SDK.8", "source": "winget" }
+    },
+    {
+      "id": "microsoft.visualstudio.2022.buildtools",
+      "target": "native",
+      "displayName": "Visual Studio 2022 Build Tools",
+      "versions": ["17.13"],
+      "discovery": {
+        "kind": "vswhere",
+        "values": ["-products", "Microsoft.VisualStudio.Product.BuildTools"]
+      },
+      "publishers": ["Microsoft Corporation"],
+      "install": { "kind": "winget", "packageId": "Microsoft.VisualStudio.2022.BuildTools", "source": "winget" }
+    },
+    {
+      "id": "microsoft.visualstudio.workload.manageddesktop",
+      "target": "dotnet",
+      "displayName": "Visual Studio managed desktop workload",
+      "versions": ["17.13"],
+      "discovery": { "kind": "vswhere", "values": ["-requires", "Microsoft.VisualStudio.Workload.ManagedDesktop"] },
+      "publishers": ["Microsoft Corporation"],
+      "install": { "kind": "vs_workload", "workloadId": "Microsoft.VisualStudio.Workload.ManagedDesktop" }
+    },
+    {
+      "id": "microsoft.visualstudio.workload.nativedesktop",
+      "target": "native",
+      "displayName": "Visual Studio native desktop workload",
+      "versions": ["17.13"],
+      "discovery": { "kind": "vswhere", "values": ["-requires", "Microsoft.VisualStudio.Workload.NativeDesktop"] },
+      "publishers": ["Microsoft Corporation"],
+      "install": { "kind": "vs_workload", "workloadId": "Microsoft.VisualStudio.Workload.NativeDesktop" }
+    },
+    {
+      "id": "microsoft.visualstudio.workload.universal",
+      "target": "native",
+      "displayName": "Visual Studio Universal (WinUI) workload",
+      "versions": ["17.13"],
+      "discovery": { "kind": "vswhere", "values": ["-requires", "Microsoft.VisualStudio.Workload.Universal"] },
+      "publishers": ["Microsoft Corporation"],
+      "install": { "kind": "vs_workload", "workloadId": "Microsoft.VisualStudio.Workload.Universal" }
+    },
+    {
+      "id": "microsoft.windows.sdk.11",
+      "target": "native",
+      "displayName": "Windows 11 SDK (10.0.26100)",
+      "versions": ["10.0.26100"],
+      "discovery": {
+        "kind": "registry",
+        "values": [
+          "HKLM\\SOFTWARE\\Microsoft\\Windows Kits\\Installed Roots\\KitsRoot10"
+        ]
+      },
+      "publishers": ["Microsoft Corporation"],
+      "install": { "kind": "winget", "packageId": "Microsoft.WindowsSDK.10.0.26100", "source": "winget" }
+    },
+    {
+      "id": "kitware.cmake",
+      "target": "native",
+      "displayName": "CMake",
+      "versions": ["3.31.2"],
+      "discovery": {
+        "kind": "fixed_candidates",
+        "values": ["%ProgramFiles%\\CMake\\bin\\cmake.exe", "C:\\Program Files\\CMake\\bin\\cmake.exe"]
+      },
+      "publishers": ["Kitware, Inc."],
+      "install": { "kind": "winget", "packageId": "Kitware.CMake", "source": "winget" }
+    },
+    {
+      "id": "ninja-build.ninja",
+      "target": "native",
+      "displayName": "Ninja build system",
+      "versions": ["1.12.1"],
+      "discovery": {
+        "kind": "fixed_candidates",
+        "values": ["%ProgramFiles%\\Ninja\\ninja.exe", "C:\\Program Files\\Ninja\\ninja.exe"]
+      },
+      "publishers": ["Ninja Project"],
+      "install": { "kind": "winget", "packageId": "Ninja-build.Ninja", "source": "winget" }
+    },
+    {
+      "id": "openjs.nodejs.lts",
+      "target": "electron",
+      "displayName": "Node.js LTS",
+      "versions": ["22.12.0"],
+      "discovery": {
+        "kind": "fixed_candidates",
+        "values": ["%ProgramFiles%\\nodejs\\node.exe", "C:\\Program Files\\nodejs\\node.exe"]
+      },
+      "publishers": ["OpenJS Foundation"],
+      "install": { "kind": "winget", "packageId": "OpenJS.NodeJS.LTS", "source": "winget" }
+    },
+    {
+      "id": "git.git",
+      "target": "native",
+      "displayName": "Git",
+      "versions": ["2.47.1"],
+      "discovery": {
+        "kind": "fixed_candidates",
+        "values": ["%ProgramFiles%\\Git\\bin\\git.exe", "C:\\Program Files\\Git\\bin\\git.exe"]
+      },
+      "publishers": ["The Git Development Community"],
+      "install": { "kind": "winget", "packageId": "Git.Git", "source": "winget" }
+    }
+  ]
+}
