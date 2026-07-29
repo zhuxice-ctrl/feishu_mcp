@@ -26,6 +26,27 @@ test("approval store isolates session grants and persists exact permanent grants
     assert.equal(reloaded.has("alice", "web_fetch", "https://example.com:443"), false);
     const parsed = JSON.parse(await readFile(path.join(root, "approvals.json"), "utf8"));
     assert.deepEqual(parsed, { version: 1, approvals: [] });
+
+    // Every approval subject kind — old and new — round-trips through disk.
+    const kinds = [
+      "command",
+      "origin",
+      "path",
+      "paths",
+      "development",
+      "environment_plan",
+      "device",
+      "credential",
+    ];
+    const wide = new ApprovalStore(root);
+    for (const [index, kind] of kinds.entries()) {
+      wide.rememberPermanent("alice", "development_tool", kind, `key-${kind}`, `display-${index}`);
+    }
+    const reloadedKinds = new ApprovalStore(root);
+    for (const kind of kinds) {
+      assert.equal(reloadedKinds.has("alice", "development_tool", `key-${kind}`), true, kind);
+    }
+    assert.equal(reloadedKinds.list().length, kinds.length);
   } finally {
     await rm(root, { recursive: true, force: true });
   }

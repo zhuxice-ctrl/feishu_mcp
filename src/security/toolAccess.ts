@@ -4,6 +4,7 @@ import type { NextFunction, Request, Response } from "express";
 import {
   CONSENT_ABSOLUTE_PATH,
   CONSENT_SENSITIVE_FILE,
+  OWNER_USER_ID,
 } from "../config.js";
 import { extractRequestContext, getRequestUserId } from "./requestContext.js";
 import { inspectPath, PATH_ARGS } from "./consent.js";
@@ -68,6 +69,27 @@ export function authorizeToolCall(
   _args: unknown
 ): ToolAccessError | null {
   return authorizeToolForUser(toolName, getRequestUserId());
+}
+
+/**
+ * Owner-only authorization for development tools. Runs the standard
+ * authenticated-identity check first, then requires a configured owner and a
+ * matching request identity. `authorizeToolCall` behavior is unchanged.
+ */
+export function authorizeOwnerToolCall(
+  toolName: string,
+  _args: unknown,
+): ToolAccessError | null {
+  const authenticated = authorizeToolCall(toolName, _args);
+  if (authenticated) return authenticated;
+  if (!OWNER_USER_ID) {
+    return toolError("OWNER_NOT_CONFIGURED", "Development tools require OWNER_USER_ID.");
+  }
+  if (getRequestUserId() !== OWNER_USER_ID) {
+    logger.warn("owner_tool_authorization_denied", { toolName, userId: getRequestUserId() });
+    return toolError("OWNER_REQUIRED", "This development tool is restricted to the configured owner.");
+  }
+  return null;
 }
 
 /**

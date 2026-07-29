@@ -8,7 +8,7 @@ import {
 import { toolError } from "./results.js";
 
 export interface ToolSubject {
-  kind: "command" | "origin" | "path" | "paths";
+  kind: "command" | "origin" | "path" | "paths" | "development" | "environment_plan" | "device" | "credential";
   key: string;
   display: string;
 }

@@ -131,6 +131,35 @@ const localAppData = process.env.LOCALAPPDATA || path.join(os.homedir(), "AppDat
 export const APPROVAL_DATA_DIR = process.env.APPROVAL_DATA_DIR || path.join(localAppData, "feishu-mcp");
 
 // ---------------------------------------------------------------------------
+// Development task execution limits (Phase 1 — owner-only background tasks)
+// ---------------------------------------------------------------------------
+
+export const DEV_MAX_TASKS = envBoundedPositiveInt("DEV_MAX_TASKS", 4, 16);
+export const DEV_MAX_BUILDS = envBoundedPositiveInt("DEV_MAX_BUILDS", 2, 8);
+export const DEV_TASK_QUEUE_TIMEOUT_MS = envBoundedPositiveInt(
+  "DEV_TASK_QUEUE_TIMEOUT_MS", 15 * 60_000, MAX_TIMEOUT_MS,
+);
+export const DEV_TASK_RETENTION_DAYS = envBoundedPositiveInt("DEV_TASK_RETENTION_DAYS", 14, 365);
+export const DEV_TASK_MAX_TOTAL_BYTES = envBoundedPositiveInt(
+  "DEV_TASK_MAX_TOTAL_BYTES", 1_073_741_824, 10 * 1_073_741_824,
+);
+export const DEV_TASK_LOG_MAX_BYTES = envBoundedPositiveInt(
+  "DEV_TASK_LOG_MAX_BYTES", 52_428_800, 536_870_912,
+);
+export const DEV_TASK_HEARTBEAT_MS = envBoundedPositiveInt("DEV_TASK_HEARTBEAT_MS", 2_000, 60_000);
+export const DEV_TASK_CANCEL_GRACE_MS = envBoundedPositiveInt("DEV_TASK_CANCEL_GRACE_MS", 5_000, 60_000);
+export const DEV_TASK_MAX_RUNTIME_MS = envBoundedPositiveInt(
+  "DEV_TASK_MAX_RUNTIME_MS", 2 * 60 * 60_000, 24 * 60 * 60_000,
+);
+export const DEV_TASK_DATA_DIR = path.resolve(
+  process.env.DEV_TASK_DATA_DIR || path.join(APPROVAL_DATA_DIR, "tasks"),
+);
+const taskDataRelative = path.relative(path.resolve(APPROVAL_DATA_DIR), DEV_TASK_DATA_DIR);
+if (taskDataRelative.startsWith("..") || path.isAbsolute(taskDataRelative)) {
+  throw new Error("DEV_TASK_DATA_DIR must be inside APPROVAL_DATA_DIR");
+}
+
+// ---------------------------------------------------------------------------
 // Allowed directories (Phase 2 — directory whitelist)
 // ---------------------------------------------------------------------------
 

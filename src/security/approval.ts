@@ -27,6 +27,8 @@ export interface ApprovalRequest {
   reasons: string[];
   priorSubjectKeys?: string[];
   authorizedDirectoryRootsDigest?: string;
+  /** Restrict the elicitation to a single allow_once/deny decision. */
+  decisionMode?: "standard" | "single_use";
 }
 
 export type ApprovalOutcome = true | CallToolResult | InputRequiredResult;
@@ -143,6 +145,12 @@ export async function requestApproval(
       if (!consumeSignedNonce(state.nonce)) {
         return toolError("APPROVAL_DENIED", "Approval state has already been used.");
       }
+      const allowedDecisions = request.decisionMode === "single_use"
+        ? (["allow_once", "deny"] as const)
+        : (["allow_once", "allow_session", "allow_permanent", "deny"] as const);
+      if (!(allowedDecisions as readonly string[]).includes(response.decision)) {
+        return toolError("APPROVAL_DENIED", "This operation requires a single-use decision.");
+      }
       if (response.decision === "deny") {
         logDecision(request, "deny");
         return toolError("APPROVAL_DENIED", "The user denied this operation.");
@@ -170,6 +178,10 @@ export async function requestApproval(
     );
   }
 
+  const decisionMode = request.decisionMode === "single_use" ? "single_use" : "standard";
+  const decisionEnum = decisionMode === "single_use"
+    ? ["allow_once", "deny"]
+    : ["allow_once", "allow_session", "allow_permanent", "deny"];
   const payload: ApprovalStatePayload = {
     version: 1,
     tool: request.tool,
@@ -196,7 +208,7 @@ export async function requestApproval(
             decision: {
               type: "string",
               title: "Authorization",
-              enum: ["allow_once", "allow_session", "allow_permanent", "deny"],
+              enum: decisionEnum,
             },
           },
           required: ["decision"],

@@ -3,7 +3,14 @@ import path from "node:path";
 import { randomUUID } from "node:crypto";
 import { APPROVAL_DATA_DIR } from "../config.js";
 
-export type ApprovalSubjectKind = "command" | "origin" | "path" | "paths";
+export type ApprovalSubjectKind =
+  | "command" | "origin" | "path" | "paths"
+  | "development" | "environment_plan" | "device" | "credential";
+
+const APPROVAL_SUBJECT_KINDS: readonly ApprovalSubjectKind[] = [
+  "command", "origin", "path", "paths",
+  "development", "environment_plan", "device", "credential",
+];
 
 export interface StoredApproval {
   id: string;
@@ -117,7 +124,7 @@ export class ApprovalStore {
         if (!item || typeof item.id !== "string" || typeof item.userId !== "string" ||
             typeof item.tool !== "string" || typeof item.subjectKey !== "string" ||
             typeof item.display !== "string" || typeof item.createdAt !== "string" ||
-            !["command", "origin", "path", "paths"].includes(item.subjectKind)) continue;
+            !APPROVAL_SUBJECT_KINDS.includes(item.subjectKind as ApprovalSubjectKind)) continue;
         this.permanent.set(grantKey(item.userId, item.tool, item.subjectKey), item);
       }
     } catch (error) {
