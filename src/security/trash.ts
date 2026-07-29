@@ -11,17 +11,22 @@
 import fs from "node:fs";
 import path from "node:path";
 import crypto from "node:crypto";
-import { ALLOWED_DIRS, TRASH_DIR_NAME, TRASH_RETENTION_DAYS } from "../config.js";
+import { OWNER_USER_ID, TRASH_DIR_NAME, TRASH_RETENTION_DAYS } from "../config.js";
+import { directoryGrantStore } from "./directoryGrantStore.js";
+import { getRequestDirectoryRoots, getRequestUserId } from "./requestContext.js";
+import { isInsideDirectory } from "./directoryRoots.js";
 
 /**
  * Find or create the .trash directory for a given file path's root.
  */
 function getTrashDir(filePath: string): string | null {
-  for (const root of ALLOWED_DIRS) {
-    const normalizedRoot = path.normalize(root) + path.sep;
-    const normalizedFile = path.normalize(filePath) + path.sep;
-    if (normalizedFile.startsWith(normalizedRoot)) {
-      const trashPath = path.join(root, TRASH_DIR_NAME);
+  const roots = [
+    ...directoryGrantStore.effectiveRoots(getRequestUserId()),
+    ...getRequestDirectoryRoots().map((root) => ({ ...root, source: "allow_once" as const })),
+  ];
+  for (const root of roots) {
+    if (isInsideDirectory(filePath, root.physicalRoot)) {
+      const trashPath = path.join(root.physicalRoot, TRASH_DIR_NAME);
       try {
         fs.mkdirSync(trashPath, { recursive: true });
       } catch {
@@ -72,8 +77,9 @@ export function cleanupTrash(): number {
   const now = Date.now();
   const maxAgeMs = TRASH_RETENTION_DAYS * 24 * 60 * 60 * 1000;
 
-  for (const root of ALLOWED_DIRS) {
-    const trashDir = path.join(root, TRASH_DIR_NAME);
+  const roots = directoryGrantStore.effectiveRoots(OWNER_USER_ID || null);
+  for (const root of roots) {
+    const trashDir = path.join(root.physicalRoot, TRASH_DIR_NAME);
     if (!fs.existsSync(trashDir)) continue;
 
     let entries: string[];

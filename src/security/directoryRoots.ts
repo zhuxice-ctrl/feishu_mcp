@@ -39,7 +39,9 @@ export function canonicalizeDirectoryScope(
   kind: DirectoryScopeKind,
 ): CanonicalDirectoryRoot {
   const absolute = path.resolve(candidate);
-  const logicalRoot = kind === "file" ? path.dirname(absolute) : absolute;
+  let existingDirectory = false;
+  try { existingDirectory = fs.lstatSync(absolute).isDirectory(); } catch {}
+  const logicalRoot = kind === "file" && !existingDirectory ? path.dirname(absolute) : absolute;
   return {
     logicalRoot,
     physicalRoot: resolveThroughExistingAncestor(logicalRoot),

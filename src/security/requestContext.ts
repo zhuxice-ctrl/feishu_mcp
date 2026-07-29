@@ -24,6 +24,7 @@ import {
   AUTH_USER_HEADER,
   AUTH_USER_QUERY_PARAM,
 } from "../config.js";
+import type { CanonicalDirectoryRoot } from "./directoryRoots.js";
 
 export interface RequestContext {
   /** Raw Bearer token from the Authorization header (already validated). */
@@ -32,6 +33,8 @@ export interface RequestContext {
   userId: string | null;
   /** Optional email supplied by the configured trusted header. */
   email: string | null;
+  /** Current-call directory roots granted with allow_once. Never persisted. */
+  authorizedDirectoryRoots?: CanonicalDirectoryRoot[];
 }
 
 const storage = new AsyncLocalStorage<RequestContext>();
@@ -83,4 +86,14 @@ export function getRequestUserId(): string | null {
 
 export function getRequestEmail(): string | null {
   return storage.getStore()?.email ?? null;
+}
+
+export function rememberRequestDirectoryRoots(roots: CanonicalDirectoryRoot[]): void {
+  const context = storage.getStore();
+  if (!context) return;
+  context.authorizedDirectoryRoots = roots.map((root) => ({ ...root }));
+}
+
+export function getRequestDirectoryRoots(): CanonicalDirectoryRoot[] {
+  return (storage.getStore()?.authorizedDirectoryRoots ?? []).map((root) => ({ ...root }));
 }

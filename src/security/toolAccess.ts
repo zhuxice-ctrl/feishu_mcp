@@ -85,6 +85,7 @@ export async function authorizeFilePath(
   options: {
     directoryAuthorized?: boolean;
     authorizedDirectoryRootsDigest?: string;
+    priorSubjectKeys?: string[];
   } = {},
 ): Promise<ApprovalOutcome> {
   if (!PATH_ARGS[toolName]?.includes(argName)) return true;
@@ -118,7 +119,19 @@ export async function authorizeFilePath(
         : "The target is classified as a sensitive file."
     ),
     authorizedDirectoryRootsDigest: options.authorizedDirectoryRootsDigest,
+    priorSubjectKeys: options.priorSubjectKeys,
   });
+}
+
+export function fileApprovalSubjectKey(
+  toolName: string,
+  rawPath: string,
+  resolvedPath: string,
+  directoryAuthorized = false,
+): string | null {
+  const kinds = inspectPath(toolName, rawPath, resolvedPath)
+    .filter((kind) => !(directoryAuthorized && kind === "absolute_path"));
+  return kinds.length > 0 ? `${[...kinds].sort().join("+")}|${resolvedPath}` : null;
 }
 
 export function toolAuthorizationMiddleware(

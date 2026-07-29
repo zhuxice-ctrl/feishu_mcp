@@ -28,7 +28,11 @@ import {
   validatePath,
 } from "../security/pathGuard.js";
 import { checkFileAccess } from "../security/fileGuard.js";
-import { getRequestToken, getRequestUserId } from "../security/requestContext.js";
+import {
+  getRequestToken,
+  getRequestUserId,
+  rememberRequestDirectoryRoots,
+} from "../security/requestContext.js";
 import { logOperation, type OperationType } from "../security/logger.js";
 import {
   authorizeFilePath,
@@ -193,6 +197,8 @@ export async function resolvePathsGuardAndAuthorize(
       }
     }
   }
+
+  if (ephemeralRoots.length > 0) rememberRequestDirectoryRoots(ephemeralRoots);
 
   const verified = requests.map((request) =>
     inspectPathBoundaryWithAdditionalRoots(

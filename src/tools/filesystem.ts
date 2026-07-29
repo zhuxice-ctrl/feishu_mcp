@@ -16,10 +16,14 @@ import fs from "node:fs";
 import path from "node:path";
 import { z } from "zod";
 import type { McpServer } from "@modelcontextprotocol/server";
-import { getRequestToken } from "../security/requestContext.js";
+import { getRequestToken, getRequestUserId } from "../security/requestContext.js";
 import { logOperation } from "../security/logger.js";
 import { isInternalApprovalPath } from "../security/approvalStore.js";
-import { getAllowedDirectories } from "../security/pathGuard.js";
+import { directoryGrantStore } from "../security/directoryGrantStore.js";
+import {
+  authorizeFilePath,
+  fileApprovalSubjectKey,
+} from "../security/toolAccess.js";
 import { moveToTrash } from "../security/trash.js";
 import { atomicWriteFile } from "./atomicWrite.js";
 import { compileGlob, normalizeGlobPath } from "./globPattern.js";
@@ -32,9 +36,11 @@ import {
   formatBytes,
   isLikelyTextFile,
   resolveGuardAndAuthorize,
+  resolvePathsGuardAndAuthorize,
   textContent,
   withToolHandler,
 } from "./helpers.js";
+import { toolJson } from "./results.js";
 
 /**
  * Register all 9 filesystem tools + ping (ping stays in index.ts) on `server`.
@@ -114,6 +120,7 @@ function registerReadFile(server: McpServer): void {
         "read",
         args,
         ctx,
+        { scope: "file", access: "read" },
       );
       if (!guard.ok) return guard.result ?? errorResult(guard.error ?? "Invalid path");
 
@@ -187,6 +194,7 @@ function registerWriteFile(server: McpServer): void {
         "write",
         args,
         ctx,
+        { scope: "file", access: "write" },
       );
       if (!guard.ok) return guard.result ?? errorResult(guard.error ?? "Invalid path");
 
@@ -246,6 +254,7 @@ function registerEditFile(server: McpServer): void {
         "write",
         args,
         ctx,
+        { scope: "file", access: "write" },
       );
       if (!guard.ok) return guard.result ?? errorResult(guard.error ?? "Invalid path");
 
@@ -319,6 +328,7 @@ function registerCreateDirectory(server: McpServer): void {
         "write",
         args,
         ctx,
+        { scope: "directory", access: "write" },
       );
       if (!guard.ok) return guard.result ?? errorResult(guard.error ?? "Invalid path");
 
@@ -359,6 +369,7 @@ function registerListDirectory(server: McpServer): void {
         "read",
         args,
         ctx,
+        { scope: "directory", access: "read" },
       );
       if (!guard.ok) return guard.result ?? errorResult(guard.error ?? "Invalid path");
 
@@ -402,27 +413,43 @@ function registerMoveFile(server: McpServer): void {
     async (args, ctx) => {
       const accessError = authorizeToolCall("move_file", args);
       if (accessError) return accessError;
-      const srcGuard = await resolveGuardAndAuthorize(
+      const guarded = await resolvePathsGuardAndAuthorize(
         "move_file",
-        "source",
-        args.source,
-        "write",
+        [
+          { argName: "source", inputPath: args.source, operation: "write", scope: "file", access: "write" },
+          { argName: "destination", inputPath: args.destination, operation: "write", scope: "file", access: "write" },
+        ],
         args,
         ctx,
       );
-      if (!srcGuard.ok) return srcGuard.result ?? errorResult(`Source: ${srcGuard.error ?? "Invalid path"}`);
-      const dstGuard = await resolveGuardAndAuthorize(
-        "move_file",
-        "destination",
-        args.destination,
-        "write",
-        args,
-        ctx,
-      );
-      if (!dstGuard.ok) return dstGuard.result ?? errorResult(`Destination: ${dstGuard.error ?? "Invalid path"}`);
-
-      const src = srcGuard.resolvedPath;
-      const dst = dstGuard.resolvedPath;
+      if (!guarded.ok) return guarded.result ?? errorResult(guarded.error ?? "Invalid paths");
+      const src = guarded.paths.find((item) => item.argName === "source")!.resolvedPath;
+      const dst = guarded.paths.find((item) => item.argName === "destination")!.resolvedPath;
+      const priorSubjectKeys: string[] = [];
+      for (const item of guarded.paths) {
+        const directoryAuthorized = item.boundarySource !== "static";
+        const approval = await authorizeFilePath(
+          "move_file",
+          item.argName,
+          item.inputPath,
+          item.resolvedPath,
+          args,
+          ctx,
+          {
+            directoryAuthorized,
+            authorizedDirectoryRootsDigest: guarded.directoryProof?.rootsDigest,
+            priorSubjectKeys,
+          },
+        );
+        if (approval !== true) return approval;
+        const subjectKey = fileApprovalSubjectKey(
+          "move_file",
+          item.inputPath,
+          item.resolvedPath,
+          directoryAuthorized,
+        );
+        if (subjectKey) priorSubjectKeys.push(subjectKey);
+      }
       const token = getRequestToken();
 
       if (!fs.existsSync(src)) {
@@ -532,6 +559,7 @@ function registerSearchFiles(server: McpServer): void {
         "read",
         args,
         ctx,
+        { scope: "directory", access: "search" },
       );
       if (!guard.ok) return guard.result ?? errorResult(guard.error ?? "Invalid path");
 
@@ -632,6 +660,7 @@ function registerGetFileInfo(server: McpServer): void {
         "read",
         args,
         ctx,
+        { scope: "file", access: "read" },
       );
       if (!guard.ok) return guard.result ?? errorResult(guard.error ?? "Invalid path");
 
@@ -675,17 +704,25 @@ function registerListAllowedDirectories(server: McpServer): void {
     async (args) => {
       const accessError = authorizeToolCall("list_allowed_directories", args);
       if (accessError) return accessError;
-      const dirs = getAllowedDirectories();
-      if (dirs.length === 0) {
+      const roots = directoryGrantStore.effectiveRoots(getRequestUserId());
+      if (roots.length === 0) {
         return {
           content: [
             textContent(
-              "No allowed directories configured. Set ALLOWED_DIRS to enable file operations."
+              "No allowed directories configured. Set ALLOWED_DIRS or OWNER_DEFAULT_DIRS to enable file operations."
             ),
           ],
         };
       }
-      return { content: [textContent(dirs.join("\n"))] };
+      const directories = roots.map((item) => ({
+        path: item.logicalRoot,
+        source: item.source,
+      }));
+      const result = toolJson({ ok: true, directories, count: directories.length });
+      result.content[0].text = directories
+        .map((item) => `${item.path} (${item.source})`)
+        .join("\n");
+      return result;
     }
   );
 }
