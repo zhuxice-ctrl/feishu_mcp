@@ -289,7 +289,7 @@ git commit -m "feat: persist redacted development tasks"
 - Create: `src/development/tasks/scheduler.ts`
 - Create: `test/development-task-scheduler.test.mjs`
 
-- [ ] **Step 1: Write failing scheduler tests**
+- [x] **Step 1: Write failing scheduler tests**
 
 Use deferred promises to prove: global limit 4, build limit 2, privileged limit 1, FIFO order, same-project serialization, same-device serialization, different resources parallelism, queue timeout, queued cancellation, and lock release after rejection.
 
@@ -303,13 +303,13 @@ gate.resolve("first");
 assert.deepEqual(await Promise.all([first, second]), ["first", "second"]);
 ```
 
-- [ ] **Step 2: Run the test and verify failure**
+- [x] **Step 2: Run the test and verify failure**
 
 Run: `npm run build; node --test test/development-task-scheduler.test.mjs`
 
 Expected: FAIL because the scheduler does not exist.
 
-- [ ] **Step 3: Implement fixed-order resource acquisition**
+- [x] **Step 3: Implement fixed-order resource acquisition**
 
 Normalize and sort unique resource keys before checking conflicts. Maintain active task records and one FIFO waiter list. A task can start only when global/class capacity and every resource are free. Never hold a partial set of resources.
 
@@ -320,17 +320,17 @@ const classBlocked = taskClass === "build" && this.activeBuilds >= this.options.
 const privilegedBlocked = taskClass === "privileged" && this.activePrivileged >= 1;
 ```
 
-- [ ] **Step 4: Implement queued cancellation and summary**
+- [x] **Step 4: Implement queued cancellation and summary**
 
 `cancel(taskId)` removes only a queued waiter, clears its timeout, rejects it with `DevelopmentTaskCancelledError`, and then drains the queue. `summary()` returns only counts and limits; it must not include task IDs or resources.
 
-- [ ] **Step 5: Run the scheduler tests**
+- [x] **Step 5: Run the scheduler tests**
 
 Run: `npm run build; node --test test/development-task-scheduler.test.mjs`
 
 Expected: all tests pass without timing flakes across three consecutive runs.
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```powershell
 git add src/development/tasks/scheduler.ts test/development-task-scheduler.test.mjs
