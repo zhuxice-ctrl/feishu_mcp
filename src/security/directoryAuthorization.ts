@@ -22,6 +22,14 @@ import {
 } from "./approvalState.js";
 import { consumeSignedNonce } from "./approval.js";
 import { toolError } from "../tools/results.js";
+import {
+  DIRECTORY_APPROVAL_FALLBACK,
+  OWNER_USER_ID,
+} from "../config.js";
+import {
+  consumeLegacyDirectoryOnce,
+  createLegacyDirectoryChallenge,
+} from "./legacyDirectoryApproval.js";
 
 export interface DirectoryAuthorizationRequest {
   tool: string;
@@ -97,6 +105,16 @@ export async function requestDirectoryAuthorization(
     return toolError("DIRECTORY_IDENTITY_REQUIRED", "A stable request identity is required for directory authorization.");
   }
 
+  const onceRoots = consumeLegacyDirectoryOnce({
+    userId: request.userId,
+    tool: request.tool,
+    argsDigest: request.argsDigest,
+    rootsDigest,
+  });
+  if (onceRoots) {
+    return { allowed: true, roots: onceRoots, rootsDigest, decision: "allow_once" };
+  }
+
   if (roots.every((root) => store.hasAccess(request.userId, root.physicalRoot))) {
     return { allowed: true, roots, rootsDigest, decision: "remembered" };
   }
@@ -136,6 +154,9 @@ export async function requestDirectoryAuthorization(
   }
 
   if (!ctx.mcpReq.envelope) {
+    if (DIRECTORY_APPROVAL_FALLBACK === "owner" && request.userId === OWNER_USER_ID) {
+      return createLegacyDirectoryChallenge(ctx, request, roots);
+    }
     return toolError(
       "CLIENT_ELICITATION_UNSUPPORTED",
       "This MCP client cannot display the required directory authorization form.",

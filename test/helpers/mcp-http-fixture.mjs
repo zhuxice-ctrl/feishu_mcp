@@ -40,6 +40,7 @@ export async function startMcpFixture({
   allowedDirs = "",
   ownerUserId = "owner",
   ownerDefaultDirs = "",
+  directoryApprovalFallback = "deny",
   approvalDataDir,
   userId = "owner",
   env = {},
@@ -59,6 +60,7 @@ export async function startMcpFixture({
       ALLOWED_DIRS: allowedDirs,
       OWNER_USER_ID: ownerUserId,
       OWNER_DEFAULT_DIRS: ownerDefaultDirs,
+      DIRECTORY_APPROVAL_FALLBACK: directoryApprovalFallback,
       APPROVAL_DATA_DIR: approvalDataDir,
       APPROVAL_STATE_SECRET: "0123456789abcdef0123456789abcdef",
       CONSENT_ABSOLUTE_PATH: "confirm",
@@ -119,6 +121,8 @@ export async function startMcpFixture({
 
   const callModern = (name, args, identity = userId) =>
     rpc("tools/call", { name, arguments: args }, true, identity);
+  const callLegacy = (name, args, identity = userId) =>
+    rpc("tools/call", { name, arguments: args }, false, identity);
   const retryModern = (name, args, initial, inputResponses, identity = userId) =>
     rpc("tools/call", {
       name,
@@ -133,6 +137,7 @@ export async function startMcpFixture({
     output,
     rpc,
     callModern,
+    callLegacy,
     retryModern,
     stop: () => stopChild(child),
   };
