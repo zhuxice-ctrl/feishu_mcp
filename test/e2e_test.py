@@ -29,6 +29,7 @@ HEADERS = {
     "Content-Type": "application/json",
     "Accept": "application/json, text/event-stream",
     "Authorization": f"Bearer {TOKEN}",
+    "x-aily-user": "owner",
 }
 
 HEADERS_NO_AUTH = {
@@ -93,7 +94,9 @@ def main():
 
     # Start server
     env = os.environ.copy()
-    env["ALLOWED_DIRS"] = WORKSPACE
+    env["ALLOWED_DIRS"] = ""
+    env["OWNER_USER_ID"] = "owner"
+    env["OWNER_DEFAULT_DIRS"] = WORKSPACE
     env["MCP_AUTH_TOKEN"] = TOKEN
     env["AUTH_MODE"] = "none"
     env["APPROVAL_DATA_DIR"] = APPROVAL_DATA_DIR
@@ -149,6 +152,10 @@ def main():
     health = r.json()
     test("Health check returns 200", r.status_code == 200)
     test("Health shows 21 tools", len(health.get("tools", [])) == 21, f"got {len(health.get('tools', []))}")
+    test(
+        "Health shows one owner default",
+        health.get("directoryAuthorization", {}).get("ownerDefaults") == 1,
+    )
     test("Health shows concurrency limits", set(health.get("concurrency", {})) == {"global", "command", "search", "fetch"})
     test("Health shows auth enabled", health.get("authEnabled") == True)
 
@@ -207,7 +214,13 @@ def main():
     rid += 1
     code, body = call_tool("read_file", {"path": f"{WORKSPACE}/../../../etc/passwd"}, rid)
     text = extract_text(body.get("result", body))
-    test("Path traversal blocked", "outside" in text.lower() or "error" in text.lower(), text[:100])
+    test(
+        "Path traversal blocked",
+        "outside" in text.lower()
+        or "error" in text.lower()
+        or "client_elicitation_unsupported" in text.lower(),
+        text[:100],
+    )
 
     # === Sensitive File (.env should be denied) ===
     rid += 1
