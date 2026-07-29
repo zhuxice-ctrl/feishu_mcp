@@ -53,6 +53,7 @@ test("complete development tools work over HTTP including input_required retries
   const port = await freePort();
   const token = randomBytes(24).toString("hex");
   const pin = randomBytes(12).toString("base64url");
+  const approvalSecret = randomBytes(32).toString("hex");
   const user = `e2e-${randomBytes(8).toString("hex")}`;
   const serverOutput = [];
   await writeFile(path.join(workspace, "before.txt"), "alpha\n", "utf8");
@@ -83,7 +84,7 @@ test("complete development tools work over HTTP including input_required retries
       OWNER_USER_ID: user,
       OWNER_DEFAULT_DIRS: workspace,
       APPROVAL_DATA_DIR: approvalRoot,
-      APPROVAL_STATE_SECRET: randomBytes(32).toString("hex"),
+      APPROVAL_STATE_SECRET: approvalSecret,
       LOG_DIR: path.join(workspace, "logs"),
       MCP_AUTH_TOKEN: token,
       AUTH_MODE: "pin",
@@ -198,7 +199,9 @@ test("complete development tools work over HTTP including input_required retries
     assert.match(fetched.content, /Local development page/);
 
     const combinedOutput = serverOutput.join("");
-    for (const secret of [token, pin]) assert.equal(combinedOutput.includes(secret), false);
+    for (const secret of [token, pin, approvalSecret]) {
+      assert.equal(combinedOutput.includes(secret), false);
+    }
   } finally {
     await stop(child);
     await new Promise((resolve) => localWeb.close(resolve));
