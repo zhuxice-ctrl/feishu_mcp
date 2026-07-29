@@ -20,7 +20,20 @@ export interface ApprovalStatePayload {
   argsDigest: string;
   nonce: string;
   priorSubjectKeys?: string[];
+  authorizedDirectoryRootsDigest?: string;
 }
+
+export interface DirectoryApprovalStatePayload {
+  version: 1;
+  kind: "directory";
+  tool: string;
+  userId: string;
+  argsDigest: string;
+  rootsDigest: string;
+  nonce: string;
+}
+
+export type SignedRequestStatePayload = ApprovalStatePayload | DirectoryApprovalStatePayload;
 
 function loadOrCreateApprovalKey(): string {
   if (APPROVAL_STATE_SECRET) {
@@ -56,14 +69,14 @@ function loadOrCreateApprovalKey(): string {
   }
 }
 
-export const approvalStateCodec = createRequestStateCodec<ApprovalStatePayload>({
+export const approvalStateCodec = createRequestStateCodec<SignedRequestStatePayload>({
   key: loadOrCreateApprovalKey(),
   ttlSeconds: Math.ceil(APPROVAL_TIMEOUT_MS / 1000),
   bind: () => getRequestUserId() ?? "__anonymous__",
 });
 
 export function mintApprovalState(
-  payload: ApprovalStatePayload,
+  payload: SignedRequestStatePayload,
   ctx?: ServerContext,
 ): Promise<string> {
   return approvalStateCodec.mint(payload, ctx);
