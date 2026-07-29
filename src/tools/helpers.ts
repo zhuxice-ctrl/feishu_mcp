@@ -22,14 +22,39 @@ import {
   MAX_READ_BYTES,
   MAX_WRITE_BYTES,
 } from "../config.js";
-import { validatePath } from "../security/pathGuard.js";
+import {
+  inspectPathBoundary,
+  inspectPathBoundaryWithAdditionalRoots,
+  validatePath,
+} from "../security/pathGuard.js";
 import { checkFileAccess } from "../security/fileGuard.js";
-import { getRequestToken } from "../security/requestContext.js";
+import { getRequestToken, getRequestUserId } from "../security/requestContext.js";
 import { logOperation, type OperationType } from "../security/logger.js";
 import {
   authorizeFilePath,
   authorizeToolCall,
 } from "../security/toolAccess.js";
+import {
+  directoryGrantStore,
+  type DirectoryGrantStore,
+  type EffectiveRootSource,
+} from "../security/directoryGrantStore.js";
+import {
+  canonicalizeDirectoryScope,
+  deduplicateRoots,
+  type CanonicalDirectoryRoot,
+  type DirectoryScopeKind,
+} from "../security/directoryRoots.js";
+import {
+  digestDirectoryRoots,
+  requestDirectoryAuthorization,
+  type DirectoryAuthorizationAllowed,
+  type DirectoryAuthorizationOutcome,
+  type DirectoryAuthorizationRequest,
+} from "../security/directoryAuthorization.js";
+import { digestArguments } from "../security/approval.js";
+import type { SignedRequestStatePayload } from "../security/approvalState.js";
+import { toolError } from "./results.js";
 export { authorizeToolCall } from "../security/toolAccess.js";
 
 // ---------------------------------------------------------------------------
@@ -61,6 +86,139 @@ export interface GuardFailed {
   ok: false;
   error?: string;
   result?: CallToolResult | InputRequiredResult;
+}
+
+export interface PathAccessRequest {
+  argName: string;
+  inputPath: string;
+  operation: "read" | "write";
+  scope: DirectoryScopeKind;
+  access?: DirectoryAuthorizationRequest["access"];
+}
+
+export interface AuthorizedPath {
+  argName: string;
+  inputPath: string;
+  resolvedPath: string;
+  boundarySource: EffectiveRootSource | "allow_once";
+}
+
+export interface DirectoryAuthorizationProof {
+  rootsDigest: string;
+  source: "owner_default" | "session" | "permanent" | "allow_once";
+}
+
+export interface ResolvePathsDependencies {
+  authorize?: (
+    request: DirectoryAuthorizationRequest,
+    ctx: ServerContext,
+    store: DirectoryGrantStore,
+  ) => Promise<DirectoryAuthorizationOutcome>;
+  store?: DirectoryGrantStore;
+}
+
+function requestedAccess(requests: PathAccessRequest[]): DirectoryAuthorizationRequest["access"] {
+  for (const access of ["patch", "command", "git", "write", "search"] as const) {
+    if (requests.some((request) => request.access === access)) return access;
+  }
+  return "read";
+}
+
+function operationStateCarriesDirectoryProof(
+  ctx: ServerContext,
+  toolName: string,
+  argsDigest: string,
+  rootsDigest: string,
+): boolean {
+  const state = ctx.mcpReq.requestState<SignedRequestStatePayload>();
+  return Boolean(state && !("kind" in state) &&
+    state.tool === toolName && state.userId === getRequestUserId() &&
+    state.argsDigest === argsDigest &&
+    state.authorizedDirectoryRootsDigest === rootsDigest);
+}
+
+function isDirectoryAllowed(
+  outcome: DirectoryAuthorizationOutcome,
+): outcome is DirectoryAuthorizationAllowed {
+  return "allowed" in outcome && outcome.allowed === true;
+}
+
+export async function resolvePathsGuardAndAuthorize(
+  toolName: string,
+  requests: PathAccessRequest[],
+  args: unknown,
+  ctx: ServerContext,
+  deps: ResolvePathsDependencies = {},
+): Promise<
+  | { ok: true; paths: AuthorizedPath[]; directoryProof?: DirectoryAuthorizationProof }
+  | { ok: false; error?: string; result?: CallToolResult | InputRequiredResult }
+> {
+  const store = deps.store ?? directoryGrantStore;
+  const userId = getRequestUserId();
+  const initial = requests.map((request) =>
+    inspectPathBoundary(request.inputPath, userId, store));
+  const hardDenial = initial.find((item) => item.status === "denied");
+  if (hardDenial?.status === "denied") {
+    return { ok: false, result: toolError(hardDenial.code, hardDenial.message) };
+  }
+
+  const outsideRoots = deduplicateRoots(initial.flatMap((item, index) =>
+    item.status === "outside"
+      ? [canonicalizeDirectoryScope(item.logicalPath, requests[index].scope)]
+      : []));
+  const argsDigest = digestArguments(args);
+  const rootsDigest = digestDirectoryRoots(outsideRoots);
+  let ephemeralRoots: CanonicalDirectoryRoot[] = [];
+  let directoryProof: DirectoryAuthorizationProof | undefined;
+
+  if (outsideRoots.length > 0) {
+    if (operationStateCarriesDirectoryProof(ctx, toolName, argsDigest, rootsDigest)) {
+      ephemeralRoots = outsideRoots;
+      directoryProof = { rootsDigest, source: "allow_once" };
+    } else {
+      const request: DirectoryAuthorizationRequest = {
+        tool: toolName,
+        userId,
+        argsDigest,
+        access: requestedAccess(requests),
+        roots: outsideRoots,
+      };
+      const authorize = deps.authorize ?? ((value, serverContext, grantStore) =>
+        requestDirectoryAuthorization(serverContext, value, grantStore));
+      const outcome = await authorize(request, ctx, store);
+      if (!isDirectoryAllowed(outcome)) return { ok: false, result: outcome };
+      if (outcome.decision === "allow_once") {
+        ephemeralRoots = outcome.roots;
+        directoryProof = { rootsDigest: outcome.rootsDigest, source: "allow_once" };
+      }
+    }
+  }
+
+  const verified = requests.map((request) =>
+    inspectPathBoundaryWithAdditionalRoots(
+      request.inputPath,
+      ephemeralRoots,
+      userId,
+      store,
+    ));
+  if (!verified.every((item) => item.status === "allowed")) {
+    return { ok: false, error: "Directory authorization did not cover every physical target." };
+  }
+
+  const paths: AuthorizedPath[] = [];
+  for (let index = 0; index < requests.length; index += 1) {
+    const item = verified[index];
+    if (item.status !== "allowed") continue;
+    const guardError = checkFileAccess(item.physicalPath, requests[index].operation);
+    if (guardError) return { ok: false, error: guardError };
+    paths.push({
+      argName: requests[index].argName,
+      inputPath: requests[index].inputPath,
+      resolvedPath: item.physicalPath,
+      boundarySource: item.matchedRoot.source,
+    });
+  }
+  return { ok: true, paths, ...(directoryProof ? { directoryProof } : {}) };
 }
 
 /**
@@ -98,31 +256,51 @@ export async function resolveGuardAndAuthorize(
   operation: "read" | "write",
   args: unknown,
   ctx: ServerContext,
+  options: {
+    scope?: DirectoryScopeKind;
+    access?: DirectoryAuthorizationRequest["access"];
+  } = {},
 ): Promise<ResolvedAndGuarded | GuardFailed> {
-  const guard = resolveAndGuard(inputPath, operation);
-  if (!guard.ok) {
+  const guarded = await resolvePathsGuardAndAuthorize(
+    toolName,
+    [{
+      argName,
+      inputPath,
+      operation,
+      scope: options.scope ?? "file",
+      access: options.access,
+    }],
+    args,
+    ctx,
+  );
+  if (!guarded.ok) {
     logOperation(
       toolName as OperationType,
       inputPath,
       getRequestToken(),
       "denied",
-      guard.error
+      guarded.error
     );
-    return guard;
+    return guarded;
   }
+  const pathResult = guarded.paths[0];
   const approval = await authorizeFilePath(
     toolName,
     argName,
     inputPath,
-    guard.resolvedPath,
+    pathResult.resolvedPath,
     args,
     ctx,
+    {
+      directoryAuthorized: pathResult.boundarySource !== "static",
+      authorizedDirectoryRootsDigest: guarded.directoryProof?.rootsDigest,
+    },
   );
   if (approval !== true) {
     if ("isError" in approval && approval.isError) {
       logOperation(
         toolName as OperationType,
-        guard.resolvedPath,
+        pathResult.resolvedPath,
         getRequestToken(),
         "denied",
         "approval denied"
@@ -130,7 +308,7 @@ export async function resolveGuardAndAuthorize(
     }
     return { ok: false, result: approval };
   }
-  return guard;
+  return { ok: true, resolvedPath: pathResult.resolvedPath };
 }
 
 // ---------------------------------------------------------------------------

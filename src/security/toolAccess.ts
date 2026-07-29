@@ -82,9 +82,14 @@ export async function authorizeFilePath(
   resolvedPath: string,
   args: unknown,
   ctx: ServerContext,
+  options: {
+    directoryAuthorized?: boolean;
+    authorizedDirectoryRootsDigest?: string;
+  } = {},
 ): Promise<ApprovalOutcome> {
   if (!PATH_ARGS[toolName]?.includes(argName)) return true;
-  const kinds = inspectPath(toolName, rawPath, resolvedPath);
+  const kinds = inspectPath(toolName, rawPath, resolvedPath)
+    .filter((kind) => !(options.directoryAuthorized && kind === "absolute_path"));
   if (kinds.length === 0) return true;
   if (
     (kinds.includes("absolute_path") && CONSENT_ABSOLUTE_PATH === "deny") ||
@@ -112,6 +117,7 @@ export async function authorizeFilePath(
         ? "The caller supplied an absolute path."
         : "The target is classified as a sensitive file."
     ),
+    authorizedDirectoryRootsDigest: options.authorizedDirectoryRootsDigest,
   });
 }
 

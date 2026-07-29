@@ -10,7 +10,12 @@ import { z } from "zod";
 import { logger } from "./logger.js";
 import { APPROVAL_TIMEOUT_MS } from "../config.js";
 import { approvalStore, type ApprovalSubjectKind } from "./approvalStore.js";
-import { mintApprovalState, type ApprovalStatePayload } from "./approvalState.js";
+import {
+  mintApprovalState,
+  type ApprovalStatePayload,
+  type DirectoryApprovalStatePayload,
+  type SignedRequestStatePayload,
+} from "./approvalState.js";
 import { toolError } from "../tools/results.js";
 
 export interface ApprovalRequest {
@@ -20,6 +25,7 @@ export interface ApprovalRequest {
   argsDigest: string;
   reasons: string[];
   priorSubjectKeys?: string[];
+  authorizedDirectoryRootsDigest?: string;
 }
 
 export type ApprovalOutcome = true | CallToolResult | InputRequiredResult;
@@ -63,6 +69,10 @@ function matches(payload: ApprovalStatePayload, request: ApprovalRequest): boole
     payload.argsDigest === request.argsDigest;
 }
 
+function isDirectoryState(value: SignedRequestStatePayload): value is DirectoryApprovalStatePayload {
+  return "kind" in value && value.kind === "directory";
+}
+
 function matchesPrior(payload: ApprovalStatePayload, request: ApprovalRequest): boolean {
   return payload.version === 1 && payload.tool === request.tool && payload.userId === request.userId &&
     payload.argsDigest === request.argsDigest && payload.priorSubjectKeys?.includes(request.subject.key) === true;
@@ -95,10 +105,19 @@ export async function requestApproval(
     return true;
   }
 
-  const state = ctx.mcpReq.requestState<ApprovalStatePayload>();
+  const state = ctx.mcpReq.requestState<SignedRequestStatePayload>();
   if (state) {
-    if (matchesPrior(state, request)) return true;
-    if (!matches(state, request)) {
+    if (isDirectoryState(state)) {
+      const continuingDirectoryChain = usedNonces.has(state.nonce) &&
+        request.authorizedDirectoryRootsDigest !== undefined &&
+        state.rootsDigest === request.authorizedDirectoryRootsDigest &&
+        state.tool === request.tool && state.userId === request.userId &&
+        state.argsDigest === request.argsDigest;
+      if (!continuingDirectoryChain) {
+        return toolError("APPROVAL_DENIED", "Directory approval state does not match this operation.");
+      }
+    } else if (matchesPrior(state, request)) return true;
+    else if (!matches(state, request)) {
       const continuingChain = usedNonces.has(state.nonce) &&
         request.priorSubjectKeys?.includes(state.subjectKey) === true;
       if (!continuingChain) {
@@ -151,6 +170,9 @@ export async function requestApproval(
     nonce: randomUUID(),
     ...(request.priorSubjectKeys?.length
       ? { priorSubjectKeys: [...new Set(request.priorSubjectKeys)].slice(0, 10) }
+      : {}),
+    ...(request.authorizedDirectoryRootsDigest
+      ? { authorizedDirectoryRootsDigest: request.authorizedDirectoryRootsDigest }
       : {}),
   };
   const requestState = await mintApprovalState(payload, ctx);

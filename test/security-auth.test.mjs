@@ -280,7 +280,7 @@ test("PIN authentication is isolated per request identity", async () => {
       "alice"
     );
     assert.equal(outsideRead.isError, true);
-    assert.match(outsideRead.content[0].text, /outside all allowed directories/i);
+    assert.match(outsideRead.content[0].text, /CLIENT_ELICITATION_UNSUPPORTED/);
     assert.doesNotMatch(outsideRead.content[0].text, /consent/i);
     const relativeRead = await callTool(
       "read_file",

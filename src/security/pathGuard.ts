@@ -1,18 +1,17 @@
-/**
- * Path security — directory whitelist enforcement and traversal prevention.
- *
- * Every file tool must call `validatePath()` before touching the filesystem.
- * The function:
- *   1. Resolves the requested path to an absolute path.
- *   2. Checks it falls inside one of the ALLOWED_DIRS roots.
- *   3. Detects symlink escapes (the resolved real path must also stay inside a root).
- *   4. Rejects path-traversal attempts (`../` that would escape the root).
- */
-
-import fs from "node:fs";
 import path from "node:path";
-import { ALLOWED_DIRS } from "../config.js";
 import { isInternalApprovalPath } from "./approvalStore.js";
+import {
+  directoryGrantStore,
+  type DirectoryGrantStore,
+  type EffectiveRoot,
+  type EffectiveRootSource,
+} from "./directoryGrantStore.js";
+import {
+  isInsideDirectory,
+  resolveThroughExistingAncestor,
+  type CanonicalDirectoryRoot,
+} from "./directoryRoots.js";
+import { getRequestUserId } from "./requestContext.js";
 
 export interface PathValidationResult {
   ok: boolean;
@@ -20,143 +19,119 @@ export interface PathValidationResult {
   error?: string;
 }
 
-function existsIncludingBrokenSymlink(candidate: string): boolean {
+export interface AllowedPathInspection {
+  status: "allowed";
+  logicalPath: string;
+  physicalPath: string;
+  matchedRoot: Omit<EffectiveRoot, "source"> & { source: EffectiveRootSource | "allow_once" };
+}
+
+export interface OutsidePathInspection {
+  status: "outside";
+  logicalPath: string;
+  physicalPath: string;
+}
+
+export interface DeniedPathInspection {
+  status: "denied";
+  code: "SENSITIVE_PATH" | "OUTSIDE_ALLOWED_DIRS";
+  message: string;
+}
+
+export type PathBoundaryInspection =
+  | AllowedPathInspection
+  | OutsidePathInspection
+  | DeniedPathInspection;
+
+function inspect(
+  inputPath: string,
+  userId: string | null,
+  store: DirectoryGrantStore,
+  additionalRoots: CanonicalDirectoryRoot[],
+): PathBoundaryInspection {
+  const effective = store.effectiveRoots(userId);
+  const logicalPath = path.isAbsolute(inputPath)
+    ? path.resolve(inputPath)
+    : path.resolve(effective[0]?.logicalRoot ?? process.cwd(), inputPath);
+
+  if (isInternalApprovalPath(logicalPath)) {
+    return {
+      status: "denied",
+      code: "SENSITIVE_PATH",
+      message: "The internal approval directory is protected.",
+    };
+  }
+
+  let physicalPath: string;
   try {
-    fs.lstatSync(candidate);
-    return true;
+    physicalPath = resolveThroughExistingAncestor(logicalPath);
   } catch {
-    return false;
+    return {
+      status: "denied",
+      code: "OUTSIDE_ALLOWED_DIRS",
+      message: `Path "${inputPath}" could not be safely resolved.`,
+    };
   }
-}
-
-/**
- * Resolve the nearest existing ancestor and append the still-missing suffix.
- * This catches writes such as `allowed/link-to-outside/new-file`, where the
- * final target does not exist yet but an ancestor is a symlink or junction.
- */
-function resolveThroughExistingAncestor(candidate: string): string {
-  let cursor = path.resolve(candidate);
-  const missingSegments: string[] = [];
-
-  while (!existsIncludingBrokenSymlink(cursor)) {
-    const parent = path.dirname(cursor);
-    if (parent === cursor) {
-      throw new Error(`Unable to resolve an existing ancestor for ${candidate}`);
-    }
-    missingSegments.unshift(path.basename(cursor));
-    cursor = parent;
+  if (isInternalApprovalPath(physicalPath)) {
+    return {
+      status: "denied",
+      code: "SENSITIVE_PATH",
+      message: "The internal approval directory is protected.",
+    };
   }
 
-  const realAncestor = fs.realpathSync(cursor);
-  return path.resolve(realAncestor, ...missingSegments);
+  const roots: Array<Omit<EffectiveRoot, "source"> & {
+    source: EffectiveRootSource | "allow_once";
+  }> = [
+    ...effective,
+    ...additionalRoots.map((root) => ({ ...root, source: "allow_once" as const })),
+  ];
+  const matchedRoot = roots.find((root) => isInsideDirectory(physicalPath, root.physicalRoot));
+  if (matchedRoot) return { status: "allowed", logicalPath, physicalPath, matchedRoot };
+  return { status: "outside", logicalPath, physicalPath };
 }
 
-/**
- * Validate that `inputPath` resolves to a location inside one of the
- * allowed directories. Returns the resolved absolute path on success.
- */
+export function inspectPathBoundary(
+  inputPath: string,
+  userId: string | null = getRequestUserId(),
+  store: DirectoryGrantStore = directoryGrantStore,
+): PathBoundaryInspection {
+  return inspect(inputPath, userId, store, []);
+}
+
+export function inspectPathBoundaryWithAdditionalRoots(
+  inputPath: string,
+  additionalRoots: CanonicalDirectoryRoot[],
+  userId: string | null = getRequestUserId(),
+  store: DirectoryGrantStore = directoryGrantStore,
+): PathBoundaryInspection {
+  return inspect(inputPath, userId, store, additionalRoots);
+}
+
 export function validatePath(inputPath: string): PathValidationResult {
-  if (ALLOWED_DIRS.length === 0) {
+  const inspected = inspectPathBoundary(inputPath);
+  if (inspected.status === "allowed") {
+    return { ok: true, resolvedPath: inspected.physicalPath };
+  }
+  if (inspected.status === "denied") {
     return {
       ok: false,
-      error:
-        "No allowed directories configured. Set ALLOWED_DIRS environment variable.",
+      error: inspected.code === "SENSITIVE_PATH"
+        ? `Path "${inputPath}" is an internal protected path.`
+        : inspected.message,
     };
   }
-
-  let resolved: string = "";
-
-  // Handle relative paths — resolve against the first allowed dir as CWD fallback
-  if (path.isAbsolute(inputPath)) {
-    resolved = path.resolve(inputPath);
-  } else {
-    // Try resolving relative to each allowed dir; pick the first match
-    let found = false;
-    for (const root of ALLOWED_DIRS) {
-      const candidate = path.resolve(root, inputPath);
-      if (isInsideDir(candidate, root)) {
-        resolved = candidate;
-        found = true;
-        break;
-      }
-    }
-    if (!found) {
-      // Default resolve (CWD-relative) and let the whitelist check reject it
-      resolved = path.resolve(inputPath);
-    }
-  }
-
-  // Check against each allowed root
-  const matchingRoot = ALLOWED_DIRS.find((root) => isInsideDir(resolved, root));
-
-  if (!matchingRoot) {
+  const logicalInside = directoryGrantStore.effectiveRoots(getRequestUserId())
+    .some((root) => isInsideDirectory(inspected.logicalPath, root.logicalRoot));
+  if (logicalInside) {
     return {
       ok: false,
-      error: `Path "${inputPath}" is outside all allowed directories.`,
+      error: `Path "${inputPath}" resolves (via symlink) outside allowed directories.`,
     };
   }
-
-  if (isInternalApprovalPath(resolved)) {
-    return {
-      ok: false,
-      error: `Path "${inputPath}" is an internal protected path.`,
-    };
-  }
-
-  // Resolve an existing target or its nearest existing ancestor. Checking only
-  // an existing final target would allow writes through a symlinked directory.
-  try {
-    const physicalPath = resolveThroughExistingAncestor(resolved);
-    const physicalRoots = ALLOWED_DIRS.flatMap((root) => {
-      try {
-        return [resolveThroughExistingAncestor(root)];
-      } catch {
-        return [];
-      }
-    });
-    if (!physicalRoots.some((root) => isInsideDir(physicalPath, root))) {
-      return {
-        ok: false,
-        error: `Path "${inputPath}" resolves (via symlink) outside allowed directories.`,
-      };
-    }
-    if (isInternalApprovalPath(physicalPath)) {
-      return {
-        ok: false,
-        error: `Path "${inputPath}" is an internal protected path.`,
-      };
-    }
-    resolved = physicalPath;
-  } catch {
-    return {
-      ok: false,
-      error: `Path "${inputPath}" could not be safely resolved.`,
-    };
-  }
-
-  return { ok: true, resolvedPath: resolved };
+  return { ok: false, error: `Path "${inputPath}" is outside all allowed directories.` };
 }
 
-/**
- * Check if `target` is inside `parent` (or equals it).
- * Uses case-insensitive comparison on Windows.
- */
-function isInsideDir(target: string, parent: string): boolean {
-  let normalizedTarget = path.normalize(target) + path.sep;
-  let normalizedParent = path.normalize(parent) + path.sep;
-  if (process.platform === "win32") {
-    normalizedTarget = normalizedTarget.toLowerCase();
-    normalizedParent = normalizedParent.toLowerCase();
-  }
-  return (
-    normalizedTarget === normalizedParent ||
-    normalizedTarget.startsWith(normalizedParent)
-  );
-}
-
-/**
- * List the configured allowed directories (for the `list_allowed_directories` tool).
- */
 export function getAllowedDirectories(): string[] {
-  return [...ALLOWED_DIRS];
+  return directoryGrantStore.effectiveRoots(getRequestUserId()).map((root) => root.logicalRoot);
 }
