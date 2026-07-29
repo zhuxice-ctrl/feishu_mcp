@@ -1,5 +1,8 @@
 # feishu_mcp
 
+> 开源部署前请先阅读 [SECURITY.md](SECURITY.md)。固定隧道域名不是认证凭据；
+> 公网入口必须始终使用强 Bearer Token，并禁止提交 `.env`、日志和审批数据。
+
 将本地文件系统安全地暴露给飞书 Aily AI 助手的 MCP（Model Context Protocol）服务。
 
 通过 Streamable HTTP 协议，让飞书 Aily 中的 AI Agent 能够远程读写你本机的文件——读取文档、写入代码、搜索目录、编辑文件。服务同时支持可选的 Bearer 传输层鉴权，以及 PIN / 可信身份头工具授权。

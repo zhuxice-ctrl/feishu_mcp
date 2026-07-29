@@ -1,6 +1,13 @@
 node_modules/
 dist/
 .env
+.env.*
+!.env.example
+logs/
+*.pid
+approval.key
+approvals.json
+directory-grants.json
 *.log
 .DS_Store
 coverage/
