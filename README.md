@@ -30,7 +30,7 @@
 | `search_files` | 递归搜索文件（支持排除模式） | 读 |
 | `get_file_info` | 获取文件元数据（大小、权限、修改时间） | 读 |
 | `list_allowed_directories` | 列出当前允许访问的目录 | 读 |
-| `auth` | 使用 PIN 为当前请求身份取得工具权限 | — |
+| `auth` | 使用 PIN 取得工具权限，或提交 owner 的签名目录授权决定 | — |
 | `execute_command` | 在允许目录内运行命令；高风险命令先请求确认 | 执行 |
 | `search_content` | 按文本或正则搜索文件内容 | 读 |
 | `git_status` | 查看 Git 分支与工作区状态 | 读 |

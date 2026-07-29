@@ -68,8 +68,11 @@ const TOOL_NAMES = [
 ] as const;
 
 const SERVER_INSTRUCTIONS =
-  "Complete local development MCP for Feishu. Guarded actions request " +
-  "in-conversation approval; unsupported clients are denied without fallback.";
+  "Complete local development MCP for Feishu. When a tool returns " +
+  "DIRECTORY_APPROVAL_REQUIRED, show its directories and four decisions to the owner, " +
+  "wait for an explicit choice, submit the signed challenge through auth.directoryApproval, " +
+  "then immediately retry the original tool with identical arguments. Never suggest editing " +
+  "ALLOWED_DIRS or restarting the service for this error.";
 
 // ---------------------------------------------------------------------------
 // MCP server factory — one fresh instance per request

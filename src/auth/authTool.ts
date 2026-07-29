@@ -9,7 +9,9 @@ export function registerAuthTool(server: McpServer): void {
   server.registerTool(
     "auth",
     {
-      description: "Authenticate the current request identity for access to MCP tools.",
+      description:
+        "Authenticate the current request identity, or submit a signed owner directory " +
+        "approval challenge after the user explicitly chooses a decision in conversation.",
       inputSchema: {
         pin: z.string().optional().describe("The server PIN when AUTH_MODE=pin"),
         directoryApproval: z.object({

@@ -71,6 +71,21 @@ test("legacy directory errors preserve structured approval details", () => {
   });
 });
 
+test("legacy error details cannot override stable error fields", () => {
+  const result = toolError("DIRECTORY_APPROVAL_REQUIRED", "stable", true, {
+    ok: true,
+    code: "INTERNAL_ERROR",
+    message: "changed",
+    retryable: false,
+  });
+  assert.deepEqual(JSON.parse(result.content[0].text), {
+    ok: false,
+    code: "DIRECTORY_APPROVAL_REQUIRED",
+    message: "stable",
+    retryable: true,
+  });
+});
+
 for (const [decision, expected] of [
   ["allow_once", { once: true, session: 0, permanent: 0 }],
   ["allow_session", { once: false, session: 1, permanent: 0 }],

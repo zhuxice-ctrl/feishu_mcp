@@ -23,6 +23,6 @@ export function toolError(
   retryable = false,
   details: Record<string, unknown> = {},
 ) {
-  const body = { ok: false, code, message, retryable, ...details };
+  const body = { ...details, ok: false, code, message, retryable };
   return { ...toolJson(body), isError: true };
 }

@@ -36,6 +36,17 @@ test("legacy owner approves once and the matching retry consumes it", async () =
     userId: "owner",
   });
   try {
+    const initialized = await fixture.rpc("initialize", {
+      protocolVersion: "2025-06-18",
+      capabilities: {},
+      clientInfo: { name: "legacy-feishu", version: "1.0" },
+    });
+    assert.match(initialized.instructions, /DIRECTORY_APPROVAL_REQUIRED/);
+    assert.match(initialized.instructions, /Never suggest editing ALLOWED_DIRS/);
+    const listed = await fixture.rpc("tools/list", {});
+    const authTool = listed.tools.find((tool) => tool.name === "auth");
+    assert.match(authTool.description, /signed owner directory approval challenge/);
+
     const first = body(await fixture.callLegacy("read_file", { path: outsideFile }));
     assert.equal(first.code, "DIRECTORY_APPROVAL_REQUIRED");
     assert.equal(first.retryable, true);
