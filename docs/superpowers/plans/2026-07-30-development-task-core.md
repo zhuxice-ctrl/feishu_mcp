@@ -173,7 +173,7 @@ git commit -m "feat: gate development tools to owner"
 - Create: `test/development-task-store.test.mjs`
 - Create: `test/development-task-redaction.test.mjs`
 
-- [ ] **Step 1: Write failing store tests**
+- [x] **Step 1: Write failing store tests**
 
 Cover create, read, compare-and-update, list by owner key, atomic metadata replacement, corrupt-file quarantine, and rejection of invalid task IDs. Use only a temporary directory.
 
@@ -186,7 +186,7 @@ assert.equal(store.update(created.id, "queued", { state: "running", stage: "spaw
 assert.throws(() => store.update(created.id, "queued", { state: "failed" }), /state changed/i);
 ```
 
-- [ ] **Step 2: Write failing redaction tests**
+- [x] **Step 2: Write failing redaction tests**
 
 Assert configured secret values, `Authorization: Bearer`, password-like environment assignments, Gradle signing properties, and split-across-chunk secrets are redacted before they reach disk.
 
@@ -197,13 +197,13 @@ assert.doesNotMatch(output, /split-secret-value/);
 assert.match(output, /\[REDACTED\]/);
 ```
 
-- [ ] **Step 3: Run the tests and verify failure**
+- [x] **Step 3: Run the tests and verify failure**
 
 Run: `npm run build; node --test test/development-task-store.test.mjs test/development-task-redaction.test.mjs`
 
 Expected: FAIL because the task modules do not exist.
 
-- [ ] **Step 4: Define stable task contracts**
+- [x] **Step 4: Define stable task contracts**
 
 Define and export these exact unions and interfaces in `types.ts`:
 
@@ -243,7 +243,7 @@ export interface DevelopmentTaskRecord {
 
 Persist `DevelopmentLaunchSpec` in a separate mode-`0600` `launch.json` file that task-query tools never return. `env` may contain only non-secret adapter-generated values; sensitive-name keys and configured secret values are rejected before persistence. `secretEnvRefs` stores opaque local credential IDs, never decrypted values.
 
-- [ ] **Step 5: Derive non-reversible owner keys**
+- [x] **Step 5: Derive non-reversible owner keys**
 
 In `ownerKey.ts`, derive a full SHA-256 HMAC from `APPROVAL_STATE_SECRET` and the canonical owner ID. Throw at task creation if either value is missing; never persist the raw user ID.
 
@@ -254,11 +254,11 @@ export function developmentOwnerKey(userId: string): string {
 }
 ```
 
-- [ ] **Step 6: Implement the atomic store**
+- [x] **Step 6: Implement the atomic store**
 
 Use `mkdirSync(..., { recursive: true, mode: 0o700 })`, exclusive temporary files, `fsyncSync`, and `renameSync`. Validate parsed records before returning them. Quarantine corrupt metadata by renaming it to `<id>.corrupt-<timestamp>.json`; do not silently treat corrupt running work as successful. Require the expected state argument for every transition.
 
-- [ ] **Step 7: Implement line-aware streaming redaction**
+- [x] **Step 7: Implement line-aware streaming redaction**
 
 Keep `maxSecretLength - 1` characters between chunks, redact configured secret values longest-first, and apply case-insensitive patterns for bearer headers and sensitive assignments. Cap the retained tail at 4096 characters and replace matches with `[REDACTED]`.
 
@@ -270,13 +270,13 @@ const PATTERNS = [
 ];
 ```
 
-- [ ] **Step 8: Run focused tests**
+- [x] **Step 8: Run focused tests**
 
 Run: `npm run build; node --test test/development-task-store.test.mjs test/development-task-redaction.test.mjs`
 
 Expected: all tests pass and temporary roots contain no unredacted fixture secret.
 
-- [ ] **Step 9: Commit**
+- [x] **Step 9: Commit**
 
 ```powershell
 git add src/development/tasks test/development-task-store.test.mjs test/development-task-redaction.test.mjs
