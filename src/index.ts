@@ -305,6 +305,7 @@ app.get("/health", (_req: Request, res: Response) => {
       fallback: DIRECTORY_APPROVAL_FALLBACK,
     },
     concurrency: concurrencySummary(),
+    developmentTasks: developmentTaskCoordinator.healthSummary(),
     timestamp: new Date().toISOString(),
   });
 });
@@ -322,6 +323,20 @@ setInterval(() => {
 
 // Initial cleanup on startup
 setTimeout(() => cleanupTrash(), 5000);
+
+// ---------------------------------------------------------------------------
+// Development task retention — initial pass after recovery, then hourly
+// ---------------------------------------------------------------------------
+
+const purgeDevelopmentTasks = (): void => {
+  const result = developmentTaskCoordinator.cleanup();
+  if (result.removed > 0) {
+    logger.info("development_task_cleanup_completed", { ...result });
+  }
+};
+
+purgeDevelopmentTasks();
+setInterval(purgeDevelopmentTasks, 60 * 60 * 1000); // 1 hour
 
 // ---------------------------------------------------------------------------
 // Start server

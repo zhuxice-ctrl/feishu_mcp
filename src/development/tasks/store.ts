@@ -227,6 +227,67 @@ export class DevelopmentTaskStore {
     return this.update(current.id, current.state, { artifacts });
   }
 
+  /** IDs of every real task directory (exact UUID names; symlinks excluded). */
+  listIds(): string[] {
+    try {
+      return fs.readdirSync(this.root, { withFileTypes: true })
+        .filter((entry) => entry.isDirectory() && UUID_RE.test(entry.name))
+        .map((entry) => entry.name);
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
+      return [];
+    }
+  }
+
+  /** Total bytes inside a task directory, never following symlinks. */
+  directorySize(id: string): number {
+    validateTaskId(id);
+    let total = 0;
+    const walk = (current: string): void => {
+      let entries: fs.Dirent[];
+      try {
+        entries = fs.readdirSync(current, { withFileTypes: true });
+      } catch {
+        return;
+      }
+      for (const entry of entries) {
+        if (entry.isSymbolicLink()) continue;
+        const full = path.join(current, entry.name);
+        if (entry.isDirectory()) {
+          walk(full);
+        } else if (entry.isFile()) {
+          try {
+            total += fs.lstatSync(full).size;
+          } catch {
+            // vanished mid-walk; ignore
+          }
+        }
+      }
+    };
+    walk(this.taskDir(id));
+    return total;
+  }
+
+  /**
+   * Permanently delete a task directory. Only a real directory with an exact
+   * UUID name directly under the store root is eligible — symlinks and any
+   * other entries are refused, so project artifacts are never touched.
+   */
+  remove(id: string): void {
+    validateTaskId(id);
+    const dir = this.taskDir(id);
+    let stat: fs.Stats;
+    try {
+      stat = fs.lstatSync(dir);
+    } catch {
+      return;
+    }
+    if (stat.isSymbolicLink() || !stat.isDirectory()) {
+      throw new DevelopmentTaskStoreError(`refusing to remove non-directory task entry: ${id}`);
+    }
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+
   private readMetadata(id: string, file: string): DevelopmentTaskRecord | undefined {
     let raw: string;
     try {
@@ -282,4 +343,83 @@ export class DevelopmentTaskStore {
       try { fs.rmSync(temporary, { force: true }); } catch {}
     }
   }
+}
+
+
+// ---------------------------------------------------------------------------
+// Retention
+// ---------------------------------------------------------------------------
+
+const TERMINAL_TASK_STATES: ReadonlySet<DevelopmentTaskState> = new Set([
+  "succeeded",
+  "failed",
+  "cancelled",
+  "interrupted",
+]);
+
+export interface DevelopmentRetentionOptions {
+  retentionDays: number;
+  maxTotalBytes: number;
+  now?: number;
+}
+
+/** Aggregate counts only — never task IDs, owner keys, or paths. */
+export interface DevelopmentRetentionResult {
+  removed: number;
+  bytesFreed: number;
+  remainingBytes: number;
+}
+
+/**
+ * Delete terminal tasks past the retention age, then — if the store still
+ * exceeds the byte cap — delete remaining terminal tasks oldest-first until
+ * under the cap. Queued and running tasks are never deleted (their bytes do
+ * count toward the cap). Only canonical task directories are removed.
+ */
+export function cleanupDevelopmentTasks(
+  store: DevelopmentTaskStore,
+  options: DevelopmentRetentionOptions,
+): DevelopmentRetentionResult {
+  const now = options.now ?? Date.now();
+  const cutoff = now - options.retentionDays * 86_400_000;
+  const terminal = store.list().filter((record) => TERMINAL_TASK_STATES.has(record.state));
+  const endedAt = (record: DevelopmentTaskRecord): string => record.endedAt ?? record.updatedAt;
+
+  let removed = 0;
+  let bytesFreed = 0;
+  const remaining = new Map(terminal.map((record) => [record.id, record]));
+
+  for (const record of terminal) {
+    const ended = Date.parse(endedAt(record));
+    if (Number.isFinite(ended) && ended < cutoff) {
+      const size = store.directorySize(record.id);
+      store.remove(record.id);
+      remaining.delete(record.id);
+      removed += 1;
+      bytesFreed += size;
+    }
+  }
+
+  let total = 0;
+  const sizes = new Map<string, number>();
+  for (const id of store.listIds()) {
+    const size = store.directorySize(id);
+    sizes.set(id, size);
+    total += size;
+  }
+
+  if (total > options.maxTotalBytes) {
+    const deletable = [...remaining.values()]
+      .sort((a, b) => endedAt(a).localeCompare(endedAt(b)));
+    for (const record of deletable) {
+      if (total <= options.maxTotalBytes) break;
+      const size = sizes.get(record.id) ?? store.directorySize(record.id);
+      store.remove(record.id);
+      removed += 1;
+      bytesFreed += size;
+      total -= size;
+    }
+  }
+
+  return { removed, bytesFreed, remainingBytes: total };
 }

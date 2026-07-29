@@ -16,8 +16,14 @@ import { spawn } from "node:child_process";
 import path from "node:path";
 import {
   DEV_TASK_HEARTBEAT_MS,
+  DEV_TASK_MAX_TOTAL_BYTES,
+  DEV_TASK_RETENTION_DAYS,
 } from "../../config.js";
-import { DevelopmentTaskStore } from "./store.js";
+import {
+  DevelopmentTaskStore,
+  cleanupDevelopmentTasks,
+  type DevelopmentRetentionResult,
+} from "./store.js";
 import {
   DevelopmentTaskScheduler,
 } from "./scheduler.js";
@@ -197,6 +203,39 @@ export class DevelopmentTaskCoordinator {
     buildLimit: number;
   } {
     return this.scheduler.summary();
+  }
+
+  /**
+   * Aggregate health view for the /health endpoint: counts and configured
+   * limits only — never task IDs, owner keys, resources, or worker data.
+   */
+  healthSummary(): {
+    queued: number;
+    running: number;
+    terminal: number;
+    totalLimit: number;
+    buildLimit: number;
+  } {
+    const scheduler = this.scheduler.summary();
+    const terminal = this.store.list().filter((record) =>
+      ["succeeded", "failed", "cancelled", "interrupted"].includes(record.state)
+    ).length;
+    return {
+      queued: scheduler.queued,
+      running: scheduler.active,
+      terminal,
+      totalLimit: scheduler.totalLimit,
+      buildLimit: scheduler.buildLimit,
+    };
+  }
+
+  /** Run one retention pass; returns aggregate counts only. */
+  cleanup(options: { now?: number } = {}): DevelopmentRetentionResult {
+    return cleanupDevelopmentTasks(this.store, {
+      retentionDays: DEV_TASK_RETENTION_DAYS,
+      maxTotalBytes: DEV_TASK_MAX_TOTAL_BYTES,
+      now: options.now,
+    });
   }
 }
 
