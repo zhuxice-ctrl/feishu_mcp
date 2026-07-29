@@ -227,6 +227,17 @@ function Invoke-Launcher {
     if (-not [string]::IsNullOrWhiteSpace($ownerDirs) -and [string]::IsNullOrWhiteSpace($ownerId)) {
         throw "OWNER_USER_ID is required when OWNER_DEFAULT_DIRS is configured"
     }
+    $directoryApprovalFallback = [Environment]::GetEnvironmentVariable("DIRECTORY_APPROVAL_FALLBACK", "Process")
+    if ([string]::IsNullOrWhiteSpace($directoryApprovalFallback)) {
+        $directoryApprovalFallback = "deny"
+        $env:DIRECTORY_APPROVAL_FALLBACK = $directoryApprovalFallback
+    }
+    if ($directoryApprovalFallback -notin @("deny", "owner")) {
+        throw "DIRECTORY_APPROVAL_FALLBACK must be deny or owner"
+    }
+    if ($directoryApprovalFallback -eq "owner" -and [string]::IsNullOrWhiteSpace($ownerId)) {
+        throw "OWNER_USER_ID is required when directory approval fallback is owner"
+    }
     $ownerDefaultCount = @($ownerDirs -split ',' | Where-Object { $_.Trim() }).Count
     $transportToken = Require-Value "MCP_AUTH_TOKEN"
     $authMode = [Environment]::GetEnvironmentVariable("AUTH_MODE", "Process")
@@ -341,6 +352,7 @@ function Invoke-Launcher {
             permanentApprovalCount = $approvalCount
             ownerDefaultCount = $ownerDefaultCount
             permanentDirectoryGrantCount = $directoryGrantCount
+            directoryApprovalFallback = $directoryApprovalFallback
         } | ConvertTo-Json -Compress
         return
     }

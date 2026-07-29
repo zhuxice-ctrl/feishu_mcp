@@ -46,6 +46,7 @@ test("health exposes redacted approval and concurrency summaries", async () => {
       ALLOWED_DIRS: "",
       OWNER_USER_ID: ownerId,
       OWNER_DEFAULT_DIRS: ownerRoot,
+      DIRECTORY_APPROVAL_FALLBACK: "owner",
       APPROVAL_DATA_DIR: path.join(root, "approvals"),
       LOG_DIR: path.join(root, "logs"),
       MCP_AUTH_TOKEN: "",
@@ -88,6 +89,7 @@ test("health exposes redacted approval and concurrency summaries", async () => {
       session: 0,
       permanent: 0,
       unsupportedClientPolicy: "deny",
+      fallback: "owner",
     });
     const serialized = JSON.stringify(health);
     assert.doesNotMatch(serialized, /subjectKey|userId|approval\.key|approvals\.json/i);

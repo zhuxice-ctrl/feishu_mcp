@@ -22,6 +22,7 @@ import {
   APPROVAL_TIMEOUT_MS,
   AUTH_ENABLED,
   AUTH_MODE,
+  DIRECTORY_APPROVAL_FALLBACK,
   HOST,
   MCP_ENDPOINT,
   NGROK_DOMAIN,
@@ -275,6 +276,7 @@ app.get("/health", (_req: Request, res: Response) => {
       ownerDefaults: OWNER_DEFAULT_DIRS.length,
       ...directoryGrantStore.summary(),
       unsupportedClientPolicy: "deny",
+      fallback: DIRECTORY_APPROVAL_FALLBACK,
     },
     concurrency: concurrencySummary(),
     timestamp: new Date().toISOString(),
@@ -311,6 +313,7 @@ app.listen(PORT, HOST, () => {
     "Approval: Feishu input_required (unsupported clients denied)",
     `Permanent approvals: ${approvalStore.summary().permanent}`,
     `Directory authorization: Feishu input_required (owner defaults ${OWNER_DEFAULT_DIRS.length}, permanent ${directoryGrantStore.summary().permanent})`,
+    `Directory fallback: ${DIRECTORY_APPROVAL_FALLBACK}`,
     `Concurrency: ${JSON.stringify(concurrencySummary())}`,
     "Tools: 21",
   ];

@@ -80,7 +80,13 @@ Token、PIN 或其他密钥）：
 ALLOWED_DIRS=
 OWNER_USER_ID=owner
 OWNER_DEFAULT_DIRS=F:\
+DIRECTORY_APPROVAL_FALLBACK=owner
 ```
+
+如果飞书客户端返回 `DIRECTORY_APPROVAL_REQUIRED`，智能体应展示响应中的目录和
+四种决定，等待 owner 明确选择，然后把签名 challenge 与决定提交给现有 `auth`
+工具。auth 成功后必须立即重试原工具。不要建议修改 `ALLOWED_DIRS` 或重启服务。
+该兼容通道只对固定 owner 生效，默认配置仍为 `deny`，公开工具总数仍为 21。
 
 同时在 Aily 为该 MCP 固定配置 `x-aily-user=owner` 请求头，并仅让所有者看见该
 MCP 工具。该固定身份是 `F:\` 默认目录只对 owner 生效的前提；其他用户不能共享

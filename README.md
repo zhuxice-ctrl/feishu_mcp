@@ -114,11 +114,19 @@ Token、PIN 或其他密钥）：
 ALLOWED_DIRS=
 OWNER_USER_ID=owner
 OWNER_DEFAULT_DIRS=F:\
+DIRECTORY_APPROVAL_FALLBACK=owner
 ```
 
 在这种部署中，企业内部 MCP 工具必须只对设备所有者可见：Aily 配置固定请求头
 `x-aily-user=owner`，不要把该 MCP 暴露给会携带其他身份的用户。`F:\` 只会作为
 `owner` 的默认目录，其他身份不能继承它。
+
+当前飞书/Aily 客户端如果不支持 MCP `input_required`，owner 专属 fallback 会让
+原文件工具返回一个签名、限时、一次性的目录挑战。智能体必须先在会话中展示
+“本次允许 / 会话允许 / 永久允许 / 拒绝”，得到明确选择后调用现有 `auth` 工具
+提交决定，并立即用原参数重试原工具。这个流程不修改 `ALLOWED_DIRS`，也不需要
+重启服务。`DIRECTORY_APPROVAL_FALLBACK` 默认是 `deny`；只有私有、固定 owner
+身份的工具应配置为 `owner`。
 
 ### 两层鉴权的区别
 

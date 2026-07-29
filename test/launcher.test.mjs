@@ -17,8 +17,9 @@ async function fixture(overrides = {}) {
     PORT: "3000",
     HOST: "127.0.0.1",
     ALLOWED_DIRS: "",
-    OWNER_USER_ID: "owner",
+    OWNER_USER_ID: "launcher-owner-identity",
     OWNER_DEFAULT_DIRS: path.join(root, "owner-default-directory"),
+    DIRECTORY_APPROVAL_FALLBACK: "owner",
     MCP_AUTH_TOKEN: "transport-secret-value",
     AUTH_MODE: "pin",
     AUTH_PIN: "pin-secret-value",
@@ -95,6 +96,7 @@ test(
           permanentApprovalCount: output.permanentApprovalCount,
           ownerDefaultCount: output.ownerDefaultCount,
           permanentDirectoryGrantCount: output.permanentDirectoryGrantCount,
+          directoryApprovalFallback: output.directoryApprovalFallback,
         },
         {
           status: "ready",
@@ -107,9 +109,10 @@ test(
           permanentApprovalCount: 0,
           ownerDefaultCount: 1,
           permanentDirectoryGrantCount: 0,
+          directoryApprovalFallback: "owner",
         }
       );
-      assert.doesNotMatch(result.stdout + result.stderr, /(?:^|[^A-Za-z])owner(?:$|[^A-Za-z])/);
+      assert.equal((result.stdout + result.stderr).includes("launcher-owner-identity"), false);
       assert.equal((result.stdout + result.stderr).includes(path.join(item.root, "owner-default-directory")), false);
     } finally {
       await rm(item.root, { recursive: true, force: true });
