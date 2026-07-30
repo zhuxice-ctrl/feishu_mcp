@@ -68,6 +68,7 @@ import {
 } from "./tools/developmentEnvironment.js";
 import { registerAndroidDevelopmentTool } from "./tools/androidDevelopment.js";
 import { registerWindowsDevelopmentTool } from "./tools/windowsDevelopment.js";
+import { registerDevelopmentProjectTool } from "./tools/developmentProjects.js";
 import { AndroidProjectProvider } from "./development/android/projectProvider.js";
 import { DotnetProjectProvider } from "./development/windows/dotnetProjectProvider.js";
 import { NativeProjectProvider } from "./development/windows/nativeProjectProvider.js";
@@ -92,6 +93,7 @@ const TOOL_NAMES = [
   "inspect_development_environment", "plan_environment_changes", "apply_environment_plan",
   "android_development",
   "windows_development",
+  "manage_development_project",
 ] as const;
 
 const SERVER_INSTRUCTIONS =
@@ -232,6 +234,7 @@ function createMcpServer(): McpServer {
     credentialStore: windowsCredentialStore,
     pfxHelperPath: path.resolve(process.cwd(), "scripts/import-development-signing-credential.ps1"),
   });
+  registerDevelopmentProjectTool(server, { registry: projectRegistry });
 
   return server;
 }

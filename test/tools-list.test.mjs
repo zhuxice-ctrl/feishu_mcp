@@ -17,6 +17,7 @@ const expected = [
   "inspect_development_environment", "plan_environment_changes", "apply_environment_plan",
   "android_development",
   "windows_development",
+  "manage_development_project",
 ];
 
 async function freePort() {
@@ -45,7 +46,7 @@ async function stop(child) {
   if (child.exitCode === null) child.kill("SIGKILL");
 }
 
-test("production MCP advertises exactly the 29-tool inventory", async () => {
+test("production MCP advertises exactly the 30-tool inventory", async () => {
   const root = await mkdtemp(path.join(os.tmpdir(), "feishu-tools-list-"));
   const port = await freePort();
   const child = spawn(process.execPath, ["dist/index.js"], {
@@ -81,7 +82,7 @@ test("production MCP advertises exactly the 29-tool inventory", async () => {
     const payload = parseMcp(await response.text());
     assert.equal(response.status, 200);
     assert.deepEqual(payload.result.tools.map((tool) => tool.name), expected);
-    assert.equal(new Set(payload.result.tools.map((tool) => tool.name)).size, 29);
+    assert.equal(new Set(payload.result.tools.map((tool) => tool.name)).size, 30);
   } finally {
     await stop(child);
     await rm(root, { recursive: true, force: true });
