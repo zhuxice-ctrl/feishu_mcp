@@ -52,16 +52,14 @@ function sha256(text: string): string {
 }
 
 /**
- * Parse JSON without prototype pollution. Rejects `__proto__` keys and
- * constructor-polluting payloads.
+ * Parse JSON without prototype pollution. Returns the parsed object; the
+ * caller (inspector) is responsible for rejecting `__proto__` keys at the
+ * surface so the raw structure remains inspectable.
  */
 export function safeParseJson(raw: string): unknown {
   const parsed = JSON.parse(raw);
   if (typeof parsed !== "object" || parsed === null || Array.isArray(parsed)) {
     throw new Error("package.json is not a JSON object");
-  }
-  if (Object.prototype.hasOwnProperty.call(parsed, "__proto__")) {
-    throw new Error("package.json contains __proto__ key");
   }
   return parsed;
 }

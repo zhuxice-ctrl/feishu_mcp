@@ -6,7 +6,7 @@ import test from "node:test";
 
 import { planElectronAction } from "../dist/development/windows/electron.js";
 import { buildElectronCommand } from "../dist/development/windows/commands.js";
-import { safeParseJson } from "../dist/development/windows/electronManifest.js";
+import { safeParseJson, inspectElectronManifest } from "../dist/development/windows/electronManifest.js";
 
 function tmpDir() {
   return mkdtempSync(path.join(os.tmpdir(), "feishu-win-electron-inj-"));
@@ -21,8 +21,11 @@ function toolchain() {
 }
 
 test("prototype pollution via __proto__ key rejected", () => {
-  const malicious = '{"__proto__":{"polluted":true},"name":"x"}';
-  assert.throws(() => safeParseJson(malicious), /__proto__/);
+  const root = tmpDir();
+  writeFileSync(path.join(root, "package.json"), '{"__proto__":{"polluted":true},"name":"x"}');
+  writeFileSync(path.join(root, "package-lock.json"), "{}");
+  assert.throws(() => inspectElectronManifest(root), /__proto__/);
+  rmSync(root, { recursive: true, force: true });
 });
 
 test("script name with shell metacharacters rejected", () => {

@@ -52,6 +52,8 @@ import { approvalStore } from "./security/approvalStore.js";
 import { approvalStateCodec } from "./security/approvalState.js";
 import { cleanupTrash } from "./security/trash.js";
 import { directoryGrantStore } from "./security/directoryGrantStore.js";
+import { spawnSync } from "node:child_process";
+import path from "node:path";
 import { DevelopmentTaskCoordinator } from "./development/tasks/coordinator.js";
 import { DevelopmentTaskScheduler } from "./development/tasks/scheduler.js";
 import { DevelopmentTaskStore } from "./development/tasks/store.js";
@@ -65,7 +67,11 @@ import {
   registerDevelopmentEnvironmentTools,
 } from "./tools/developmentEnvironment.js";
 import { registerAndroidDevelopmentTool } from "./tools/androidDevelopment.js";
+import { registerWindowsDevelopmentTool } from "./tools/windowsDevelopment.js";
 import { AndroidProjectProvider } from "./development/android/projectProvider.js";
+import { DotnetProjectProvider } from "./development/windows/dotnetProjectProvider.js";
+import { NativeProjectProvider } from "./development/windows/nativeProjectProvider.js";
+import { ElectronProjectProvider } from "./development/windows/electronProjectProvider.js";
 import { ProjectRegistry } from "./development/projects/registry.js";
 import { LocalCredentialStore } from "./development/credentials/dpapiStore.js";
 import { registerDiffTool } from "./tools/diff.js";
@@ -85,6 +91,7 @@ const TOOL_NAMES = [
   "get_development_task", "read_development_task_logs", "cancel_development_task",
   "inspect_development_environment", "plan_environment_changes", "apply_environment_plan",
   "android_development",
+  "windows_development",
 ] as const;
 
 const SERVER_INSTRUCTIONS =
@@ -126,6 +133,20 @@ projectRegistry.register(
   }),
 );
 const androidCredentialStore = new LocalCredentialStore(APPROVAL_DATA_DIR);
+
+// ---------------------------------------------------------------------------
+// Windows development subsystem — project providers + shared credential store
+// ---------------------------------------------------------------------------
+
+projectRegistry.register(new DotnetProjectProvider({
+  runDotnet: (args) => {
+    const r = spawnSync("dotnet", args, { encoding: "utf8", shell: false, timeout: 30_000, maxBuffer: 4 * 1024 * 1024 });
+    return { stdout: r.stdout ?? "", exitCode: r.status };
+  },
+}));
+projectRegistry.register(new NativeProjectProvider({}));
+projectRegistry.register(new ElectronProjectProvider({}));
+const windowsCredentialStore = new LocalCredentialStore(APPROVAL_DATA_DIR);
 
 // ---------------------------------------------------------------------------
 // MCP server factory — one fresh instance per request
@@ -201,6 +222,15 @@ function createMcpServer(): McpServer {
     generateWrapper: () => {
       throw new Error("Gradle wrapper generation is not available in this build.");
     },
+  });
+  registerWindowsDevelopmentTool(server, {
+    coordinator: developmentTaskCoordinator,
+    inspector: developmentEnvironment.inspector,
+    dotnetProvider: projectRegistry.get("dotnet"),
+    nativeProvider: projectRegistry.get("native"),
+    electronProvider: projectRegistry.get("electron"),
+    credentialStore: windowsCredentialStore,
+    pfxHelperPath: path.resolve(process.cwd(), "scripts/import-development-signing-credential.ps1"),
   });
 
   return server;
