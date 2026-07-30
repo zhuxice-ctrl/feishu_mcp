@@ -53,6 +53,30 @@ export class PlanStore {
     this.atomicWrite(plan);
   }
 
+  /**
+   * Aggregate counts of persisted plans by status. Used only by the health
+   * endpoint; never exposes plan ids, digests, or components.
+   */
+  summary(): { planned: number; claimed: number; applied: number; total: number } {
+    const counts = { planned: 0, claimed: 0, applied: 0, total: 0 };
+    let entries: string[];
+    try {
+      entries = fs.readdirSync(this.dataDir);
+    } catch {
+      return counts;
+    }
+    for (const entry of entries) {
+      if (!entry.endsWith(".json")) continue;
+      const plan = this.get(entry.slice(0, -5));
+      if (!plan) continue;
+      counts.total += 1;
+      if (plan.status === "planned") counts.planned += 1;
+      else if (plan.status === "claimed") counts.claimed += 1;
+      else if (plan.status === "applied") counts.applied += 1;
+    }
+    return counts;
+  }
+
   get(planId: string): EnvironmentPlan | undefined {
     if (!UUID_RE.test(planId)) return undefined;
     const file = this.fileFor(planId);

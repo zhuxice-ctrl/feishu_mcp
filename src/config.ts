@@ -160,6 +160,54 @@ if (taskDataRelative.startsWith("..") || path.isAbsolute(taskDataRelative)) {
 }
 
 // ---------------------------------------------------------------------------
+// Development environment subsystem (Phase 2 — trusted toolchain provisioning)
+// ---------------------------------------------------------------------------
+
+/**
+ * Reviewed catalog of trusted toolchain components. The same JSON is embedded
+ * into the C# administrator broker at build time; both sides validate against
+ * the same Zod schema. An MCP caller can never supply a component, URL, or
+ * argument — only exact catalog component IDs.
+ */
+export const DEV_ENV_CATALOG_PATH = path.resolve(
+  process.env.DEV_ENV_CATALOG_PATH ||
+    path.join(process.cwd(), "config", "development-package-catalog.json"),
+);
+
+/**
+ * Single-use signed environment plans live here as 0600 metadata files. Must
+ * remain inside {@link APPROVAL_DATA_DIR} so plan secrets share the same
+ * ACL-protected boundary as approval state.
+ */
+export const DEV_ENV_PLAN_DIR = path.resolve(
+  process.env.DEV_ENV_PLAN_DIR || path.join(APPROVAL_DATA_DIR, "environment-plans"),
+);
+const envPlanRelative = path.relative(path.resolve(APPROVAL_DATA_DIR), DEV_ENV_PLAN_DIR);
+if (envPlanRelative.startsWith("..") || path.isAbsolute(envPlanRelative)) {
+  throw new Error("DEV_ENV_PLAN_DIR must be inside APPROVAL_DATA_DIR");
+}
+
+/**
+ * Owner Windows SID used to derive the administrator-broker named-pipe path.
+ * Empty on non-Windows or when the broker is not installed; privileged
+ * operations then fail with BROKER_UNAVAILABLE instead of attempting a
+ * connection.
+ */
+export const DEV_ENV_OWNER_SID = process.env.DEV_ENV_OWNER_SID?.trim() ?? "";
+
+/**
+ * Path to the 32-byte broker shared key (ACL-protected). When empty the
+ * broker client is not constructed and privileged installs are unavailable.
+ */
+export const DEV_ENV_BROKER_KEY_PATH = process.env.DEV_ENV_BROKER_KEY_PATH?.trim() ?? "";
+
+/**
+ * Filesystem roots that resolved executable candidates must remain within.
+ * Candidates whose real path escapes every root are marked untrusted.
+ */
+export const DEV_ENV_ALLOWED_ROOTS = envPathList("DEV_ENV_ALLOWED_ROOTS");
+
+// ---------------------------------------------------------------------------
 // Allowed directories (Phase 2 — directory whitelist)
 // ---------------------------------------------------------------------------
 

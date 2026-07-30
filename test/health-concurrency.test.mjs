@@ -72,8 +72,8 @@ test("health exposes redacted approval and concurrency summaries", async () => {
       await new Promise((resolve) => setTimeout(resolve, 50));
     }
     assert(health, "health endpoint did not become ready");
-    assert.equal(health.toolCount, 24);
-    assert.equal(health.tools.length, 24);
+    assert.equal(health.toolCount, 27);
+    assert.equal(health.tools.length, 27);
     assert.deepEqual(
       Object.fromEntries(Object.entries(health.concurrency).map(([key, value]) => [key, value.limit])),
       { global: 7, command: 3, search: 4, fetch: 5 },
@@ -88,6 +88,11 @@ test("health exposes redacted approval and concurrency summaries", async () => {
       totalLimit: 4,
       buildLimit: 2,
     });
+    assert.deepEqual(health.developmentEnvironment, {
+      catalogVersion: 1,
+      brokerState: "missing",
+      plans: { planned: 0, claimed: 0, applied: 0, total: 0 },
+    });
     assert.deepEqual(health.approval.stored, { session: 0, permanent: 0 });
     assert.equal(health.approval.unsupportedClientPolicy, "deny");
     assert.deepEqual(health.directoryAuthorization, {
@@ -101,6 +106,7 @@ test("health exposes redacted approval and concurrency summaries", async () => {
     const serialized = JSON.stringify(health);
     assert.doesNotMatch(serialized, /subjectKey|userId|approval\.key|approvals\.json/i);
     assert.doesNotMatch(serialized, /taskId|ownerKey|device|project|worker|heartbeat/i);
+    assert.doesNotMatch(serialized, /planId|environmentDigest|catalogDigest|brokerKey|ownerSid|pipePath|realPath|fileIdentity|publisher/i);
     assert.doesNotMatch(serialized, new RegExp(escapeRegExp(ownerId)));
     assert.doesNotMatch(serialized, new RegExp(escapeRegExp(ownerRoot.replace(/\\/g, "\\\\"))));
   } finally {

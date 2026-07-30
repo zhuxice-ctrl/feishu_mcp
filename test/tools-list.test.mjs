@@ -14,6 +14,7 @@ const expected = [
   "git_status", "git_diff", "compare_files", "apply_patch", "web_fetch",
   "todo_write", "todo_read", "ask_user",
   "get_development_task", "read_development_task_logs", "cancel_development_task",
+  "inspect_development_environment", "plan_environment_changes", "apply_environment_plan",
 ];
 
 async function freePort() {
@@ -42,7 +43,7 @@ async function stop(child) {
   if (child.exitCode === null) child.kill("SIGKILL");
 }
 
-test("production MCP advertises exactly the 24-tool inventory", async () => {
+test("production MCP advertises exactly the 27-tool inventory", async () => {
   const root = await mkdtemp(path.join(os.tmpdir(), "feishu-tools-list-"));
   const port = await freePort();
   const child = spawn(process.execPath, ["dist/index.js"], {
@@ -78,7 +79,7 @@ test("production MCP advertises exactly the 24-tool inventory", async () => {
     const payload = parseMcp(await response.text());
     assert.equal(response.status, 200);
     assert.deepEqual(payload.result.tools.map((tool) => tool.name), expected);
-    assert.equal(new Set(payload.result.tools.map((tool) => tool.name)).size, 24);
+    assert.equal(new Set(payload.result.tools.map((tool) => tool.name)).size, 27);
   } finally {
     await stop(child);
     await rm(root, { recursive: true, force: true });

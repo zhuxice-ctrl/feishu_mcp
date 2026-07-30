@@ -59,6 +59,10 @@ import { registerCommandTool } from "./tools/command.js";
 import { concurrencySummary } from "./tools/concurrency.js";
 import { registerContentSearchTool } from "./tools/contentSearch.js";
 import { registerDevelopmentTaskTools } from "./tools/developmentTasks.js";
+import {
+  createDevelopmentEnvironmentSubsystem,
+  registerDevelopmentEnvironmentTools,
+} from "./tools/developmentEnvironment.js";
 import { registerDiffTool } from "./tools/diff.js";
 import { registerFilesystemTools } from "./tools/filesystem.js";
 import { registerGitTools } from "./tools/git.js";
@@ -74,6 +78,7 @@ const TOOL_NAMES = [
   "git_status", "git_diff", "compare_files", "apply_patch", "web_fetch",
   "todo_write", "todo_read", "ask_user",
   "get_development_task", "read_development_task_logs", "cancel_development_task",
+  "inspect_development_environment", "plan_environment_changes", "apply_environment_plan",
 ] as const;
 
 const SERVER_INSTRUCTIONS =
@@ -95,6 +100,12 @@ const developmentTaskCoordinator = new DevelopmentTaskCoordinator(
     queueTimeoutMs: DEV_TASK_QUEUE_TIMEOUT_MS,
   }),
 );
+
+// ---------------------------------------------------------------------------
+// Development environment subsystem — trusted toolchain provisioning
+// ---------------------------------------------------------------------------
+
+const developmentEnvironment = createDevelopmentEnvironmentSubsystem();
 
 // ---------------------------------------------------------------------------
 // MCP server factory — one fresh instance per request
@@ -161,6 +172,7 @@ function createMcpServer(): McpServer {
   registerTodoTools(server);
   registerAskUserTool(server);
   registerDevelopmentTaskTools(server, developmentTaskCoordinator);
+  registerDevelopmentEnvironmentTools(server, developmentEnvironment);
 
   return server;
 }
@@ -306,6 +318,11 @@ app.get("/health", (_req: Request, res: Response) => {
     },
     concurrency: concurrencySummary(),
     developmentTasks: developmentTaskCoordinator.healthSummary(),
+    developmentEnvironment: {
+      catalogVersion: developmentEnvironment.catalog.version,
+      brokerState: developmentEnvironment.brokerState,
+      plans: developmentEnvironment.planStore.summary(),
+    },
     timestamp: new Date().toISOString(),
   });
 });
