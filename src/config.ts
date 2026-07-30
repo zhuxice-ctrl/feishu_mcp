@@ -64,8 +64,8 @@ export const SERVER_VERSION = "1.0.0";
 
 export const PORT = envPositiveInt("PORT", 3000);
 if (PORT > 65_535) throw new Error("PORT must be between 1 and 65535");
-export const HOST = process.env.HOST || "0.0.0.0";
-export const MCP_ENDPOINT = process.env.MCP_ENDPOINT || "/mcp";
+export const HOST = process.env["HOST"]?.trim() || "0.0.0.0";
+export const MCP_ENDPOINT = process.env["MCP_ENDPOINT"]?.trim() || "/mcp";
 
 // ---------------------------------------------------------------------------
 // Local development tool execution limits

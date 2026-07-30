@@ -19,7 +19,7 @@
 
 ## 功能
 
-提供 21 个 MCP 工具，组成完整的本地开发环境：
+提供 30 个 MCP 工具，组成完整的本地开发环境：
 
 | 工具 | 功能 | 读/写 |
 |------|------|-------|
@@ -38,12 +38,28 @@
 | `search_content` | 按文本或正则搜索文件内容 | 读 |
 | `git_status` | 查看 Git 分支与工作区状态 | 读 |
 | `git_diff` | 查看暂存或未暂存差异 | 读 |
-| `compare_files` | 比较两个文件并返回 unified diff | 读 |
-| `apply_patch` | 事务式应用单文件或多文件补丁，失败时回滚 | 写 |
-| `web_fetch` | 获取 HTTP/HTTPS 内容；按来源域确认 | 网络 |
-| `todo_write` | 替换当前用户的内存任务列表 | 状态 |
-| `todo_read` | 读取当前用户的内存任务列表 | 状态 |
-| `ask_user` | 在飞书对话中显示补充信息/选择卡片 | 交互 |
+| `compare_files` | 比较两个文件的差异（unified diff） | 读 |
+| `apply_patch` | 应用多文件补丁；失败时保持原文件 | 写 |
+| `web_fetch` | 抓取网页正文；首次访问来源域需确认 | 读 |
+| `todo_write` | 写入任务列表（按用户隔离） | 写 |
+| `todo_read` | 读取任务列表 | 读 |
+| `ask_user` | 在飞书对话中向用户提问并等待回答 | — |
+
+以上 21 项通用工具对所有已认证用户可见。以下 9 个开发环境工具仅对配置的 owner 可见（owner 专用），非 owner 调用返回 `OWNER_REQUIRED`：
+
+| 工具 | 功能 | 操作类型 |
+|------|------|----------|
+| `get_development_task` | 查询后台开发任务状态 | 同步·读 |
+| `read_development_task_logs` | 读取任务日志（支持分页游标） | 同步·读 |
+| `cancel_development_task` | 请求取消运行中的任务 | 同步·写 |
+| `inspect_development_environment` | 检查已安装的工具链组件 | 同步·读 |
+| `plan_environment_changes` | 生成签名单次环境变更计划 | 同步·写 |
+| `apply_environment_plan` | 执行已签名的环境计划（需审批） | 审批·写 |
+| `android_development` | Android 构建/测试/设备/签名操作 | 混合 |
+| `windows_development` | Windows .NET/原生/Electron 构建/测试/签名/运行 | 混合 |
+| `manage_development_project` | 项目模板列表/检查/创建（需审批） | 混合 |
+
+开发工具的长操作（构建、测试、打包）返回 task ID，客户端可在同一会话中查询进度、读取日志或请求取消。所有写操作均为单次审批，不支持永久授权。GUI 自动化、Godot/Photoshop、任意 shell、root/bootloader 操作和以管理员身份运行 MCP 均被排除。详细使用方法见 [本地开发环境使用指南](docs/local-development-environment.md)。
 
 ## 安全特性
 
@@ -153,7 +169,7 @@ manage-feishu-mcp-approvals.bat -RemoveDirectory <编号或ID前缀>
 manage-feishu-mcp-approvals.bat -ClearDirectories
 ```
 
-目录列表只显示编号、ID 前缀、不可逆用户哈希、磁盘/卷标与目录名，不显示完整路径或原始身份。目录授权不会增加 MCP 工具：`tools/list` 始终返回 21 个工具。
+目录列表只显示编号、ID 前缀、不可逆用户哈希、磁盘/卷标与目录名，不显示完整路径或原始身份。目录授权不会增加 MCP 工具：`tools/list` 始终返回 30 个工具。
 
 任务列表仅保存在当前 Node 进程内并按 `x-aily-user` 隔离，重启服务后自动清空。
 

@@ -41,7 +41,7 @@ curl -X POST https://your-domain.ngrok-free.app/mcp \
 | 名称 | 本地文件助手 |
 | 描述 | 完整本地开发环境，支持文件、命令、搜索、Git、补丁、网页和对话确认 |
 | 图标 | 选择一个文件夹图标 |
-| 介绍 | 提供 21 个本地开发工具，内置路径防护、命令风险分类、飞书窗口内确认、有界并发、事务回滚与审计。 |
+| 介绍 | 提供 30 个本地开发工具，内置路径防护、命令风险分类、飞书窗口内确认、有界并发、事务回滚与审计。其中 9 个开发环境工具仅对 owner 可见。 |
 
 ### 3. 配置请求地址
 
@@ -86,11 +86,11 @@ DIRECTORY_APPROVAL_FALLBACK=owner
 如果飞书客户端返回 `DIRECTORY_APPROVAL_REQUIRED`，智能体应展示响应中的目录和
 四种决定，等待 owner 明确选择，然后把签名 challenge 与决定提交给现有 `auth`
 工具。auth 成功后必须立即重试原工具。不要建议修改 `ALLOWED_DIRS` 或重启服务。
-该兼容通道只对固定 owner 生效，默认配置仍为 `deny`，公开工具总数仍为 21。
+该兼容通道只对固定 owner 生效，默认配置仍为 `deny`，公开工具总数仍为 30。
 
 同时在 Aily 为该 MCP 固定配置 `x-aily-user=owner` 请求头，并仅让所有者看见该
 MCP 工具。该固定身份是 `F:\` 默认目录只对 owner 生效的前提；其他用户不能共享
-或继承此范围。目录授权不会新增工具，`tools/list` 始终保持 21 个工具。
+或继承此范围。目录授权不会新增工具，`tools/list` 始终保持 30 个工具。
 
 当工具首次访问范围外目录时，飞书会显示“本次允许”、“当前服务进程内允许”、
 “永久允许”和“拒绝”四个选择。批准后服务会自动重试原始调用；拒绝则不产生文件
@@ -137,7 +137,15 @@ manage-feishu-mcp-approvals.bat -ClearDirectories
 
 需要授权时，飞书客户端应显示四个选择：本次允许、当前服务进程内允许、永久允许、拒绝。客户端若不支持 MCP `input_required`，服务会拒绝受保护操作，不会退回终端、浏览器或普通文本确认。永久许可按用户、工具和精确目标保存，可在服务所在电脑运行 `manage-feishu-mcp-approvals.bat` 查看或撤销。
 
-### 7. 端到端验证清单
+### 5.5. 开发环境工具（owner 专用）
+
+9 个开发环境工具（`get_development_task`、`read_development_task_logs`、`cancel_development_task`、`inspect_development_environment`、`plan_environment_changes`、`apply_environment_plan`、`android_development`、`windows_development`、`manage_development_project`）仅对配置的 owner 可见。非 owner 调用返回 `OWNER_REQUIRED`，不会降级为普通工具。
+
+长操作（构建、测试、打包）返回 task ID，客户端可在同一会话中查询进度、读取日志或请求取消。需要审批的操作（项目创建、环境变更、设备写入）返回 `input_required`，客户端必须用相同参数重试。不支持 elicitation 的客户端始终被拒绝。
+
+不要在飞书对话或配置截图中粘贴密钥、PIN、签名密钥或凭据密码。凭据通过 `manage-development-credentials.bat` 在本机管理，工具调用仅使用凭据别名。详细使用方法见 [本地开发环境使用指南](local-development-environment.md)。
+
+### 6. 在 Aily 中添加并测试 MCP
 
 - [ ] `ping` 工具返回 `pong`
 - [ ] `list_allowed_directories` 返回配置的目录
