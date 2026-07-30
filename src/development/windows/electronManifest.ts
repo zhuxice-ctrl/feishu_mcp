@@ -60,6 +60,9 @@ export function safeParseJson(raw: string): unknown {
   if (typeof parsed !== "object" || parsed === null || Array.isArray(parsed)) {
     throw new Error("package.json is not a JSON object");
   }
+  if (Object.prototype.hasOwnProperty.call(parsed, "__proto__")) {
+    throw new Error("package.json contains __proto__ key");
+  }
   return parsed;
 }
 
