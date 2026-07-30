@@ -1,0 +1,54 @@
+name: Windows Development CI
+
+on:
+  push:
+    branches: [codex/android-windows-development-environment]
+  pull_request:
+    branches: [main]
+
+jobs:
+  windows-test:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: "8.0.x"
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Typecheck
+        run: npx tsc --noEmit
+
+      - name: Build
+        run: npm run build
+
+      - name: Node tests
+        run: npm test
+
+      - name: Broker tests
+        run: dotnet test broker/FeishuMcp.AdminBroker.Tests/FeishuMcp.AdminBroker.Tests.csproj
+
+      - name: Python smoke tests
+        run: python test/e2e_test.py
+
+      - name: Production audit
+        run: npm audit --omit=dev --registry=https://registry.npmjs.org
+
+      - name: Secret scan
+        shell: pwsh
+        run: |
+          # Generate throwaway fixture secrets, then scan the tree for any leak.
+          $env:AUTH_MODE = "none"
+          $env:APPROVAL_STATE_SECRET = "ci-fixture-secret-0123456789abcdef0123456789abcdef"
+          $env:OWNER_USER_ID = "ci-owner"
+          powershell -NoProfile -ExecutionPolicy Bypass -File scripts/scan-development-secrets.ps1
+
+      - name: Whitespace check
+        run: git diff --check
