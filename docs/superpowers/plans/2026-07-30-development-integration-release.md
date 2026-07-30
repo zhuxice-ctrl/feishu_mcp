@@ -191,7 +191,7 @@ Expected: every command exits 0 with zero secret findings.
 
 Assert default mode is read-only inspection, real changes require both `-Mode Android|Windows|All` and `-ConfirmRealChanges`, root must be explicitly provided and disposable, HTTP credentials come from environment without echo, cleanup is target-confined, and the script never changes ngrok configuration.
 
-- [ ] **Step 2: Run test and verify failure**
+- [x] **Step 2: Run test and verify failure**
 
 Run: `node --test test/real-development-runner.test.mjs`
 
@@ -229,29 +229,29 @@ git commit -m "test: add real development acceptance runner"
 - Modify: `docs/aily-integration-guide.md`
 - Create: `test/development-docs.test.mjs`
 
-- [ ] **Step 1: Write failing documentation tests**
+- [x] **Step 1: Write failing documentation tests**
 
 Assert all 30 tool names appear exactly where required, every new tool has a purpose, owner-only and no-GUI limits are explicit, administrator broker commands exist, fixed-domain placeholders do not expose credentials, all configuration keys match `config.ts`, and documented script paths exist.
 
-- [ ] **Step 2: Run test and verify failure**
+- [x] **Step 2: Run test and verify failure**
 
 Run: `node --test test/development-docs.test.mjs`
 
 Expected: FAIL until documentation is updated.
 
-- [ ] **Step 3: Update README quick start**
+- [x] **Step 3: Update README quick start**
 
 Keep the current server/ngrok/PIN/directory workflow. Change the tool inventory to 30 and add a concise Android/Windows section covering broker installation, inspection, plan/apply, task query/log/cancel, project creation, build/test/package/run, device/emulator operations, credentials, and local-data exclusions.
 
-- [ ] **Step 4: Write the detailed guide**
+- [x] **Step 4: Write the detailed guide**
 
 Document natural-language Feishu examples first, followed by parameter examples for integration debugging. Include `.NET`, native, Electron, Android build, emulator, physical device, signing, task recovery, concurrency, retention, failure remediation, broker update/removal, credential management, and real acceptance.
 
-- [ ] **Step 5: Update Aily integration instructions**
+- [x] **Step 5: Update Aily integration instructions**
 
 Explain that all nine new tools are visible only to the configured owner, long operations return task IDs, the client must retry identical calls after approval, and clients without elicitation remain denied. Do not tell users to paste secrets into chat or configuration screenshots.
 
-- [ ] **Step 6: Run docs tests and commit**
+- [x] **Step 6: Run docs tests and commit**
 
 ```powershell
 node --test test/development-docs.test.mjs
