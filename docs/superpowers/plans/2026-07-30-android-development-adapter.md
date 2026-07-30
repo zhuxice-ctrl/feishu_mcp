@@ -282,25 +282,25 @@ git commit -m "feat: sign Android artifacts with local credentials"
 - Modify: `src/tools/results.ts`
 - Modify: `test/tools-list.test.mjs`
 
-- [ ] **Step 1: Write failing tool and HTTP tests**
+- [x] **Step 1: Write failing tool and HTTP tests**
 
 Assert all action schemas are strict, owner-only, exact device selection, directory approval, operation approval and retry, synchronous inspection, background task IDs, task logs/cancel, artifact summaries, changed-project digest reapproval, and denial by a legacy client that cannot display approval.
 
-- [ ] **Step 2: Run tests and verify failure**
+- [x] **Step 2: Run tests and verify failure**
 
 Run: `npm run build; node --test test/android-development-tool.test.mjs test/android-development-e2e.test.mjs`
 
 Expected: FAIL because `android_development` is not registered.
 
-- [ ] **Step 3: Implement action dispatch**
+- [x] **Step 3: Implement action dispatch**
 
 Register one strict `android_development` tool. Inspect/list actions run synchronously behind the normal tool concurrency gate. Build and test use standard exact approval so unchanged safe operations may be remembered. Emulator creation, device install/uninstall/clear, transfer, forwarding, restricted diagnostics, and signing call `requestApproval` with `decisionMode: "single_use"`. Approved long actions enqueue internal launch specs and immediately return `{ ok: true, taskId, state: "queued" }`.
 
-- [ ] **Step 4: Register the Android provider and tool**
+- [x] **Step 4: Register the Android provider and tool**
 
 Register `AndroidProjectProvider` in the internal project registry and append `android_development` after environment tools in `TOOL_NAMES`. Update the inventory test to exactly 28 tools.
 
-- [ ] **Step 5: Run the Phase 3 gate**
+- [x] **Step 5: Run the Phase 3 gate**
 
 ```powershell
 npm run typecheck
@@ -313,7 +313,7 @@ git diff --check
 
 Expected: every command exits 0 and `tools/list` contains exactly 28 unique tools.
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```powershell
 git add src/tools/androidDevelopment.ts src/index.ts src/tools/results.ts test/android-development-tool.test.mjs test/android-development-e2e.test.mjs test/tools-list.test.mjs

@@ -19,6 +19,7 @@ import { z } from "zod";
 
 import {
   ALLOWED_DIRS,
+  APPROVAL_DATA_DIR,
   APPROVAL_TIMEOUT_MS,
   AUTH_ENABLED,
   AUTH_MODE,
@@ -63,6 +64,10 @@ import {
   createDevelopmentEnvironmentSubsystem,
   registerDevelopmentEnvironmentTools,
 } from "./tools/developmentEnvironment.js";
+import { registerAndroidDevelopmentTool } from "./tools/androidDevelopment.js";
+import { AndroidProjectProvider } from "./development/android/projectProvider.js";
+import { ProjectRegistry } from "./development/projects/registry.js";
+import { LocalCredentialStore } from "./development/credentials/dpapiStore.js";
 import { registerDiffTool } from "./tools/diff.js";
 import { registerFilesystemTools } from "./tools/filesystem.js";
 import { registerGitTools } from "./tools/git.js";
@@ -79,6 +84,7 @@ const TOOL_NAMES = [
   "todo_write", "todo_read", "ask_user",
   "get_development_task", "read_development_task_logs", "cancel_development_task",
   "inspect_development_environment", "plan_environment_changes", "apply_environment_plan",
+  "android_development",
 ] as const;
 
 const SERVER_INSTRUCTIONS =
@@ -106,6 +112,20 @@ const developmentTaskCoordinator = new DevelopmentTaskCoordinator(
 // ---------------------------------------------------------------------------
 
 const developmentEnvironment = createDevelopmentEnvironmentSubsystem();
+
+// ---------------------------------------------------------------------------
+// Android development subsystem — project provider + credential store
+// ---------------------------------------------------------------------------
+
+const projectRegistry = new ProjectRegistry();
+projectRegistry.register(
+  new AndroidProjectProvider({
+    generateWrapper: () => {
+      throw new Error("Gradle wrapper generation is not available in this build.");
+    },
+  }),
+);
+const androidCredentialStore = new LocalCredentialStore(APPROVAL_DATA_DIR);
 
 // ---------------------------------------------------------------------------
 // MCP server factory — one fresh instance per request
@@ -173,6 +193,15 @@ function createMcpServer(): McpServer {
   registerAskUserTool(server);
   registerDevelopmentTaskTools(server, developmentTaskCoordinator);
   registerDevelopmentEnvironmentTools(server, developmentEnvironment);
+  registerAndroidDevelopmentTool(server, {
+    coordinator: developmentTaskCoordinator,
+    inspector: developmentEnvironment.inspector,
+    projectProvider: projectRegistry.get("android"),
+    credentialStore: androidCredentialStore,
+    generateWrapper: () => {
+      throw new Error("Gradle wrapper generation is not available in this build.");
+    },
+  });
 
   return server;
 }

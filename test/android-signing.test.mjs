@@ -1,5 +1,8 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
+import fs from "node:fs";
+import os from "node:os";
+import path from "node:path";
 
 import { planApksignerSign, planApksignerVerify } from "../dist/development/android/signing.js";
 import { LocalCredentialStore, InMemoryCredentialResolver } from "../dist/development/credentials/dpapiStore.js";
