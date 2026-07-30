@@ -65,6 +65,13 @@ export const TIMESTAMP_ORIGIN_REGEX =
 /** VS instance id: conservative charset. */
 export const VS_INSTANCE_ID_REGEX = /^[a-f0-9]{16,64}$/;
 
+/**
+ * Package id: dot-separated identifiers, e.g. `com.example.app`. Reused by the
+ * Electron provider for the application package id.
+ */
+export const PACKAGE_ID_REGEX =
+  /^[A-Za-z][A-Za-z0-9_]*(?:\.[A-Za-z][A-Za-z0-9_]*)+$/;
+
 const hostPath = z.string().min(1).max(4096);
 
 const projectName = z
