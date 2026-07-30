@@ -245,33 +245,33 @@ Expected: all broker tests pass and the manifest SHA-256 matches the published a
 - Create: `test/admin-broker-scripts.test.mjs`
 - Modify: `.gitignore`
 
-- [ ] **Step 1: Write failing client and script tests**
+- [x] **Step 1: Write failing client and script tests**
 
 Use a temporary mock named-pipe server to assert length caps, HMAC, timeout, protocol errors, disconnects, and redaction. Parse scripts as text to assert fixed service name, literal paths, SID ACL setup, no embedded secret, no remote script execution, and no use of `Invoke-Expression`.
 
-- [ ] **Step 2: Run tests and verify failure**
+- [x] **Step 2: Run tests and verify failure**
 
 Run: `npm run build; node --test test/development-broker-client.test.mjs test/admin-broker-scripts.test.mjs`
 
 Expected: FAIL because files do not exist.
 
-- [ ] **Step 3: Implement the broker client**
+- [x] **Step 3: Implement the broker client**
 
 Connect only to `\\.\pipe\feishu-mcp-admin-<sid-hash>`, cap request and response at 64 KiB, use a 30-second connection timeout, sign canonical fields, and map broker errors to structured MCP errors. Never log the pipe secret, HMAC, nonce, or owner SID.
 
-- [ ] **Step 4: Implement plan application**
+- [x] **Step 4: Implement plan application**
 
 Claim the plan only after approval. Apply ordinary `android_sdk` steps through validated task launch specs and privileged steps through a repository-owned Node worker that calls `brokerClient`. Stop on first failed step, record the failed component, and do not retry automatically.
 
-- [ ] **Step 5: Implement install and uninstall scripts**
+- [x] **Step 5: Implement install and uninstall scripts**
 
 The installer verifies the broker artifact SHA-256 against the adjacent release manifest, creates `%ProgramData%\FeishuMcp\Broker`, generates a random key, applies ACLs for SYSTEM and the current owner SID, installs the fixed Windows service, and starts it. The uninstaller stops/removes only that exact service and deletes only the verified broker directory after path and service-name checks. Both scripts require elevation and use `-LiteralPath`.
 
-- [ ] **Step 6: Ignore local broker material**
+- [x] **Step 6: Ignore local broker material**
 
 Ignore `broker/**/bin/`, `broker/**/obj/`, `artifacts/admin-broker/`, `*.broker-key`, `broker-registration.local.json`, `*.pfx`, `*.p12`, `*.keystore`, and `key.properties`; do not ignore broker source or test projects.
 
-- [ ] **Step 7: Run tests and commit**
+- [x] **Step 7: Run tests and commit**
 
 ```powershell
 npm run build
