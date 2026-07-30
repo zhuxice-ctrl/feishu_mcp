@@ -36,6 +36,27 @@ export function escapeRegex(value) {
   return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
 
+/**
+ * Build a minimal fake toolchain catalog JSON for environment-inspection E2E.
+ * Every component is marked "ready" with synthetic identities so the health
+ * endpoint reports a populated environment without touching real SDKs.
+ */
+export function buildFakeToolchainCatalog(version = 1) {
+  const components = [
+    { componentId: "microsoft.dotnet.sdk.8", target: "windows", state: "ready" },
+    { componentId: "kitware.cmake", target: "windows", state: "ready" },
+    { componentId: "openjs.nodejs.lts", target: "windows", state: "ready" },
+    { componentId: "android.sdk", target: "android", state: "ready" },
+  ].map((c) => ({
+    ...c,
+    displayName: c.componentId,
+    version: "1.0",
+    discovery: "fixture",
+    install: { kind: "none" },
+  }));
+  return JSON.stringify({ version, components });
+}
+
 export async function startMcpFixture({
   allowedDirs = "",
   ownerUserId = "owner",
@@ -44,6 +65,11 @@ export async function startMcpFixture({
   approvalDataDir,
   userId = "owner",
   env = {},
+  taskRoot,
+  catalogPath,
+  planDir,
+  brokerKeyPath,
+  allowedRoots,
 }) {
   const port = await freePort();
   const output = [];
@@ -67,6 +93,11 @@ export async function startMcpFixture({
       CONSENT_SENSITIVE_FILE: "confirm",
       LOG_LEVEL: "error",
       NGROK_DOMAIN: "",
+      ...(taskRoot ? { DEV_TASK_DATA_DIR: taskRoot } : {}),
+      ...(catalogPath ? { DEV_ENV_CATALOG_PATH: catalogPath } : {}),
+      ...(planDir ? { DEV_ENV_PLAN_DIR: planDir } : {}),
+      ...(brokerKeyPath ? { DEV_ENV_BROKER_KEY_PATH: brokerKeyPath } : {}),
+      ...(allowedRoots ? { DEV_ENV_ALLOWED_ROOTS: allowedRoots } : {}),
       ...env,
     },
     stdio: ["ignore", "pipe", "pipe"],

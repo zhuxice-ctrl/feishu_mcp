@@ -151,7 +151,7 @@ def main():
     r = httpx.get(f"{BASE_URL}/health", timeout=5)
     health = r.json()
     test("Health check returns 200", r.status_code == 200)
-    test("Health shows 24 tools", len(health.get("tools", [])) == 24, f"got {len(health.get('tools', []))}")
+    test("Health shows 30 tools", len(health.get("tools", [])) == 30, f"got {len(health.get('tools', []))}")
     test(
         "Health shows one owner default",
         health.get("directoryAuthorization", {}).get("ownerDefaults") == 1,
@@ -186,8 +186,8 @@ def main():
     tools = []
     if code == 200 and "result" in body:
         tools = [t["name"] for t in body["result"].get("tools", [])]
-    test("Tools list returns 24 tools", len(tools) == 24, f"got {len(tools)}")
-    expected_tools = {"ping", "read_file", "write_file", "edit_file", "create_directory", "list_directory", "move_file", "search_files", "get_file_info", "list_allowed_directories", "auth", "execute_command", "search_content", "git_status", "git_diff", "compare_files", "apply_patch", "web_fetch", "todo_write", "todo_read", "ask_user", "get_development_task", "read_development_task_logs", "cancel_development_task"}
+    test("Tools list returns 30 tools", len(tools) == 30, f"got {len(tools)}")
+    expected_tools = {"ping", "read_file", "write_file", "edit_file", "create_directory", "list_directory", "move_file", "search_files", "get_file_info", "list_allowed_directories", "auth", "execute_command", "search_content", "git_status", "git_diff", "compare_files", "apply_patch", "web_fetch", "todo_write", "todo_read", "ask_user", "get_development_task", "read_development_task_logs", "cancel_development_task", "inspect_development_environment", "plan_environment_changes", "apply_environment_plan", "android_development", "windows_development", "manage_development_project"}
     test("All expected tools present", set(tools) == expected_tools, f"missing: {expected_tools - set(tools)}")
 
     # === Ping Tool ===
