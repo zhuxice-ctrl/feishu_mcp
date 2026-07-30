@@ -1,0 +1,17 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net8.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <RootNamespace>FeishuMcp.AdminBroker</RootNamespace>
+    <AssemblyName>FeishuMcp.AdminBroker</AssemblyName>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <EmbeddedResource Include="..\..\config\development-package-catalog.json">
+      <LogicalName>development-package-catalog.json</LogicalName>
+    </EmbeddedResource>
+  </ItemGroup>
+
+</Project>

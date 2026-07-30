@@ -18,3 +18,9 @@ directory-grants.json
 coverage/
 .vscode/
 .idea/
+
+
+# Administrator broker build artifacts (source & tests are tracked)
+broker/**/bin/
+broker/**/obj/
+artifacts/admin-broker/
