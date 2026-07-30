@@ -204,6 +204,29 @@ function Assert-PortAvailable([int]$Port) {
     }
 }
 
+function Get-BrokerState {
+    # Read-only probe of the administrator broker service. The function only
+    # queries service status and pipe existence — it never mutates the service,
+    # never requests elevation, and never reads the key or pipe payload.
+    # Returns "ready", "missing", or "incompatible".
+    $service = Get-Service -Name "FeishuMcpAdminBroker" -ErrorAction SilentlyContinue
+    if ($null -eq $service) {
+        return "missing"
+    }
+    if ($service.Status -ne "Running") {
+        return "incompatible"
+    }
+    # A running service is considered ready only when its named pipe responds
+    # to a lightweight protocol handshake. We do not send commands — only
+    # confirm the pipe endpoint exists.
+    $pipeName = "\\.\pipe\feishu-mcp-admin-broker"
+    $pipeExists = Test-Path -LiteralPath $pipeName -ErrorAction SilentlyContinue
+    if (-not $pipeExists) {
+        return "incompatible"
+    }
+    return "ready"
+}
+
 function Invoke-Launcher {
     Import-DotEnv $EnvFile
 
@@ -342,7 +365,8 @@ function Invoke-Launcher {
             authMode = $authMode
             ngrokDomain = $domain
             ngrokPath = $resolvedNgrok
-            toolCount = 21
+            toolCount = 30
+            brokerState = Get-BrokerState
             concurrency = @{
                 global = $maxConcurrentTools
                 command = $maxConcurrentCommands

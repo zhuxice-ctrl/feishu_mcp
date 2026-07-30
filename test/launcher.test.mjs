@@ -92,6 +92,7 @@ test(
           authMode: output.authMode,
           domain: output.ngrokDomain,
           toolCount: output.toolCount,
+          brokerState: output.brokerState,
           concurrency: output.concurrency,
           permanentApprovalCount: output.permanentApprovalCount,
           ownerDefaultCount: output.ownerDefaultCount,
@@ -104,7 +105,8 @@ test(
           host: "127.0.0.1",
           authMode: "pin",
           domain: "reptilian-prenatal-spinster.ngrok-free.dev",
-          toolCount: 21,
+          toolCount: 30,
+          brokerState: "missing",
           concurrency: { search: 3, fetch: 4, global: 6, command: 2 },
           permanentApprovalCount: 0,
           ownerDefaultCount: 1,
@@ -215,3 +217,18 @@ test(
     assert.match(content, /Press Q or Enter to stop/);
   }
 );
+
+test("launcher performs a read-only broker state check and reports 30 tools", async () => {
+  const content = await readFile(launcherScript, "utf8");
+  // Broker check is read-only — never installs, starts, stops, or elevates.
+  const brokerFn = content.match(/function\s+Get-BrokerState[\s\S]*?\n\}\n/);
+  assert.ok(brokerFn, "Get-BrokerState function must exist");
+  const body = brokerFn[0];
+  assert.match(body, /Get-Service.*FeishuMcpAdminBroker/i);
+  assert.doesNotMatch(body, /Start-Service|Stop-Service|Install|Start-Process/i);
+  // CheckOnly output reports the exact 30-tool inventory and broker state.
+  assert.match(content, /toolCount\s*=\s*30/);
+  assert.match(content, /brokerState\s*=\s*Get-BrokerState/);
+  // The broker key path is never printed.
+  assert.doesNotMatch(content, /broker-key|BROKER_KEY/i);
+});
