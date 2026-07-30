@@ -32,6 +32,21 @@ export interface ProjectTemplateProfile {
   kotlin: string;
   gradle: string;
   composeCompiler?: string;
+  // --- Windows adapter fields (optional; ignored by Android) ---
+  /** .NET target framework moniker, e.g. `net8.0`. */
+  framework?: string;
+  /** MSBuild configuration, e.g. `Debug` / `Release`. */
+  configuration?: string;
+  /** MSBuild platform, e.g. `AnyCPU` / `x64`. */
+  platform?: string;
+  /** C++ standard enum, e.g. `17` / `20`. */
+  cppStandard?: string;
+  /** Native build type: executable or library. */
+  buildType?: "executable" | "library";
+  /** Whether the native template includes a test target. */
+  withTests?: boolean;
+  /** Package manager for Electron projects. */
+  packageManager?: "npm" | "pnpm" | "yarn";
 }
 
 export interface ProjectCreateRequest {
