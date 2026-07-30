@@ -22,7 +22,7 @@ const toolchain = resolveAndroidToolchain(readySnapshot()).toolchain;
 const allowHost = (p) => p.startsWith("C:\\authorized\\");
 
 function storeWithCreds() {
-  const store = new LocalCredentialStore("/tmp/cred-test-dir");
+  const store = new LocalCredentialStore(fs.mkdtempSync(path.join(os.tmpdir(), "sign-creds-")));
   const ks = store.register({ kind: "keystore", alias: "release", fingerprint: "ab:cd" });
   const key = store.register({ kind: "key", alias: "release", fingerprint: "ef:12" });
   return { store, ks, key };
