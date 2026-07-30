@@ -290,17 +290,17 @@ git commit -m "feat: connect and install administrator broker"
 - Modify: `test/tools-list.test.mjs`
 - Modify: `test/health-concurrency.test.mjs`
 
-- [ ] **Step 1: Write failing tool tests**
+- [x] **Step 1: Write failing tool tests**
 
 Assert owner-only inspection, structured public status without paths, plan-only behavior, approval before apply, changed-snapshot rejection, single-use plan rejection, broker-unavailable mapping, and no caller URL/executable/argument fields accepted by Zod.
 
-- [ ] **Step 2: Run test and verify failure**
+- [x] **Step 2: Run test and verify failure**
 
 Run: `npm run build; node --test test/development-environment-tools.test.mjs`
 
 Expected: FAIL because environment tools are not registered.
 
-- [ ] **Step 3: Implement the three tool registrations**
+- [x] **Step 3: Implement the three tool registrations**
 
 Register:
 
@@ -312,11 +312,11 @@ Register:
 
 Inspection accepts a nonempty unique target array. Planning accepts targets, exact catalog component IDs, and intent `install|update|repair`. Apply accepts only `{ planId: z.string().uuid() }`, calls `requestApproval` with `decisionMode: "single_use"` while displaying the redacted component/version/size/privilege/reboot summary, then atomically claims the plan, enqueues application, and returns a task ID.
 
-- [ ] **Step 4: Update inventory and health**
+- [x] **Step 4: Update inventory and health**
 
 Append the three names after the task tools, for exactly 27 tools. Health adds only catalog version, broker state `ready|missing|incompatible`, and aggregate environment-plan/task counts; it exposes no path, SID, component command, plan ID, or version fingerprint.
 
-- [ ] **Step 5: Run the Phase 2 gate**
+- [x] **Step 5: Run the Phase 2 gate**
 
 ```powershell
 npm run typecheck
@@ -329,7 +329,7 @@ git diff --check
 
 Expected: every command exits 0 and `tools/list` contains exactly 27 unique tools.
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```powershell
 git add src/tools/developmentEnvironment.ts src/index.ts src/tools/results.ts test/development-environment-tools.test.mjs test/tools-list.test.mjs test/health-concurrency.test.mjs
