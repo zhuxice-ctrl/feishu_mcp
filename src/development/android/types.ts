@@ -49,11 +49,27 @@ export const SDK_PACKAGE_PATH_REGEX = /^[A-Za-z0-9._;:-]{1,256}$/;
 /** A safe device path: absolute POSIX path under an adapter-allowed root. */
 export const DEVICE_PATH_REGEX = /^\/(?:[A-Za-z0-9._-]+\/)*[A-Za-z0-9._-]*$/;
 
+/**
+ * Serial-like keywords that name an ADB/fastboot *mode* rather than a device.
+ * Rejecting them prevents an operation meant for a running device from being
+ * routed at a bootloader/recovery/fastboot state.
+ */
+export const DANGEROUS_SERIAL_KEYWORDS = [
+  "bootloader",
+  "recovery",
+  "sideload",
+  "fastboot",
+] as const;
+
 const deviceSerial = z
   .string()
   .min(1)
   .max(128)
-  .regex(DEVICE_SERIAL_REGEX, "invalid device serial");
+  .regex(DEVICE_SERIAL_REGEX, "invalid device serial")
+  .refine(
+    (value) => !(DANGEROUS_SERIAL_KEYWORDS as readonly string[]).includes(value),
+    "dangerous serial keyword",
+  );
 
 const packageId = z
   .string()
