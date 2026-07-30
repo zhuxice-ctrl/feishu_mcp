@@ -24,3 +24,9 @@ coverage/
 broker/**/bin/
 broker/**/obj/
 artifacts/admin-broker/
+*.broker-key
+broker-registration.local.json
+*.pfx
+*.p12
+*.keystore
+key.properties
