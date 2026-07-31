@@ -828,15 +828,7 @@ export function registerAndroidDevelopmentTool(
         "environment; no caller-supplied executable, SDK path, Gradle task, " +
         "emulator flag, URL, or argument is accepted. Long operations " +
         "enqueue a background task and return a task id.",
-      inputSchema: {
-        action: z.enum([
-          "inspect_project", "list_templates", "list_devices", "list_avds",
-          "build", "bundle", "test_unit", "test_instrumented", "clean",
-          "install", "uninstall", "clear", "start_app", "force_stop",
-          "screenshot", "logcat", "diagnostic", "push", "pull", "forward",
-          "emulator_start", "emulator_stop", "avd_create", "sign", "verify",
-        ]),
-      },
+      inputSchema: androidDevelopmentInputSchema,
     },
     async (args, ctx) =>
       authorizeOwnerToolCall("android_development", args) ??

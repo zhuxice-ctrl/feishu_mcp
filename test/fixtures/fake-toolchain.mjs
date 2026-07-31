@@ -31,6 +31,17 @@ export async function replaceFixture(file, { content = "fake-bin-replaced-conten
 }
 
 export async function makeSymlink(linkPath, target) {
+  if (process.platform === "win32") {
+    // Ordinary Windows test hosts often cannot create file symlinks without
+    // Developer Mode. A directory junction exercises the same realpath escape
+    // boundary without requiring elevation.
+    await fs.mkdir(path.dirname(path.dirname(linkPath)), { recursive: true });
+    if (path.basename(target) !== path.basename(linkPath)) {
+      await fs.copyFile(target, path.join(path.dirname(target), path.basename(linkPath)));
+    }
+    await fs.symlink(path.dirname(target), path.dirname(linkPath), "junction");
+    return;
+  }
   await fs.mkdir(path.dirname(linkPath), { recursive: true });
   await fs.symlink(target, linkPath);
 }

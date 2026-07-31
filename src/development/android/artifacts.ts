@@ -62,9 +62,23 @@ export function collectArtifacts(
   action: GradleArtifactAction,
 ): DevelopmentArtifact[] {
   const artifacts: DevelopmentArtifact[] = [];
+  const canonicalProjectRoot = fs.realpathSync(root);
   for (const scan of scanRoots(root, module, variant, action)) {
     if (!fs.existsSync(scan.dir)) continue;
     const canonicalRoot = fs.realpathSync(scan.dir);
+    const rootRel = path.relative(canonicalProjectRoot, canonicalRoot);
+    if (rootRel.startsWith("..") || path.isAbsolute(rootRel)) continue;
+    const logicalRel = path.relative(root, scan.dir);
+    let cursor = root;
+    let linkedAncestor = false;
+    for (const segment of logicalRel.split(path.sep).filter(Boolean)) {
+      cursor = path.join(cursor, segment);
+      if (fs.lstatSync(cursor).isSymbolicLink()) {
+        linkedAncestor = true;
+        break;
+      }
+    }
+    if (linkedAncestor) continue;
     let entries: string[];
     try {
       entries = fs.readdirSync(scan.dir);

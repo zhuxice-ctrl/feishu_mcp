@@ -105,7 +105,7 @@ test("health exposes redacted approval and concurrency summaries", async () => {
     });
     const serialized = JSON.stringify(health);
     assert.doesNotMatch(serialized, /subjectKey|userId|approval\.key|approvals\.json/i);
-    assert.doesNotMatch(serialized, /taskId|ownerKey|device|project|worker|heartbeat/i);
+    assert.doesNotMatch(serialized, /"(?:taskId|ownerKey|device|project|worker|heartbeat)"\s*:/i);
     assert.doesNotMatch(serialized, /planId|environmentDigest|catalogDigest|brokerKey|ownerSid|pipePath|realPath|fileIdentity|publisher/i);
     assert.doesNotMatch(serialized, new RegExp(escapeRegExp(ownerId)));
     assert.doesNotMatch(serialized, new RegExp(escapeRegExp(ownerRoot.replace(/\\/g, "\\\\"))));

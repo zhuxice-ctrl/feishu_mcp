@@ -70,6 +70,7 @@ import { registerAndroidDevelopmentTool } from "./tools/androidDevelopment.js";
 import { registerWindowsDevelopmentTool } from "./tools/windowsDevelopment.js";
 import { registerDevelopmentProjectTool } from "./tools/developmentProjects.js";
 import { AndroidProjectProvider } from "./development/android/projectProvider.js";
+import { installReviewedGradleWrapper } from "./development/android/wrapperAssets.js";
 import { DotnetProjectProvider } from "./development/windows/dotnetProjectProvider.js";
 import { NativeProjectProvider } from "./development/windows/nativeProjectProvider.js";
 import { ElectronProjectProvider } from "./development/windows/electronProjectProvider.js";
@@ -127,11 +128,11 @@ const developmentEnvironment = createDevelopmentEnvironmentSubsystem();
 // ---------------------------------------------------------------------------
 
 const projectRegistry = new ProjectRegistry();
+const generateReviewedGradleWrapper = (stagingDir: string, gradleVersion: string) =>
+  installReviewedGradleWrapper(stagingDir, gradleVersion, developmentEnvironment.catalog);
 projectRegistry.register(
   new AndroidProjectProvider({
-    generateWrapper: () => {
-      throw new Error("Gradle wrapper generation is not available in this build.");
-    },
+    generateWrapper: generateReviewedGradleWrapper,
   }),
 );
 const androidCredentialStore = new LocalCredentialStore(APPROVAL_DATA_DIR);
@@ -221,9 +222,7 @@ function createMcpServer(): McpServer {
     inspector: developmentEnvironment.inspector,
     projectProvider: projectRegistry.get("android"),
     credentialStore: androidCredentialStore,
-    generateWrapper: () => {
-      throw new Error("Gradle wrapper generation is not available in this build.");
-    },
+    generateWrapper: generateReviewedGradleWrapper,
   });
   registerWindowsDevelopmentTool(server, {
     coordinator: developmentTaskCoordinator,

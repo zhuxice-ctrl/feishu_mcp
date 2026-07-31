@@ -58,7 +58,7 @@ function age(store, id, isoDate) {
 
 const daysAgo = (n) => new Date(Date.now() - n * 86_400_000).toISOString();
 
-// --------------------------------------------------------------------------- 
+// ---------------------------------------------------------------------------
 
 test("cleanup deletes only terminal tasks older than retention", async () => {
   const store = freshStore();

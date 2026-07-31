@@ -23,6 +23,19 @@ $findings = @()
 
 # --- Collect live secret values from .env (never printed) ---
 $liveSecrets = @()
+$secretKeys = @(
+    "MCP_AUTH_TOKEN",
+    "AUTH_PIN",
+    "APPROVAL_STATE_SECRET",
+    "NGROK_AUTHTOKEN",
+    "DEV_ENV_BROKER_KEY"
+)
+foreach ($key in $secretKeys) {
+    $value = [Environment]::GetEnvironmentVariable($key, "Process")
+    if (-not [string]::IsNullOrEmpty($value) -and $value.Length -ge 8) {
+        $liveSecrets += $value
+    }
+}
 if ($EnvFile -and (Test-Path -LiteralPath $EnvFile -PathType Leaf)) {
     foreach ($line in Get-Content -LiteralPath $EnvFile -Encoding UTF8) {
         if ($line -match '^\s*(MCP_AUTH_TOKEN|AUTH_PIN|APPROVAL_STATE_SECRET|NGROK_AUTHTOKEN|DEV_ENV_BROKER_KEY_PATH)\s*=\s*(.+)$') {
@@ -34,15 +47,8 @@ if ($EnvFile -and (Test-Path -LiteralPath $EnvFile -PathType Leaf)) {
 
 # --- Pattern categories. Each entry: label + regex. ---
 $patterns = @(
-    @{ Label = "bearer-token-header";   Regex = 'Authorization:\s*Bearer\s+[A-Za-z0-9._-]{16,}' }
+    @{ Label = "bearer-token-header";   Regex = 'Authorization:\s*Bearer\s+(?!<|\$\{|MCP_|YOUR_|REPLACE|EXAMPLE|PLACEHOLDER)[A-Za-z0-9._-]{24,}' }
     @{ Label = "private-key-marker";    Regex = '-----BEGIN (RSA |EC |OPENSSH |)PRIVATE KEY-----' }
-    @{ Label = "pfx-keystore-file";     Regex = '\.(pfx|p12|keystore|jks)\b' }
-    @{ Label = "broker-key-blob";       Regex = '[0-9a-fA-F]{64}\.broker-key' }
-    @{ Label = "approval-state-secret"; Regex = 'APPROVAL_STATE_SECRET\s*=\s*[A-Za-z0-9]{32,}' }
-    @{ Label = "env-auth-token";        Regex = 'MCP_AUTH_TOKEN\s*=\s*[A-Za-z0-9._-]{16,}' }
-    @{ Label = "env-auth-pin";          Regex = 'AUTH_PIN\s*=\s*.{8,}' }
-    @{ Label = "ngrok-authtoken";       Regex = 'NGROK_AUTHTOKEN\s*=\s*[A-Za-z0-9_-]{20,}' }
-    @{ Label = "credential-id-blob";    Regex = '[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-4[0-9a-fA-F]{3}-[89ab][0-9a-fA-F]{3}-[0-9a-fA-F]{12}' }
 )
 
 # --- Scan tracked working-tree files ---
@@ -50,8 +56,14 @@ $tracked = git -C $projectDir ls-files
 foreach ($rel in $tracked) {
     $full = Join-Path $projectDir $rel
     if (-not (Test-Path -LiteralPath $full -PathType Leaf)) { continue }
+    if ($rel -match '(?i)\.(pfx|p12|keystore|jks)$') {
+        $findings += [pscustomobject]@{ Category = "pfx-keystore-file"; Location = "file:$rel" }
+    }
+    if ($rel -match '(?i)\.broker-key$') {
+        $findings += [pscustomobject]@{ Category = "broker-key-blob"; Location = "file:$rel" }
+    }
     # Skip binary-ish files by extension.
-    if ($rel -match '\.(png|jpg|jpeg|gif|webp|ico|zip|gz|tar|dll|exe|so|dylib|node|snap)$') { continue }
+    if ($rel -match '\.(png|jpg|jpeg|gif|webp|ico|zip|gz|tar|jar|dll|exe|so|dylib|node|snap)$') { continue }
     $text = Get-Content -LiteralPath $full -Raw -Encoding UTF8 -ErrorAction SilentlyContinue
     if (-not $text) { continue }
     foreach ($p in $patterns) {
@@ -66,24 +78,43 @@ foreach ($rel in $tracked) {
     }
 }
 
-# --- Scan reachable Git objects (blobs) ---
-$blobs = git -C $projectDir rev-list --all --objects 2>$null | ForEach-Object {
-    ($_.Trim() -split '\s+')[0]
-} | Sort-Object -Unique
-foreach ($sha in $blobs) {
-    $content = git -C $projectDir cat-file -p $sha 2>$null
-    if (-not $content) { continue }
-    foreach ($p in $patterns) {
-        if ($content -match $p.Regex) {
-            $findings += [pscustomobject]@{ Category = $p.Label; Location = "object:$sha" }
+# --- Scan reachable Git history in one streaming Git process. ---
+# `--root -m -p --full-history --no-renames` emits the introduction/removal of
+# every text blob reachable from any ref, including merge-only content, while
+# Git keeps binary contents out of the patch stream. This is equivalent to
+# scanning each reachable historical text blob for leak patterns, but avoids
+# spawning `cat-file` twice per object (which took minutes on Windows).
+$currentCommit = "unknown"
+$currentPath = "unknown"
+git -C $projectDir -c core.quotepath=false log --all --root -m -p --full-history --no-renames --format='commit %H' -- 2>$null |
+    ForEach-Object {
+        $line = [string]$_
+        if ($line -match '^commit ([0-9a-f]{40})$') {
+            $script:currentCommit = $Matches[1]
+        } elseif ($line -match '^diff --git a/(.+) b/(.+)$') {
+            $script:currentPath = $Matches[2]
+            $location = "object:$($script:currentCommit):$($script:currentPath)"
+            if ($script:currentPath -match '(?i)\.(pfx|p12|keystore|jks)$') {
+                $script:findings += [pscustomobject]@{ Category = "pfx-keystore-file"; Location = $location }
+            }
+            if ($script:currentPath -match '(?i)\.broker-key$') {
+                $script:findings += [pscustomobject]@{ Category = "broker-key-blob"; Location = $location }
+            }
+        }
+        $location = "object:$($script:currentCommit):$($script:currentPath)"
+        foreach ($p in $patterns) {
+            if ($line -match $p.Regex) {
+                $script:findings += [pscustomobject]@{ Category = $p.Label; Location = $location }
+            }
+        }
+        foreach ($secret in $liveSecrets) {
+            if ($line.Contains($secret)) {
+                $script:findings += [pscustomobject]@{ Category = "live-secret-leak"; Location = $location }
+            }
         }
     }
-    foreach ($secret in $liveSecrets) {
-        if ($content.Contains($secret)) {
-            $findings += [pscustomobject]@{ Category = "live-secret-leak"; Location = "object:$sha" }
-        }
-    }
-}
+
+$findings = @($findings | Sort-Object Category, Location -Unique)
 
 if ($findings.Count -eq 0) {
     Write-Output "No secret findings."

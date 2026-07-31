@@ -418,10 +418,10 @@ function Invoke-Launcher {
 
         $localHealthUrl = "http://127.0.0.1:$port/health"
         $localHealth = Wait-Json $localHealthUrl 30 $server
-        if ($localHealth.version -ne "1.0.0" -or @($localHealth.tools).Count -ne 21) {
-            throw "Local health response did not report version 1.0.0 and 21 tools"
+        if ($localHealth.version -ne "1.0.0" -or @($localHealth.tools).Count -ne 30) {
+            throw "Local health response did not report version 1.0.0 and 30 tools"
         }
-        Write-Host "Local health passed (21 tools, auth mode $($localHealth.authMode))." -ForegroundColor Green
+        Write-Host "Local health passed (30 tools, auth mode $($localHealth.authMode))." -ForegroundColor Green
 
         Write-Host "Starting fixed ngrok tunnel..." -ForegroundColor Cyan
         $ngrokArguments = @(
@@ -446,8 +446,8 @@ function Invoke-Launcher {
 
         $publicHeaders = @{ "ngrok-skip-browser-warning" = "true" }
         $publicHealth = Wait-Json "$expectedUrl/health" 45 $ngrok $publicHeaders
-        if ($publicHealth.version -ne "1.0.0" -or @($publicHealth.tools).Count -ne 21) {
-            throw "Public health response did not report version 1.0.0 and 21 tools"
+        if ($publicHealth.version -ne "1.0.0" -or @($publicHealth.tools).Count -ne 30) {
+            throw "Public health response did not report version 1.0.0 and 30 tools"
         }
 
         $mcpUrl = "$expectedUrl/mcp"

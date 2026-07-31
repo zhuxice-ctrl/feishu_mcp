@@ -18,6 +18,10 @@ const { DevelopmentTaskScheduler } = await import("../dist/development/tasks/sch
 const { DevelopmentTaskCoordinator, developmentOwnerKey } = await import("../dist/development/tasks/coordinator.js");
 
 const fixture = path.resolve(import.meta.dirname, "fixtures/development-worker-fixture.mjs");
+const delayedStartFixture = path.resolve(
+  import.meta.dirname,
+  "fixtures/development-worker-delayed-start.mjs",
+);
 const ownerKey = developmentOwnerKey("owner");
 
 test.after(async () => rm(root, { recursive: true, force: true }));
@@ -165,6 +169,33 @@ test("a worker that exits before heartbeat becomes interrupted and releases lock
   }
   assert.equal(scheduler.summary().active, 0);
   assert.equal(scheduler.summary().queued, 0);
+});
+
+test("a live spawned worker may exceed startup grace before its first heartbeat", async () => {
+  const taskDir = path.join(root, "tasks-delayed-worker");
+  const store = new DevelopmentTaskStore(taskDir);
+  const scheduler = new DevelopmentTaskScheduler({ total: 1, builds: 1, queueTimeoutMs: 5_000 });
+  const coordinator = new DevelopmentTaskCoordinator(store, scheduler, {
+    workerScript: delayedStartFixture,
+    heartbeatStaleMs: 100,
+    startupGraceMs: 100,
+    pollIntervalMs: 10,
+  });
+  const task = coordinator.enqueue({
+    ownerKey, tool: "windows_development", action: "delayed-worker",
+    class: "build", resources: ["project:delayed-worker"],
+    launch: launch(),
+  });
+
+  const final = await waitForState(store, task.id, "succeeded", 3_000);
+  assert.equal(final.exit?.code, 0);
+  const releaseDeadline = Date.now() + 1_000;
+  while (scheduler.summary().active !== 0 && Date.now() < releaseDeadline) {
+    await new Promise((resolve) => setTimeout(resolve, 10));
+  }
+  assert.deepEqual(scheduler.summary(), {
+    active: 0, queued: 0, totalLimit: 1, buildLimit: 1,
+  });
 });
 
 test("queued recovery rejects an invalid owner key or tampered launch spec", async () => {

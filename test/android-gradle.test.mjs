@@ -253,12 +253,21 @@ test("collectArtifacts gathers junit xml and html report", () => {
 test("collectArtifacts refuses symlinks", () => {
   const root = makeProject();
   const apkDir = path.join(root, "app/build/outputs/apk/debug");
-  fs.mkdirSync(apkDir, { recursive: true });
-  fs.writeFileSync(path.join(root, "secret.txt"), "secret");
-  fs.symlinkSync(path.join(root, "secret.txt"), path.join(apkDir, "evil.apk"));
+  let outside;
+  if (process.platform === "win32") {
+    outside = fs.mkdtempSync(path.join(os.tmpdir(), "gradle-artifact-out-"));
+    fs.writeFileSync(path.join(outside, "evil.apk"), "secret");
+    fs.mkdirSync(path.dirname(apkDir), { recursive: true });
+    fs.symlinkSync(outside, apkDir, "junction");
+  } else {
+    fs.mkdirSync(apkDir, { recursive: true });
+    fs.writeFileSync(path.join(root, "secret.txt"), "secret");
+    fs.symlinkSync(path.join(root, "secret.txt"), path.join(apkDir, "evil.apk"));
+  }
   const arts = collectArtifacts(root, "app", "debug", "build");
   assert.ok(!arts.some((a) => a.name === "evil.apk"));
   fs.rmSync(root, { recursive: true, force: true });
+  if (outside) fs.rmSync(outside, { recursive: true, force: true });
 });
 
 test("collectArtifacts refuses files outside expected roots", () => {

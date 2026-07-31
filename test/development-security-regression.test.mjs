@@ -170,9 +170,9 @@ test("secret scan script never prints matched secret values", async () => {
   const content = await readFile(path.join(projectDir, "scripts", "scan-development-secrets.ps1"), "utf8");
   assert.match(content, /Category/i);
   assert.match(content, /Location/i);
-  // Must scan both working tree and git objects.
+  // Must scan both the working tree and every reachable historical text blob.
   assert.match(content, /git.*ls-files/i);
-  assert.match(content, /rev-list --all --objects/i);
+  assert.match(content, /git.*log --all --root -m -p --full-history --no-renames/i);
   // Must never echo the matched value.
   assert.doesNotMatch(content, /Write-Output.*\$Matches/i);
   assert.doesNotMatch(content, /Write-Output.*\$secret/i);

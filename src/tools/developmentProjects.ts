@@ -74,7 +74,7 @@ const nativeProfileSchema = z.object({
   kotlin: z.string().min(1),
   gradle: z.string().min(1),
   composeCompiler: z.string().optional(),
-  cppStandard: z.number().int().refine((n) => n === 17 || n === 20, "cppStandard must be 17 or 20"),
+  cppStandard: z.enum(["17", "20"]),
   buildType: z.enum(["executable", "library"]),
   withTests: z.boolean(),
 }).strict();
@@ -89,15 +89,6 @@ const electronProfileSchema = z.object({
   composeCompiler: z.string().optional(),
   packageManager: z.enum(["npm", "pnpm", "yarn"]),
 }).strict();
-
-function profileSchemaForEcosystem(eco: DevelopmentEcosystem) {
-  switch (eco) {
-    case "android": return androidProfileSchema;
-    case "dotnet": return dotnetProfileSchema;
-    case "native": return nativeProfileSchema;
-    case "electron": return electronProfileSchema;
-  }
-}
 
 const listTemplatesSchema = z.object({
   action: z.literal("list_templates"),
@@ -119,26 +110,17 @@ const createSchemaBase = z.object({
   destination: hostPath,
 });
 
-const createSchema = createSchemaBase.extend({
-  profile: z.lazy(() => z.custom<ProjectTemplateProfile>()),
-}).superRefine((data, ctx) => {
-  const schema = profileSchemaForEcosystem(data.ecosystem);
-  const result = schema.safeParse(data.profile);
-  if (!result.success) {
-    for (const issue of result.error.issues) {
-      ctx.addIssue({
-        code: "custom",
-        message: `profile: ${issue.message}`,
-        path: ["profile", ...issue.path],
-      });
-    }
-  }
-}).strict();
+const createSchemas = [
+  createSchemaBase.extend({ ecosystem: z.literal("android"), profile: androidProfileSchema }).strict(),
+  createSchemaBase.extend({ ecosystem: z.literal("dotnet"), profile: dotnetProfileSchema }).strict(),
+  createSchemaBase.extend({ ecosystem: z.literal("native"), profile: nativeProfileSchema }).strict(),
+  createSchemaBase.extend({ ecosystem: z.literal("electron"), profile: electronProfileSchema }).strict(),
+] as const;
 
-export const manageDevelopmentProjectInputSchema = z.discriminatedUnion("action", [
+export const manageDevelopmentProjectInputSchema = z.union([
   listTemplatesSchema,
   inspectSchema,
-  createSchema,
+  ...createSchemas,
 ]);
 
 export type ManageDevelopmentProjectAction = z.infer<typeof manageDevelopmentProjectInputSchema>;
@@ -295,17 +277,18 @@ async function createAction(
 // ------------------------------------------------------------- dispatch ---
 
 export async function manageDevelopmentProject(
-  args: ManageDevelopmentProjectAction,
+  args: unknown,
   deps: DevelopmentProjectDeps,
   ctx: ServerContext,
 ) {
-  switch (args.action) {
+  const parsed = manageDevelopmentProjectInputSchema.parse(args);
+  switch (parsed.action) {
     case "list_templates":
-      return listTemplatesAction(args, deps);
+      return listTemplatesAction(parsed, deps);
     case "inspect":
-      return inspectAction(args, deps);
+      return inspectAction(parsed, deps);
     case "create":
-      return createAction(args, deps, ctx);
+      return createAction(parsed, deps, ctx);
   }
 }
 
@@ -325,9 +308,7 @@ export function registerDevelopmentProjectTool(
         "template path, executable, command, URL, or free-form package-manager " +
         "switch. Project creation requires single-use exact approval and stages " +
         "atomically with rollback on failure.",
-      inputSchema: {
-        action: z.enum(["list_templates", "inspect", "create"]),
-      },
+      inputSchema: manageDevelopmentProjectInputSchema,
     },
     async (args, ctx) =>
       authorizeOwnerToolCall("manage_development_project", args) ??
@@ -337,7 +318,7 @@ export function registerDevelopmentProjectTool(
           concurrency: "default",
           subject: { kind: "development", key: "project", display: "development project" },
         },
-        async () => manageDevelopmentProject(args as ManageDevelopmentProjectAction, deps, ctx),
+        async () => manageDevelopmentProject(args, deps, ctx),
       ),
   );
 }

@@ -221,7 +221,7 @@ test(
 test("launcher performs a read-only broker state check and reports 30 tools", async () => {
   const content = await readFile(launcherScript, "utf8");
   // Broker check is read-only — never installs, starts, stops, or elevates.
-  const brokerFn = content.match(/function\s+Get-BrokerState[\s\S]*?\n\}\n/);
+  const brokerFn = content.match(/function\s+Get-BrokerState[\s\S]*?\r?\n\}\r?\n/);
   assert.ok(brokerFn, "Get-BrokerState function must exist");
   const body = brokerFn[0];
   assert.match(body, /Get-Service.*FeishuMcpAdminBroker/i);

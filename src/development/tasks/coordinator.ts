@@ -181,11 +181,17 @@ export class DevelopmentTaskCoordinator {
         }
       }
       try { child.unref(); } catch {}
-      await this.waitForTerminal(taskId);
+      await this.waitForTerminal(
+        taskId,
+        () => child.exitCode === null && child.signalCode === null,
+      );
     });
   }
 
-  private waitForTerminal(taskId: string): Promise<void> {
+  private waitForTerminal(
+    taskId: string,
+    spawnedWorkerIsAlive?: () => boolean,
+  ): Promise<void> {
     return new Promise((resolve) => {
       const initial = this.store.get(taskId);
       let lastFreshAt = Date.parse(initial?.startedAt ?? initial?.updatedAt ?? "");
@@ -210,17 +216,19 @@ export class DevelopmentTaskCoordinator {
         if (validBeat && beat) {
           observedHeartbeat = true;
           lastFreshAt = Math.max(lastFreshAt, beatAt);
-          if (
-            record.worker?.pid !== beat.pid ||
-            record.worker?.heartbeatAt !== beat.heartbeatAt
-          ) {
-            try {
-              this.store.update(taskId, record.state, {
-                worker: { pid: beat.pid, nonce: beat.nonce, heartbeatAt: beat.heartbeatAt },
-              });
-            } catch {}
-          }
-        } else if (now - lastFreshAt >= (observedHeartbeat ? this.heartbeatStaleMs : this.startupGraceMs)) {
+          // The heartbeat file is the authoritative liveness record. Rewriting
+          // metadata for every beat creates an inter-process lost-update race:
+          // the coordinator can overwrite the worker's terminal state with a
+          // stale running snapshot. The spawn record already persists the pid
+          // and nonce needed for recovery, so no metadata write is necessary.
+        } else if (
+          // A freshly spawned Node worker may be alive but not yet scheduled
+          // under full-suite/host load. The direct ChildProcess handle is
+          // stronger startup evidence than an arbitrary grace interval. Once
+          // the first heartbeat arrives, normal heartbeat expiry applies.
+          !(!observedHeartbeat && spawnedWorkerIsAlive?.()) &&
+          now - lastFreshAt >= (observedHeartbeat ? this.heartbeatStaleMs : this.startupGraceMs)
+        ) {
           try {
             this.store.update(taskId, record.state, {
               state: "interrupted",

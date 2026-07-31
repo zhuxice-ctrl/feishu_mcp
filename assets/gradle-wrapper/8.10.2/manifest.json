@@ -1,0 +1,27 @@
+{
+  "version": 1,
+  "gradleVersion": "8.10.2",
+  "sourceRepository": "https://github.com/gradle/gradle",
+  "sourceTag": "v8.10.2",
+  "sourceCommit": "415adb9e06a516c44b391edff552fd42139443f7",
+  "files": [
+    {
+      "path": "gradlew",
+      "size": 8784,
+      "sha256": "9cbbb4d68ff7fb5211c4d58f598ac9d8664c05fdcd1e5f59b7f2c3ac1ee00af0",
+      "gitBlobSha": "d95bf6131dc41079a1665889f84d4cfec92a2bc1"
+    },
+    {
+      "path": "gradlew.bat",
+      "size": 2894,
+      "sha256": "0f3ed8f03b50934cb8c48b15a470d5c20a30a5385825e48b55bcc8ea3d8f8e18",
+      "gitBlobSha": "640d68685c14950470c82031e02198e220b96e62"
+    },
+    {
+      "path": "gradle-wrapper.jar",
+      "size": 43583,
+      "sha256": "2db75c40782f5e8ba1fc278a5574bab070adccb2d21ca5a6e5ed840888448046",
+      "gitBlobSha": "a4b76b9530d66f5e68d973ea569d8e19de379189"
+    }
+  ]
+}

@@ -40,8 +40,11 @@ test("store is owner-only on disk", () => {
   const store = new LocalCredentialStore(dir);
   store.register({ kind: "key", alias: "k", fingerprint: "01:02" });
   const stat = fs.statSync(path.join(dir, "credentials", "index.json"));
-  // 0600 on posix; on this sandbox we assert the mode bits are owner-only.
-  assert.equal(stat.mode & 0o077, 0);
+  // POSIX exposes the requested 0600 mode directly. Windows ACLs are not
+  // represented by stat.mode, so the DPAPI/ACL PowerShell tests cover that
+  // platform-specific boundary instead.
+  if (process.platform !== "win32") assert.equal(stat.mode & 0o077, 0);
+  else assert.equal(stat.isFile(), true);
   fs.rmSync(dir, { recursive: true, force: true });
 });
 

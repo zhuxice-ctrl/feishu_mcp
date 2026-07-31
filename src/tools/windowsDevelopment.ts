@@ -634,20 +634,7 @@ export function registerWindowsDevelopmentTool(
         "executable, SDK path, MSBuild property, CMake flag, URL, or " +
         "argument is accepted. Long operations enqueue a background task " +
         "and return a task id. Stop never accepts a process id.",
-      inputSchema: {
-        action: z.enum([
-          "inspect_project", "list_templates",
-          "dotnet_restore", "dotnet_build", "dotnet_test", "dotnet_publish",
-          "dotnet_pack", "dotnet_generate_dependency_lock",
-          "msbuild_restore", "msbuild_build", "msbuild_rebuild",
-          "msbuild_clean", "msbuild_test",
-          "native_configure", "native_build", "native_test",
-          "native_install", "native_package",
-          "electron_install", "electron_run_script", "electron_test",
-          "electron_package",
-          "sign", "verify", "run", "stop",
-        ]),
-      },
+      inputSchema: windowsDevelopmentInputSchema,
     },
     async (args, ctx) =>
       authorizeOwnerToolCall("windows_development", args) ??

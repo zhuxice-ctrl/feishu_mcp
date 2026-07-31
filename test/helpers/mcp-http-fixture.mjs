@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { spawn } from "node:child_process";
 import net from "node:net";
 import path from "node:path";
+import fs from "node:fs";
 
 const projectDir = path.resolve(import.meta.dirname, "..", "..");
 
@@ -42,19 +43,9 @@ export function escapeRegex(value) {
  * endpoint reports a populated environment without touching real SDKs.
  */
 export function buildFakeToolchainCatalog(version = 1) {
-  const components = [
-    { componentId: "microsoft.dotnet.sdk.8", target: "windows", state: "ready" },
-    { componentId: "kitware.cmake", target: "windows", state: "ready" },
-    { componentId: "openjs.nodejs.lts", target: "windows", state: "ready" },
-    { componentId: "android.sdk", target: "android", state: "ready" },
-  ].map((c) => ({
-    ...c,
-    displayName: c.componentId,
-    version: "1.0",
-    discovery: "fixture",
-    install: { kind: "none" },
-  }));
-  return JSON.stringify({ version, components });
+  const catalog = JSON.parse(fs.readFileSync(path.join(projectDir, "config", "development-package-catalog.json"), "utf8"));
+  catalog.version = version;
+  return JSON.stringify(catalog);
 }
 
 export async function startMcpFixture({

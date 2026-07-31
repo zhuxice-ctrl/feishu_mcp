@@ -20,7 +20,15 @@ import { createHmac, randomBytes } from "node:crypto";
 import test from "node:test";
 
 function cleanupSocket(sockPath) {
+  if (process.platform === "win32") return;
   try { fs.rmSync(sockPath, { force: true }); } catch { /* already gone */ }
+}
+
+function socketPath(label = "broker-test") {
+  const suffix = `${process.pid}-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+  return process.platform === "win32"
+    ? `\\\\.\\pipe\\${label}-${suffix}`
+    : path.join(os.tmpdir(), `${label}-${suffix}.sock`);
 }
 
 process.env.AUTH_MODE = "none";
@@ -59,7 +67,7 @@ function expectedHmac(fields) {
 /** Start a mock server that receives one connection and calls `handler(socket, request)`. */
 function startMockServer(handler) {
   return new Promise((resolve) => {
-    const sockPath = path.join(os.tmpdir(), `broker-test-${Date.now()}-${Math.random().toString(36).slice(2)}.sock`);
+    const sockPath = socketPath();
     const server = net.createServer((socket) => {
       readFrame(socket, BROKER_MAX_FRAME_BYTES)
         .then((body) => {
@@ -259,7 +267,7 @@ test("early disconnect mapped to BROKER_UNAVAILABLE", async () => {
 });
 
 test("error messages never expose pipe path or hex strings", async () => {
-  const pipePath = path.join(os.tmpdir(), `broker-test-leak-${Date.now()}.sock`);
+  const pipePath = socketPath("broker-test-leak");
   // Connect to a non-listening path to get a connection error
   const client = new BrokerClient({
     pipePath,
