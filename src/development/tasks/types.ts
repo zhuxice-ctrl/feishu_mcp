@@ -25,6 +25,26 @@ export interface DevelopmentArtifact {
   sha256?: string;
 }
 
+/** Closed binary capture contract; currently only Android PNG screenshots. */
+export interface DevelopmentBinaryStdoutSink {
+  stream: "stdout";
+  type: "png";
+  target: string;
+  name: string;
+  kind: "screenshot";
+}
+
+export interface DevelopmentDirectArtifact {
+  name: string;
+  path: string;
+  kind: "windows-signed";
+}
+
+export interface DevelopmentWindowsSigningCleanup {
+  stagingPath: string;
+  outFile: string;
+}
+
 /**
  * Internal launch specification. Only the coordinator and validated internal
  * adapters may construct one; MCP tool callers never see this type.
@@ -43,6 +63,12 @@ export interface DevelopmentLaunchSpec {
   successExitCodes: number[];
   /** Canonical output roots inside already-authorized project directories. */
   artifactRoots?: string[];
+  /** Raw binary stdout destinations owned and published by the worker. */
+  binaryStdoutSinks?: DevelopmentBinaryStdoutSink[];
+  /** Adapter-owned outputs that are collected only after successful exit. */
+  directArtifacts?: DevelopmentDirectArtifact[];
+  /** Fixed Windows signing staging path removed on every terminal outcome. */
+  windowsSigningCleanup?: DevelopmentWindowsSigningCleanup;
 }
 
 export interface DevelopmentWorkerHandle {

@@ -103,7 +103,7 @@ function makeCredentialStore() {
   return {
     has: (id) => ids.has(id),
     list: () => [],
-    get: (id) => (ids.has(id) ? { id, kind: "key", alias: "codesign", fingerprint: THUMB } : undefined),
+    get: (id) => (ids.has(id) ? { id, kind: "certificate", alias: "codesign", fingerprint: THUMB } : undefined),
   };
 }
 
@@ -125,7 +125,6 @@ function makeDeps(opts = {}) {
       userId: () => "owner",
       hasDirectoryAccess: () => true,
       taskTimeoutMs: 60_000,
-      pfxHelperPath: "/fake/helper.ps1",
     },
     coordinator,
   };
@@ -255,6 +254,17 @@ test("sign uses single-use approval", async () => {
   assert.equal(body.ok, true);
   assert.equal(body.state, "queued");
   assert.equal(coordinator.enqueued[0].input.action, "sign");
+  const launch = coordinator.enqueued[0].input.launch;
+  assert.equal(launch.executable, process.execPath);
+  assert.equal(path.basename(launch.args[0]), "signingStage.js");
+  assert.deepEqual(launch.directArtifacts, [{ name: "b.exe", path: "/auth/b.exe", kind: "windows-signed" }]);
+});
+
+test("sign rejects caller helper and executable injection", () => {
+  const base = { action: "sign", inFile: "/auth/a.exe", outFile: "/auth/b.exe", credentialId: "11111111-1111-4111-8111-111111111111", timestampOrigin: TS };
+  for (const injected of [{ pfxHelperPath: "/evil.ps1" }, { helperPath: "/evil.ps1" }, { executable: "cmd.exe" }, { script: "evil" }]) {
+    assert.throws(() => windowsDevelopmentInputSchema.parse({ ...base, ...injected }));
+  }
 });
 
 test("sign rejects unknown credential", async () => {

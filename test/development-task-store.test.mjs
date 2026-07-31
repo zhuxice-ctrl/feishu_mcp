@@ -151,3 +151,108 @@ test("loadLaunchSpec rejects a tampered executable", async () => {
   }));
   assert.throws(() => store.loadLaunchSpec(created.id), /absolute|invalid launch/i);
 });
+
+test("launch spec accepts UUID credential refs and persists only the opaque id", async () => {
+  const dir = path.join(root, "credential-ref-valid");
+  const store = new DevelopmentTaskStore(dir);
+  const created = create(store);
+  const id = "11111111-1111-4111-8111-111111111111";
+  store.saveLaunchSpec(created.id, {
+    executable: process.execPath,
+    args: ["-v"], cwd: root, env: {},
+    secretEnvRefs: { FEISHU_MCP_KS_PASS: id },
+    timeoutMs: 1000, successExitCodes: [0],
+  });
+  const raw = await import("node:fs/promises").then((fs) => fs.readFile(store.launchPath(created.id), "utf8"));
+  assert.match(raw, new RegExp(id));
+  assert.doesNotMatch(raw, /resolved-plaintext/);
+});
+
+test("launch spec rejects malformed credential ids and unsafe secret environment names", () => {
+  for (const [name, credentialId] of [["SAFE_NAME", "../outside"], ["BAD-NAME", "11111111-1111-4111-8111-111111111111"]]) {
+    const store = new DevelopmentTaskStore(path.join(root, `credential-ref-${Math.random()}`));
+    const created = create(store);
+    assert.throws(() => store.saveLaunchSpec(created.id, {
+      executable: process.execPath,
+      args: [], cwd: root, env: {}, secretEnvRefs: { [name]: credentialId },
+      timeoutMs: 1000, successExitCodes: [0],
+    }), /secretEnvRefs|credential/i);
+  }
+});
+
+test("launch spec round-trips one closed PNG stdout sink", () => {
+  const store = new DevelopmentTaskStore(path.join(root, "binary-sink-valid"));
+  const created = create(store);
+  const target = path.join(root, "shots", "screen.png");
+  const binaryStdoutSinks = [{
+    stream: "stdout", type: "png", target, name: "screen.png", kind: "screenshot",
+  }];
+  store.saveLaunchSpec(created.id, {
+    executable: process.execPath, args: [], cwd: root, env: {},
+    timeoutMs: 1000, successExitCodes: [0], artifactRoots: [path.dirname(target)],
+    binaryStdoutSinks,
+  });
+  assert.deepEqual(store.loadLaunchSpec(created.id)?.binaryStdoutSinks, binaryStdoutSinks);
+});
+
+test("launch spec rejects malformed or non-unique binary stdout sinks", () => {
+  const target = path.join(root, "shots", "screen.png");
+  const valid = { stream: "stdout", type: "png", target, name: "screen.png", kind: "screenshot" };
+  const invalid = [
+    [],
+    [valid, { ...valid, target: path.join(root, "shots", "other.png"), name: "other.png" }],
+    [{ ...valid, target: "relative.png" }],
+    [{ ...valid, stream: "stderr" }],
+    [{ ...valid, type: "raw" }],
+    [{ ...valid, kind: "file" }],
+    [{ ...valid, name: "nested/screen.png" }],
+    [{ ...valid, name: "different.png" }],
+    [{ ...valid, helperPath: "C:\\evil.ps1" }],
+  ];
+  for (const [index, binaryStdoutSinks] of invalid.entries()) {
+    const store = new DevelopmentTaskStore(path.join(root, `binary-sink-invalid-${index}`));
+    const created = create(store);
+    assert.throws(() => store.saveLaunchSpec(created.id, {
+      executable: process.execPath, args: [], cwd: root, env: {},
+      timeoutMs: 1000, successExitCodes: [0], artifactRoots: [path.dirname(target)],
+      binaryStdoutSinks,
+    }), /binaryStdoutSinks/i);
+  }
+});
+
+test("launch spec round-trips only the closed Windows signed artifact contract", () => {
+  const store = new DevelopmentTaskStore(path.join(root, "windows-sign-valid"));
+  const created = create(store);
+  const outFile = path.join(root, "signed", "app.exe");
+  const stagingPath = path.join(root, "signed", ".app.0123456789ab.exe");
+  const directArtifacts = [{ name: "app.exe", path: outFile, kind: "windows-signed" }];
+  const windowsSigningCleanup = { stagingPath, outFile };
+  store.saveLaunchSpec(created.id, {
+    executable: process.execPath, args: [], cwd: root, env: {}, timeoutMs: 1000, successExitCodes: [0],
+    artifactRoots: [path.dirname(outFile)], directArtifacts, windowsSigningCleanup,
+  });
+  const loaded = store.loadLaunchSpec(created.id);
+  assert.deepEqual(loaded?.directArtifacts, directArtifacts);
+  assert.deepEqual(loaded?.windowsSigningCleanup, windowsSigningCleanup);
+});
+
+test("launch spec rejects injected or mismatched Windows signing publication fields", () => {
+  const outFile = path.join(root, "signed-invalid", "app.exe");
+  const validArtifact = [{ name: "app.exe", path: outFile, kind: "windows-signed" }];
+  const validCleanup = { stagingPath: path.join(path.dirname(outFile), ".app.0123456789ab.exe"), outFile };
+  const cases = [
+    { directArtifacts: [{ ...validArtifact[0], helperPath: "C:\\evil.ps1" }], windowsSigningCleanup: validCleanup },
+    { directArtifacts: [{ ...validArtifact[0], kind: "pfx" }], windowsSigningCleanup: validCleanup },
+    { directArtifacts: validArtifact, windowsSigningCleanup: { ...validCleanup, stagingPath: path.join(root, "outside.exe") } },
+    { directArtifacts: validArtifact, windowsSigningCleanup: { ...validCleanup, stagingPath: outFile } },
+    { directArtifacts: [{ ...validArtifact[0], path: path.join(root, "other.exe"), name: "other.exe" }], windowsSigningCleanup: validCleanup },
+  ];
+  for (const [index, extra] of cases.entries()) {
+    const store = new DevelopmentTaskStore(path.join(root, `windows-sign-invalid-${index}`));
+    const created = create(store);
+    assert.throws(() => store.saveLaunchSpec(created.id, {
+      executable: process.execPath, args: [], cwd: root, env: {}, timeoutMs: 1000, successExitCodes: [0],
+      artifactRoots: [path.dirname(outFile)], ...extra,
+    }), /directArtifacts|windowsSigningCleanup/i);
+  }
+});

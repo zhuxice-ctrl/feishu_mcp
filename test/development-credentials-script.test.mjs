@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import fs from "node:fs";
 
 const PS1 = fs.readFileSync("scripts/manage-development-credentials.ps1", "utf8");
+const RESOLVER_PS1 = fs.readFileSync("scripts/resolve-development-credential.ps1", "utf8");
 const BAT = fs.readFileSync("manage-development-credentials.bat", "utf8");
 
 test("script requires elevation", () => {
@@ -61,4 +62,31 @@ test("bat wrapper calls the ps1 with -File and forwards args", () => {
   assert.ok(/-File/.test(BAT));
   assert.ok(/%\*/.test(BAT));
   assert.ok(/powershell/i.test(BAT));
+});
+
+test("credential manager registers CurrentUser certificate references without a blob", () => {
+  assert.match(PS1, /ValidateSet\("keystore",\s*"key",\s*"certificate"\)/);
+  assert.match(PS1, /Cert:\\CurrentUser\\My/);
+  assert.match(PS1, /HasPrivateKey/);
+  assert.match(PS1, /1\.3\.6\.1\.5\.5\.7\.3\.3/);
+});
+
+test("credential resolver accepts only a credential id and uses the fixed blob location", () => {
+  const paramBlock = RESOLVER_PS1.slice(RESOLVER_PS1.indexOf("param("), RESOLVER_PS1.indexOf("$ErrorActionPreference"));
+  assert.match(paramBlock, /CredentialId/);
+  assert.doesNotMatch(paramBlock, /Path|Command|Output|Secret|Password/i);
+  assert.match(RESOLVER_PS1, /APPROVAL_DATA_DIR/);
+  assert.match(RESOLVER_PS1, /credentials/);
+  assert.match(RESOLVER_PS1, /"\$CredentialId\.blob"/);
+  assert.match(RESOLVER_PS1, /ProtectedData\]::Unprotect/);
+  assert.match(RESOLVER_PS1, /DataProtectionScope\]::CurrentUser/);
+});
+
+test("credential resolver rejects traversal and reparse points and writes raw stdout only", () => {
+  assert.match(RESOLVER_PS1, /\[guid\]::TryParse/);
+  assert.match(RESOLVER_PS1, /ToString\(\)\s*-cne\s*\$CredentialId/);
+  assert.match(RESOLVER_PS1, /ReparsePoint/);
+  assert.match(RESOLVER_PS1, /-LiteralPath/);
+  assert.match(RESOLVER_PS1, /OpenStandardOutput/);
+  assert.doesNotMatch(RESOLVER_PS1, /Write-Output|Write-Host|Write-Error/);
 });

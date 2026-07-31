@@ -39,7 +39,6 @@ import { planNativeAction } from "../development/windows/native.js";
 import { planElectronAction, isManifestDigestStale } from "../development/windows/electron.js";
 import {
   planSignToolSign,
-  planPfxSign,
   planSignToolVerify,
   type CertificateInspector,
 } from "../development/windows/signing.js";
@@ -98,7 +97,7 @@ export const windowsDevelopmentInputSchema = z.discriminatedUnion("action", [
   z.object({ action: z.literal("electron_test"), root: hostPath, scriptName }).strict(),
   z.object({ action: z.literal("electron_package"), root: hostPath, scriptName }).strict(),
   // ---- signing (single-use) ----
-  z.object({ action: z.literal("sign"), inFile: hostPath, outFile: hostPath, credentialId, timestampOrigin, pfxHelperPath: hostPath.optional() }).strict(),
+  z.object({ action: z.literal("sign"), inFile: hostPath, outFile: hostPath, credentialId, timestampOrigin }).strict(),
   z.object({ action: z.literal("verify"), inFile: hostPath }).strict(),
   // ---- run / stop (run = standard, stop = resolve task id) ----
   z.object({ action: z.literal("run"), artifactPath: hostPath, cwd: hostPath }).strict(),
@@ -124,8 +123,6 @@ export interface WindowsDevelopmentDeps {
   /** Override toolchain resolution in tests. */
   resolveToolchain?: (snapshot: EnvironmentSnapshot) => WindowsToolchainResolution;
   taskTimeoutMs?: number;
-  /** PFX import helper path (production default). */
-  pfxHelperPath?: string;
 }
 
 function resolveUserId(deps: WindowsDevelopmentDeps): string | null {
@@ -337,7 +334,7 @@ function mapPlanError(err: unknown): ReturnType<typeof toolError> {
 // ------------------------------------------------------------- signing ---
 
 async function signAction(
-  args: { inFile: string; outFile: string; credentialId: string; timestampOrigin: string; pfxHelperPath?: string },
+  args: { inFile: string; outFile: string; credentialId: string; timestampOrigin: string },
   deps: WindowsDevelopmentDeps,
   ctx: ServerContext,
 ) {
@@ -353,19 +350,11 @@ async function signAction(
       credentialStore: deps.credentialStore,
       certInspector: deps.certInspector,
     };
-    if (args.pfxHelperPath || deps.pfxHelperPath) {
-      plan = planPfxSign(
-        resolved.toolchain,
-        { inFile: args.inFile, outFile: args.outFile, credentialId: args.credentialId, timestampOrigin: args.timestampOrigin, helperPath: args.pfxHelperPath ?? deps.pfxHelperPath! },
-        opts,
-      );
-    } else {
-      plan = planSignToolSign(
-        resolved.toolchain,
-        { inFile: args.inFile, outFile: args.outFile, credentialId: args.credentialId, timestampOrigin: args.timestampOrigin },
-        opts,
-      );
-    }
+    plan = planSignToolSign(
+      resolved.toolchain,
+      { inFile: args.inFile, outFile: args.outFile, credentialId: args.credentialId, timestampOrigin: args.timestampOrigin },
+      opts,
+    );
   } catch (err) {
     return mapPlanError(err);
   }
@@ -391,6 +380,8 @@ async function signAction(
     timeoutMs: deps.taskTimeoutMs ?? DEV_TASK_MAX_RUNTIME_MS,
     successExitCodes: [0],
     artifactRoots: [path.dirname(plan.outFile)],
+    directArtifacts: [{ name: path.basename(plan.outFile), path: plan.outFile, kind: "windows-signed" }],
+    windowsSigningCleanup: { stagingPath: plan.stagingOut, outFile: plan.outFile },
   };
   const enqueued = enqueue(deps, owner.userId, "sign", "default", [args.outFile], launch);
   if ("error" in enqueued) return enqueued.error;

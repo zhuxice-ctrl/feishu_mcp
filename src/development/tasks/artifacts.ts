@@ -8,7 +8,7 @@ const MAX_MANIFEST_BYTES = 1_048_576;
 const MAX_ARTIFACTS = 256;
 const SAFE_KIND = /^[a-z0-9._-]{1,64}$/i;
 
-interface ArtifactManifestEntry {
+export interface DevelopmentArtifactEntry {
   name: string;
   path: string;
   kind: string;
@@ -19,7 +19,7 @@ function isInside(root: string, candidate: string): boolean {
   return relative === "" || (!relative.startsWith("..") && !path.isAbsolute(relative));
 }
 
-function safeManifestEntries(taskDir: string): ArtifactManifestEntry[] {
+function safeManifestEntries(taskDir: string): DevelopmentArtifactEntry[] {
   const file = artifactManifestPath(taskDir);
   try {
     const stat = fs.lstatSync(file);
@@ -33,9 +33,9 @@ function safeManifestEntries(taskDir: string): ArtifactManifestEntry[] {
       };
       if (parsed.version !== 1 || !Array.isArray(parsed.artifacts)) return [];
       if (parsed.artifacts.length > MAX_ARTIFACTS) return [];
-      return parsed.artifacts.filter((entry): entry is ArtifactManifestEntry => {
+      return parsed.artifacts.filter((entry): entry is DevelopmentArtifactEntry => {
         if (!entry || typeof entry !== "object") return false;
-        const value = entry as Partial<ArtifactManifestEntry>;
+        const value = entry as Partial<DevelopmentArtifactEntry>;
         return Boolean(
           typeof value.name === "string" && value.name.length > 0 && value.name.length <= 255 &&
           !/[\\/\0]/.test(value.name) &&
@@ -63,7 +63,37 @@ function hasLinkBetween(root: string, candidate: string): boolean {
   return false;
 }
 
-function inspectArtifact(entry: ArtifactManifestEntry, roots: readonly string[]): DevelopmentArtifact | undefined {
+export function assertAuthorizedArtifactTarget(target: string, roots: readonly string[]): void {
+  const candidate = path.resolve(target);
+  const parent = path.dirname(candidate);
+  for (const configuredRoot of roots) {
+    try {
+      const root = path.resolve(configuredRoot);
+      const rootStat = fs.lstatSync(root);
+      if (!rootStat.isDirectory() || rootStat.isSymbolicLink() || !isInside(root, candidate)) continue;
+      const parentStat = fs.lstatSync(parent);
+      if (!parentStat.isDirectory() || parentStat.isSymbolicLink() || hasLinkBetween(root, parent)) continue;
+      const realRoot = fs.realpathSync.native(root);
+      const realParent = fs.realpathSync.native(parent);
+      if (!isInside(realRoot, realParent)) continue;
+      try {
+        const targetStat = fs.lstatSync(candidate);
+        if (!targetStat.isFile() || targetStat.isSymbolicLink()) continue;
+      } catch (error) {
+        if ((error as NodeJS.ErrnoException).code !== "ENOENT") continue;
+      }
+      return;
+    } catch {
+      // Try another configured root.
+    }
+  }
+  throw new Error("artifact target unavailable");
+}
+
+export function inspectAuthorizedArtifact(
+  entry: DevelopmentArtifactEntry,
+  roots: readonly string[],
+): DevelopmentArtifact | undefined {
   const candidate = path.resolve(entry.path);
   for (const configuredRoot of roots) {
     try {
@@ -113,7 +143,7 @@ export function collectDevelopmentArtifacts(
   if (authorizedRoots.length === 0) return [];
   const artifacts: DevelopmentArtifact[] = [];
   for (const entry of safeManifestEntries(taskDir)) {
-    const artifact = inspectArtifact(entry, authorizedRoots);
+    const artifact = inspectAuthorizedArtifact(entry, authorizedRoots);
     if (artifact) artifacts.push(artifact);
   }
   return artifacts;

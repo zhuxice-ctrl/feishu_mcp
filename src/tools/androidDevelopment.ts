@@ -562,6 +562,10 @@ async function deviceAction(
   });
   if (approval !== true) return approval;
 
+  const screenshotTarget = actionName === "screenshot" && typeof args.hostPng === "string"
+    ? args.hostPng
+    : undefined;
+
   const launch: DevelopmentLaunchSpec = {
     executable: plan.executable,
     args: plan.args,
@@ -570,6 +574,16 @@ async function deviceAction(
     stdin: plan.stdin,
     timeoutMs: deps.taskTimeoutMs ?? DEV_TASK_MAX_RUNTIME_MS,
     successExitCodes: [0],
+    ...(screenshotTarget === undefined ? {} : {
+      artifactRoots: [path.dirname(screenshotTarget)],
+      binaryStdoutSinks: [{
+        stream: "stdout" as const,
+        type: "png" as const,
+        target: screenshotTarget,
+        name: path.basename(screenshotTarget),
+        kind: "screenshot" as const,
+      }],
+    }),
   };
   const enqueued = enqueue(deps, owner.userId, actionName, taskClass, resources, launch);
   if ("error" in enqueued) return enqueued.error;

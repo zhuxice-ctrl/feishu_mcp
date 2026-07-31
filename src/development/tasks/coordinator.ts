@@ -15,6 +15,7 @@
 import { spawn } from "node:child_process";
 import path from "node:path";
 import {
+  APPROVAL_DATA_DIR,
   DEV_TASK_HEARTBEAT_MS,
   DEV_TASK_CANCEL_GRACE_MS,
   DEV_TASK_MAX_RUNTIME_MS,
@@ -51,6 +52,8 @@ const OWNER_KEY_RE = /^[0-9a-f]{64}$/;
 
 export interface DevelopmentCoordinatorOptions {
   workerScript?: string;
+  /** Explicit credential/data boundary handed to detached workers. */
+  approvalDataDir?: string;
   /** Test hook; production uses three configured heartbeat intervals. */
   heartbeatStaleMs?: number;
   /** Test hook; production allows slow Windows worker bootstrap. */
@@ -72,6 +75,7 @@ export class DevelopmentTaskCoordinator {
   readonly store: DevelopmentTaskStore;
   readonly scheduler: DevelopmentTaskScheduler;
   private readonly workerScript: string;
+  private readonly approvalDataDir: string;
   private readonly heartbeatStaleMs: number;
   private readonly startupGraceMs: number;
   private readonly pollIntervalMs: number;
@@ -84,6 +88,7 @@ export class DevelopmentTaskCoordinator {
     this.store = store;
     this.scheduler = scheduler;
     this.workerScript = options.workerScript ?? path.resolve(process.cwd(), "dist/development/tasks/worker.js");
+    this.approvalDataDir = path.resolve(options.approvalDataDir ?? APPROVAL_DATA_DIR);
     this.heartbeatStaleMs = options.heartbeatStaleMs ?? STALE_HEARTBEAT_MS;
     this.startupGraceMs = options.startupGraceMs ?? Math.max(this.heartbeatStaleMs, 5_000);
     this.pollIntervalMs = options.pollIntervalMs ?? Math.min(250, DEV_TASK_HEARTBEAT_MS);
@@ -159,7 +164,7 @@ export class DevelopmentTaskCoordinator {
         env: {
           ...safeRuntimeEnvironment(),
           AUTH_MODE: "none",
-          APPROVAL_DATA_DIR: path.dirname(this.store.root),
+          APPROVAL_DATA_DIR: this.approvalDataDir,
           DEV_TASK_DATA_DIR: this.store.root,
           DEV_TASK_HEARTBEAT_MS: String(DEV_TASK_HEARTBEAT_MS),
           DEV_TASK_CANCEL_GRACE_MS: String(DEV_TASK_CANCEL_GRACE_MS),

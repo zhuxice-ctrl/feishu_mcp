@@ -12,6 +12,9 @@ import fs from "node:fs";
 import path from "node:path";
 import { randomUUID } from "node:crypto";
 import type {
+  DevelopmentBinaryStdoutSink,
+  DevelopmentDirectArtifact,
+  DevelopmentWindowsSigningCleanup,
   DevelopmentArtifact,
   DevelopmentLaunchSpec,
   DevelopmentTaskCreateInput,
@@ -22,6 +25,8 @@ import type {
 import { isSensitiveEnvEntry } from "./redaction.js";
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+const CREDENTIAL_ID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
+const ENV_NAME_RE = /^[A-Za-z_][A-Za-z0-9_]*$/;
 const VALID_STATES: readonly DevelopmentTaskState[] = [
   "queued", "running", "succeeded", "failed",
   "cancel_requested", "cancelled", "interrupted",
@@ -31,6 +36,7 @@ const VALID_CLASSES = new Set(["default", "build", "privileged"]);
 const MAX_STDIN_BYTES = 4096;
 const MAX_LAUNCH_BYTES = 1_048_576;
 const MAX_ARGUMENTS = 1024;
+const BINARY_SINK_KEYS = new Set(["stream", "type", "target", "name", "kind"]);
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return Boolean(value && typeof value === "object" && !Array.isArray(value));
@@ -48,6 +54,72 @@ function stringRecord(value: unknown, field: string, maxEntries: number): Record
     result[key] = entry;
   }
   return result;
+}
+
+function validateBinaryStdoutSinks(value: unknown): DevelopmentBinaryStdoutSink[] {
+  if (!Array.isArray(value) || value.length !== 1) {
+    throw new DevelopmentTaskStoreError("invalid launch binaryStdoutSinks");
+  }
+  const sink = value[0];
+  if (
+    !isRecord(sink) ||
+    Object.keys(sink).length !== BINARY_SINK_KEYS.size ||
+    Object.keys(sink).some((key) => !BINARY_SINK_KEYS.has(key)) ||
+    sink.stream !== "stdout" ||
+    sink.type !== "png" ||
+    sink.kind !== "screenshot" ||
+    typeof sink.target !== "string" ||
+    !path.isAbsolute(sink.target) ||
+    Buffer.byteLength(sink.target, "utf8") > 4096 ||
+    typeof sink.name !== "string" ||
+    sink.name.length === 0 ||
+    Buffer.byteLength(sink.name, "utf8") > 255 ||
+    /[\\/\0]/.test(sink.name) ||
+    sink.name !== path.basename(sink.target)
+  ) {
+    throw new DevelopmentTaskStoreError("invalid launch binaryStdoutSinks");
+  }
+  return [{
+    stream: "stdout",
+    type: "png",
+    target: sink.target,
+    name: sink.name,
+    kind: "screenshot",
+  }];
+}
+
+function validateDirectArtifacts(value: unknown): DevelopmentDirectArtifact[] {
+  if (!Array.isArray(value) || value.length !== 1) {
+    throw new DevelopmentTaskStoreError("invalid launch directArtifacts");
+  }
+  const artifact = value[0];
+  if (
+    !isRecord(artifact) || Object.keys(artifact).length !== 3 ||
+    !["name", "path", "kind"].every((key) => key in artifact) ||
+    artifact.kind !== "windows-signed" ||
+    typeof artifact.path !== "string" || !path.isAbsolute(artifact.path) ||
+    Buffer.byteLength(artifact.path, "utf8") > 4096 ||
+    typeof artifact.name !== "string" || artifact.name.length === 0 ||
+    Buffer.byteLength(artifact.name, "utf8") > 255 || /[\\/\0]/.test(artifact.name) ||
+    artifact.name !== path.basename(artifact.path)
+  ) {
+    throw new DevelopmentTaskStoreError("invalid launch directArtifacts");
+  }
+  return [{ name: artifact.name, path: artifact.path, kind: "windows-signed" }];
+}
+
+function validateWindowsSigningCleanup(value: unknown): DevelopmentWindowsSigningCleanup {
+  if (
+    !isRecord(value) || Object.keys(value).length !== 2 ||
+    typeof value.stagingPath !== "string" || !path.isAbsolute(value.stagingPath) ||
+    typeof value.outFile !== "string" || !path.isAbsolute(value.outFile) ||
+    path.dirname(value.stagingPath) !== path.dirname(value.outFile) ||
+    value.stagingPath === value.outFile ||
+    !path.basename(value.stagingPath).startsWith(`.${path.basename(value.outFile, path.extname(value.outFile))}.`)
+  ) {
+    throw new DevelopmentTaskStoreError("invalid launch windowsSigningCleanup");
+  }
+  return { stagingPath: value.stagingPath, outFile: value.outFile };
 }
 
 function validateLaunchSpec(value: unknown): DevelopmentLaunchSpec {
@@ -68,6 +140,13 @@ function validateLaunchSpec(value: unknown): DevelopmentLaunchSpec {
   const secretEnvRefs = value.secretEnvRefs === undefined
     ? undefined
     : stringRecord(value.secretEnvRefs, "secretEnvRefs", 64);
+  if (secretEnvRefs !== undefined) {
+    for (const [envName, credentialId] of Object.entries(secretEnvRefs)) {
+      if (!ENV_NAME_RE.test(envName) || !CREDENTIAL_ID_RE.test(credentialId)) {
+        throw new DevelopmentTaskStoreError("invalid launch secretEnvRefs");
+      }
+    }
+  }
   if (
     value.stdin !== undefined &&
     (typeof value.stdin !== "string" || Buffer.byteLength(value.stdin, "utf8") > MAX_STDIN_BYTES)
@@ -94,6 +173,18 @@ function validateLaunchSpec(value: unknown): DevelopmentLaunchSpec {
     }
     artifactRoots = [...new Set(value.artifactRoots as string[])];
   }
+  const binaryStdoutSinks = value.binaryStdoutSinks === undefined
+    ? undefined
+    : validateBinaryStdoutSinks(value.binaryStdoutSinks);
+  const directArtifacts = value.directArtifacts === undefined
+    ? undefined
+    : validateDirectArtifacts(value.directArtifacts);
+  const windowsSigningCleanup = value.windowsSigningCleanup === undefined
+    ? undefined
+    : validateWindowsSigningCleanup(value.windowsSigningCleanup);
+  if (windowsSigningCleanup && !directArtifacts?.some((entry) => entry.path === windowsSigningCleanup.outFile)) {
+    throw new DevelopmentTaskStoreError("invalid launch windowsSigningCleanup");
+  }
   return {
     executable: value.executable,
     args: [...value.args] as string[],
@@ -104,6 +195,9 @@ function validateLaunchSpec(value: unknown): DevelopmentLaunchSpec {
     timeoutMs: value.timeoutMs as number,
     successExitCodes: [...value.successExitCodes] as number[],
     ...(artifactRoots === undefined ? {} : { artifactRoots }),
+    ...(binaryStdoutSinks === undefined ? {} : { binaryStdoutSinks }),
+    ...(directArtifacts === undefined ? {} : { directArtifacts }),
+    ...(windowsSigningCleanup === undefined ? {} : { windowsSigningCleanup }),
   };
 }
 

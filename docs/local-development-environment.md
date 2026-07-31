@@ -270,7 +270,7 @@ manage-development-credentials.bat -Add Windows
 manage-development-credentials.bat -Remove Android
 ```
 
-凭据引用（别名）在工具调用中使用，实际密钥库/证书路径和密码存储在本地凭据存储中，从不通过 MCP 返回或写入日志。
+Android 密码凭据以 DPAPI 加密 blob 保存在 `APPROVAL_DATA_DIR\credentials`。Windows 签名先将代码签名证书及私钥安装到当前用户的 `CurrentUser\My` 证书库，再用 `create`、`Kind=certificate`、公开 SHA-1 指纹登记 UUID；运行时不会导入 PFX，也不会把私钥、PFX 密码、辅助脚本或可执行文件路径写入 MCP 参数、任务元数据或日志。
 
 Android 签名：
 
@@ -291,6 +291,8 @@ Windows 签名：
   "credentialAlias": "windows-test"
 }
 ```
+
+Windows 签名会复制到同目录暂存文件，依次执行固定的 SignTool 签名和验证，验证成功后才由任务 worker 原子发布；失败、取消或超时会保留原输出并删除暂存文件。
 
 ## 失败处理
 

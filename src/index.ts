@@ -115,6 +115,7 @@ const developmentTaskCoordinator = new DevelopmentTaskCoordinator(
     builds: DEV_MAX_BUILDS,
     queueTimeoutMs: DEV_TASK_QUEUE_TIMEOUT_MS,
   }),
+  { approvalDataDir: APPROVAL_DATA_DIR },
 );
 
 // ---------------------------------------------------------------------------
@@ -231,7 +232,6 @@ function createMcpServer(): McpServer {
     nativeProvider: projectRegistry.get("native"),
     electronProvider: projectRegistry.get("electron"),
     credentialStore: windowsCredentialStore,
-    pfxHelperPath: path.resolve(process.cwd(), "scripts/import-development-signing-credential.ps1"),
   });
   registerDevelopmentProjectTool(server, { registry: projectRegistry });
 

@@ -2,14 +2,12 @@
  * Windows artifact signing with certificate references.
  *
  * Signing resolves a certificate through a credential id whose stored
- * fingerprint is the certificate thumbprint (SHA-1). For an encrypted PFX
- * reference the fixed local helper
- * (`scripts/import-development-signing-credential.ps1`) decrypts the blob with
- * DPAPI CurrentUser and imports it into a temporary CurrentUser store location
- * — the password never appears on a command line — then removes it in a
- * cleanup step. SignTool is invoked with a fixed digest (sha256) and an
- * allowlisted RFC 3161 timestamp origin. The signed output is staged to a
- * temporary path (SignTool signs in place), verified with
+ * fingerprint is the certificate thumbprint (SHA-1). The certificate is
+ * pre-installed in CurrentUser\My; runtime signing never decrypts or imports
+ * private certificate material. The fixed helper produces only a verified
+ * sibling staging file and the worker owns atomic publication and cleanup.
+ * SignTool is invoked with a fixed digest (sha256) and an allowlisted RFC 3161
+ * timestamp origin. The signed output is staged, verified with
  * `signtool verify /pa /all`, then atomically moved to the authorized output.
  * Only public certificate metadata (thumbprint, alias) is returned — never the
  * private key, password, PFX path, or store name.
@@ -17,6 +15,7 @@
 
 import path from "node:path";
 import { randomBytes, createHash } from "node:crypto";
+import { fileURLToPath } from "node:url";
 import type { WindowsToolchain } from "./toolchain.js";
 import type { LocalCredentialStore } from "../credentials/dpapiStore.js";
 import { TIMESTAMP_ORIGIN_REGEX, CERT_THUMBPRINT_REGEX } from "./types.js";
@@ -49,11 +48,6 @@ export interface WindowsSignRequest {
   timestampOrigin: string;
 }
 
-export interface WindowsPfxSignRequest extends WindowsSignRequest {
-  /** Path to the reviewed DPAPI import helper. */
-  helperPath: string;
-}
-
 export interface WindowsVerifyRequest {
   inFile: string;
 }
@@ -72,19 +66,17 @@ export interface PlannedStep {
 }
 
 export interface WindowsSignPlan {
-  /** PFX only: DPAPI decrypt + import into temp store (no password arg). */
-  importStep?: PlannedStep;
-  /** Copy the input to a staging path so SignTool signs in place safely. */
-  stageCopy: { src: string; dest: string };
+  /** Fixed helper owns copy, sign, verify, atomic publish, and cleanup. */
   signCommand: PlannedStep;
-  verifyCommand: PlannedStep;
-  /** PFX only: remove the temporary store in a `finally`-style step. */
-  cleanupStep?: PlannedStep;
   stagingOut: string;
   outFile: string;
   /** Public certificate metadata for approval display. */
   certificate: { thumbprint: string; alias: string };
 }
+
+export const WINDOWS_SIGNING_HELPER_PATH = fileURLToPath(
+  new URL("./signingStage.js", import.meta.url),
+);
 
 export interface WindowsVerifyPlan {
   verifyCommand: PlannedStep;
@@ -129,6 +121,9 @@ export function resolveSigningCredential(
     throw new Error(`unknown signing credential id: ${credentialId}`);
   }
   const entry = credentialStore.get(credentialId)!;
+  if (entry.kind !== "certificate") {
+    throw new Error("invalid Windows certificate credential");
+  }
   validateThumbprint(entry.fingerprint);
   if (certInspector) {
     const meta = certInspector(entry.fingerprint);
@@ -167,101 +162,19 @@ export function planSignToolSign(
 
   const stagingOut = deriveStagingPath(request.outFile);
   const signCommand: PlannedStep = {
-    executable: toolchain.signtool,
+    executable: process.execPath,
     args: [
-      "sign",
-      "/fd", "sha256",
-      "/td", "sha256",
-      "/tr", request.timestampOrigin,
-      "/sha1", resolved.thumbprint,
-      stagingOut,
+      WINDOWS_SIGNING_HELPER_PATH,
+      "-SignToolPath", toolchain.signtool,
+      "-InFile", request.inFile,
+      "-StagingPath", stagingOut,
+      "-Thumbprint", resolved.thumbprint,
+      "-TimestampOrigin", request.timestampOrigin,
     ],
-  };
-  const verifyCommand: PlannedStep = {
-    executable: toolchain.signtool,
-    args: ["verify", "/pa", "/all", stagingOut],
   };
 
   return {
-    stageCopy: { src: request.inFile, dest: stagingOut },
     signCommand,
-    verifyCommand,
-    stagingOut,
-    outFile: request.outFile,
-    certificate: { thumbprint: resolved.thumbprint, alias: resolved.alias },
-  };
-}
-
-/**
- * Plan a SignTool sign operation using an encrypted PFX reference. The fixed
- * local helper decrypts the PFX with DPAPI and imports it into a temporary
- * CurrentUser store — the password is never placed on the command line — then
- * a cleanup step removes the temp store afterward. The certificate thumbprint
- * (stored as the credential fingerprint) selects the cert within the temp
- * store.
- */
-export function planPfxSign(
-  toolchain: WindowsToolchain,
-  request: WindowsPfxSignRequest,
-  options: SigningPlanOptions,
-): WindowsSignPlan {
-  authorize(request.inFile, options.authorizeHostPath);
-  authorize(request.outFile, options.authorizeHostPath);
-  validateTimestampOrigin(request.timestampOrigin);
-
-  const resolved = resolveSigningCredential(
-    options.credentialStore,
-    request.credentialId,
-    options.certInspector,
-  );
-
-  const tempStoreName = `FeishuMcpTemp${randomBytes(8).toString("hex")}`;
-  const stagingOut = deriveStagingPath(request.outFile);
-
-  // No password argument: the helper reads the DPAPI-encrypted blob itself.
-  const importStep: PlannedStep = {
-    executable: "powershell.exe",
-    args: [
-      "-NoProfile", "-NonInteractive",
-      "-ExecutionPolicy", "Bypass",
-      "-File", request.helperPath,
-      "-CredentialId", request.credentialId,
-      "-TempStoreName", tempStoreName,
-    ],
-  };
-  const cleanupStep: PlannedStep = {
-    executable: "powershell.exe",
-    args: [
-      "-NoProfile", "-NonInteractive",
-      "-ExecutionPolicy", "Bypass",
-      "-File", request.helperPath,
-      "-Cleanup",
-      "-TempStoreName", tempStoreName,
-    ],
-  };
-  const signCommand: PlannedStep = {
-    executable: toolchain.signtool,
-    args: [
-      "sign",
-      "/fd", "sha256",
-      "/td", "sha256",
-      "/tr", request.timestampOrigin,
-      "/s", tempStoreName,
-      "/sha1", resolved.thumbprint,
-      stagingOut,
-    ],
-  };
-  const verifyCommand: PlannedStep = {
-    executable: toolchain.signtool,
-    args: ["verify", "/pa", "/all", stagingOut],
-  };
-
-  return {
-    importStep,
-    stageCopy: { src: request.inFile, dest: stagingOut },
-    signCommand,
-    verifyCommand,
-    cleanupStep,
     stagingOut,
     outFile: request.outFile,
     certificate: { thumbprint: resolved.thumbprint, alias: resolved.alias },

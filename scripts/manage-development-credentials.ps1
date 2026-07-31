@@ -18,7 +18,8 @@
     Credential id (for list/remove).
 
 .PARAMETER Kind
-    keystore | key
+    keystore | key | certificate. Certificate entries reference an existing
+    CurrentUser\My certificate by public SHA-1 thumbprint and store no blob.
 
 .PARAMETER Alias
     Human-readable alias.
@@ -34,7 +35,7 @@ param(
     [string]$Action,
 
     [string]$Id,
-    [ValidateSet("keystore", "key")]
+    [ValidateSet("keystore", "key", "certificate")]
     [string]$Kind,
     [string]$Alias,
     [string]$Fingerprint
@@ -82,25 +83,34 @@ switch ($Action) {
         if (-not $Kind -or -not $Alias -or -not $Fingerprint) {
             throw "Kind, Alias, and Fingerprint are required for create."
         }
-        # Prompt for the secret — NEVER accept it as a command-line argument.
-        $secret = Read-Host -AsSecureString -Prompt "Enter secret for $Alias"
-        $plain = [System.Net.NetworkCredential]::new("", $secret).Password
-        $bytes = [System.Text.Encoding]::UTF8.GetBytes($plain)
-        $encrypted = [System.Security.Cryptography.ProtectedData]::Protect(
-            $bytes, $null, [System.Security.Cryptography.DataProtectionScope]::CurrentUser)
         $newId = [guid]::NewGuid().ToString()
-        $blobPath = Join-Path $CredDir "$newId.blob"
-        [System.IO.File]::WriteAllBytes($blobPath, $encrypted)
-        # Owner-only ACL on the blob.
-        $acl = Get-Acl -LiteralPath $blobPath
-        $acl.SetAccessRuleProtection($true, $false)
-        $owner = [System.Security.Principal.WindowsIdentity]::GetCurrent().User
-        $rule = New-Object System.Security.AccessControl.FileSystemAccessRule(
-            $owner, "FullControl", "Allow")
-        $acl.AddAccessRule($rule)
-        Set-Acl -LiteralPath $blobPath -AclObject $acl
-        # Zero the plaintext from memory.
-        for ($i = 0; $i -lt $plain.Length; $i++) { $plain[$i] = [char]0 }
+        if ($Kind -eq "certificate") {
+            if ($Fingerprint -notmatch '^[0-9a-fA-F]{40}$') { throw "A certificate SHA-1 thumbprint is required." }
+            $cert = Get-Item -LiteralPath "Cert:\CurrentUser\My\$Fingerprint"
+            if (-not $cert.HasPrivateKey -or $cert.NotAfter -le (Get-Date)) { throw "The certificate is unavailable." }
+            if (-not @($cert.EnhancedKeyUsageList | Where-Object { $_.ObjectId.Value -eq '1.3.6.1.5.5.7.3.3' }).Count) {
+                throw "The certificate is unavailable."
+            }
+            $Fingerprint = $cert.Thumbprint.ToLowerInvariant()
+        } else {
+            # Prompt for the secret — NEVER accept it as a command-line argument.
+            $secret = Read-Host -AsSecureString -Prompt "Enter secret for $Alias"
+            $plain = [System.Net.NetworkCredential]::new("", $secret).Password
+            $bytes = [System.Text.Encoding]::UTF8.GetBytes($plain)
+            $encrypted = [System.Security.Cryptography.ProtectedData]::Protect(
+                $bytes, $null, [System.Security.Cryptography.DataProtectionScope]::CurrentUser)
+            $blobPath = Join-Path $CredDir "$newId.blob"
+            [System.IO.File]::WriteAllBytes($blobPath, $encrypted)
+            $acl = Get-Acl -LiteralPath $blobPath
+            $acl.SetAccessRuleProtection($true, $false)
+            $owner = [System.Security.Principal.WindowsIdentity]::GetCurrent().User
+            $rule = New-Object System.Security.AccessControl.FileSystemAccessRule(
+                $owner, "FullControl", "Allow")
+            $acl.AddAccessRule($rule)
+            Set-Acl -LiteralPath $blobPath -AclObject $acl
+            for ($i = 0; $i -lt $plain.Length; $i++) { $plain[$i] = [char]0 }
+            [System.Array]::Clear($bytes, 0, $bytes.Length)
+        }
         $entries = @(Read-Index)
         $entries += [pscustomobject]@{
             id = $newId

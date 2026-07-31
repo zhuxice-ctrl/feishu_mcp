@@ -9,7 +9,7 @@
  * fingerprint, and timestamps.
  */
 
-export type CredentialKind = "keystore" | "key";
+export type CredentialKind = "keystore" | "key" | "certificate";
 
 export interface CredentialMetadata {
   id: string;

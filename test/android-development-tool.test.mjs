@@ -203,6 +203,19 @@ test("list_avds parses avdmanager output", async () => {
   assert.equal(body.avds[0].name, "test_avd");
 });
 
+test("screenshot enqueue carries a typed PNG sink and its parent artifact root", async () => {
+  const { deps, coordinator } = makeDeps();
+  const hostPng = path.join(root, "screenshots", "screen.png");
+  const args = { action: "screenshot", serial: "emulator-5554", hostPng };
+  const result = parse(await approveOnce(args, deps, context()));
+  assert.equal(result.ok, true);
+  const launch = coordinator.enqueued.at(-1).input.launch;
+  assert.deepEqual(launch.binaryStdoutSinks, [{
+    stream: "stdout", type: "png", target: hostPng, name: "screen.png", kind: "screenshot",
+  }]);
+  assert.deepEqual(launch.artifactRoots, [path.dirname(hostPng)]);
+});
+
 test("synchronous actions require an authenticated owner", async () => {
   const { deps } = makeDeps();
   const noUser = { ...deps, userId: () => null };

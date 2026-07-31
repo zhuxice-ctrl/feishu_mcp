@@ -80,10 +80,13 @@ only terminal task directories by verified UUID.
 
 ### Credential references
 
-Signing credentials are referenced by DPAPI-protected identifier, never by
-inline key material. The caller supplies a `credentialId` (UUID); the private
-key is unwrapped by the broker or DPAPI store on the host and never traverses
-the MCP transport.
+Signing credentials are referenced by opaque UUID, never by inline key
+material. Android password credentials are DPAPI-protected under
+`APPROVAL_DATA_DIR\credentials`. Windows entries contain only public alias and
+thumbprint metadata for a code-signing certificate already installed with its
+private key in `CurrentUser\My`; task-time signing never imports or decrypts a
+PFX. Callers cannot select a PowerShell helper, executable, script, certificate
+store, or SignTool argument.
 
 ### Package-script risk
 
