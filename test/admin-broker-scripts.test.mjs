@@ -50,8 +50,10 @@ test("install generates a random key", () => {
 
 test("install applies ACLs for SYSTEM and owner SID", () => {
   assert.match(installPs1, /PipeSecurity|SetAccessControl|ACL|System\.Security\.Principal/i);
-  assert.match(installPs1, /LocalSystem|NT AUTHORITY\\SYSTEM/i);
+  assert.match(installPs1, /WellKnownSidType\]::LocalSystemSid/i);
   assert.match(installPs1, /CurrentUser|owner|SID/i);
+  assert.match(installPs1, /SecurityIdentifier\]::new\(\$ownerSid\)/i);
+  assert.doesNotMatch(installPs1, /FileSystemAccessRule\(\s*\$ownerSid/i);
 });
 
 test("install verifies broker artifact SHA-256 against manifest", () => {

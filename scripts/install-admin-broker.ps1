@@ -93,10 +93,15 @@ $keyBytes = New-Object byte[] 32
 $ownerSid = ([System.Security.Principal.WindowsIdentity]::GetCurrent()).User.Value
 $acl = Get-Acl -LiteralPath $KeyPath
 $acl.SetAccessRuleProtection($true, $false)  # disable inheritance
-$systemRule = New-Object System.Security.AccessControl.FileSystemAccessRule(
-  'NT AUTHORITY\SYSTEM', 'FullControl', 'Allow')
-$ownerRule = New-Object System.Security.AccessControl.FileSystemAccessRule(
-  $ownerSid, 'Read', 'Allow')
+$systemSid = [System.Security.Principal.SecurityIdentifier]::new(
+  [System.Security.Principal.WellKnownSidType]::LocalSystemSid, $null)
+$ownerIdentity = [System.Security.Principal.SecurityIdentifier]::new($ownerSid)
+$systemRule = [System.Security.AccessControl.FileSystemAccessRule]::new(
+  $systemSid, [System.Security.AccessControl.FileSystemRights]::FullControl,
+  [System.Security.AccessControl.AccessControlType]::Allow)
+$ownerRule = [System.Security.AccessControl.FileSystemAccessRule]::new(
+  $ownerIdentity, [System.Security.AccessControl.FileSystemRights]::Read,
+  [System.Security.AccessControl.AccessControlType]::Allow)
 $acl.AddAccessRule($systemRule)
 $acl.AddAccessRule($ownerRule)
 Set-Acl -LiteralPath $KeyPath -AclObject $acl
