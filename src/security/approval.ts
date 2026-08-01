@@ -92,6 +92,10 @@ function isLegacyDirectoryState(
   return "kind" in value && value.kind === "legacy_directory";
 }
 
+function isApprovalState(value: SignedRequestStatePayload): value is ApprovalStatePayload {
+  return !("kind" in value);
+}
+
 function matchesPrior(payload: ApprovalStatePayload, request: ApprovalRequest): boolean {
   return payload.version === 1 && payload.tool === request.tool && payload.userId === request.userId &&
     payload.argsDigest === request.argsDigest &&
@@ -143,6 +147,8 @@ export async function requestApproval(
       if (!continuingDirectoryChain) {
         return toolError("APPROVAL_DENIED", "Directory approval state does not match this operation.");
       }
+    } else if (!isApprovalState(state)) {
+      return toolError("APPROVAL_DENIED", "This approval state cannot authorize this operation.");
     } else if (matchesPrior(state, request)) return true;
     else if (!matches(state, request)) {
       const continuingChain = usedNonces.has(state.nonce) &&

@@ -50,10 +50,22 @@ export interface LegacyDirectoryChallengePayload {
   expiresAt: string;
 }
 
+export interface GitConfirmationStatePayload {
+  version: 1;
+  kind: "git_confirmation";
+  userId: string;
+  commandDigest: string;
+  workdirDigest: string;
+  timeoutMs: number;
+  nonce: string;
+  expiresAt: string;
+}
+
 export type SignedRequestStatePayload =
   | ApprovalStatePayload
   | DirectoryApprovalStatePayload
-  | LegacyDirectoryChallengePayload;
+  | LegacyDirectoryChallengePayload
+  | GitConfirmationStatePayload;
 
 function loadOrCreateApprovalKey(): string {
   if (APPROVAL_STATE_SECRET) {
