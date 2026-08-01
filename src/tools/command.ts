@@ -65,6 +65,7 @@ export async function executeCommand(
   }
   const timeoutMs = Math.min(args.timeout ?? COMMAND_TIMEOUT_MS, COMMAND_MAX_TIMEOUT_MS);
   const userId = getRequestUserId();
+  const { confirmationToken: _confirmationToken, ...approvalArgs } = args;
   const softGit = GIT_COMMAND_POLICY === "soft_owner" &&
     userId === OWNER_USER_ID && risk.gitCategory !== undefined;
   if (softGit && risk.gitCategory === "confirmation_required") {
@@ -99,7 +100,7 @@ export async function executeCommand(
         key: commandSubject(risk.normalized, workdir),
         display: `${risk.normalized}\nWorking directory: ${workdir}`,
       },
-      argsDigest: digestArguments({ command: args.command, workdir: args.workdir, timeout: args.timeout }),
+      argsDigest: digestArguments(approvalArgs),
       reasons: risk.reasons,
       authorizedDirectoryRootsDigest: workdirGuard.directoryProof?.rootsDigest,
     });
