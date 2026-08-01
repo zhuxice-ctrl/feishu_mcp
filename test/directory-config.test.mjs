@@ -75,6 +75,20 @@ test("legacy directory fallback defaults to deny and owner mode requires an owne
   assert.equal(JSON.parse(owner.stdout).directoryApprovalFallback, "owner");
 });
 
+test("soft Git policy defaults to approval and requires the configured owner", () => {
+  const defaults = readConfig({});
+  assert.equal(defaults.status, 0, defaults.stderr);
+  assert.equal(JSON.parse(defaults.stdout).gitCommandPolicy, "approval");
+
+  const missingOwner = readConfig({ GIT_COMMAND_POLICY: "soft_owner" });
+  assert.notEqual(missingOwner.status, 0);
+  assert.match(missingOwner.stderr, /OWNER_USER_ID.*required.*GIT_COMMAND_POLICY/i);
+
+  const owner = readConfig({ OWNER_USER_ID: "owner", GIT_COMMAND_POLICY: "soft_owner" });
+  assert.equal(owner.status, 0, owner.stderr);
+  assert.equal(JSON.parse(owner.stdout).gitCommandPolicy, "soft_owner");
+});
+
 test("path lists trim, resolve and deduplicate case-insensitively on Windows", () => {
   const result = readConfig({
     OWNER_USER_ID: "owner",

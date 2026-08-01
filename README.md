@@ -134,6 +134,7 @@ ALLOWED_DIRS=
 OWNER_USER_ID=owner
 OWNER_DEFAULT_DIRS=F:\
 DIRECTORY_APPROVAL_FALLBACK=owner
+GIT_COMMAND_POLICY=soft_owner
 ```
 
 在这种部署中，企业内部 MCP 工具必须只对设备所有者可见：Aily 配置固定请求头
@@ -146,6 +147,13 @@ DIRECTORY_APPROVAL_FALLBACK=owner
 提交决定，并立即用原参数重试原工具。这个流程不修改 `ALLOWED_DIRS`，也不需要
 重启服务。`DIRECTORY_APPROVAL_FALLBACK` 默认是 `deny`；只有私有、固定 owner
 身份的工具应配置为 `owner`。
+
+对于固定 owner 且 Aily 不支持 MCP `input_required` 的部署，可设置
+`GIT_COMMAND_POLICY=soft_owner`。这只影响直接调用的 Git 命令：普通 Git 读写会直接
+执行；高影响、边界变化或未知 Git 形式返回 `GIT_CONFIRMATION_REQUIRED`。Aily 应展示
+提示并等待 owner 明确确认，然后以原始参数和一次性 `confirmationToken` 重试
+`execute_command`。token 不得被猜测、修改、复用或记录。默认 `approval`，非 Git
+命令和非 owner 请求继续采用原有审批机制。
 
 ### 两层鉴权的区别
 

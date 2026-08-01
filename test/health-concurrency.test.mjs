@@ -95,6 +95,7 @@ test("health exposes redacted approval and concurrency summaries", async () => {
     });
     assert.deepEqual(health.approval.stored, { session: 0, permanent: 0 });
     assert.equal(health.approval.unsupportedClientPolicy, "deny");
+    assert.equal(health.approval.gitCommandPolicy, "approval");
     assert.deepEqual(health.directoryAuthorization, {
       enabled: true,
       ownerDefaults: 1,

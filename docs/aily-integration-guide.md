@@ -81,6 +81,7 @@ ALLOWED_DIRS=
 OWNER_USER_ID=owner
 OWNER_DEFAULT_DIRS=F:\
 DIRECTORY_APPROVAL_FALLBACK=owner
+GIT_COMMAND_POLICY=soft_owner
 ```
 
 如果飞书客户端返回 `DIRECTORY_APPROVAL_REQUIRED`，智能体应展示响应中的目录和
@@ -91,6 +92,14 @@ DIRECTORY_APPROVAL_FALLBACK=owner
 同时在 Aily 为该 MCP 固定配置 `x-aily-user=owner` 请求头，并仅让所有者看见该
 MCP 工具。该固定身份是 `F:\` 默认目录只对 owner 生效的前提；其他用户不能共享
 或继承此范围。目录授权不会新增工具，`tools/list` 始终保持 30 个工具。
+
+当 `GIT_COMMAND_POLICY=soft_owner` 时，owner 在已授权目录内调用普通 Git 命令
+（例如 `git add`、`git commit`、`git merge`、普通 `git push` 与 `git status`）会直接
+执行。破坏性、边界变化或无法安全分类的 Git 命令不会被永久阻止；它们返回
+`GIT_CONFIRMATION_REQUIRED` 和一次性 `confirmationToken`。Aily 必须展示该提示，
+等待 owner 明确确认后，用完全相同的 `execute_command` 参数及该 token 重试。不得
+猜测、修改、复用或记录 token。默认 `GIT_COMMAND_POLICY=approval`，非 owner 和非
+Git 命令始终保留原有审批路径。
 
 当工具首次访问范围外目录时，飞书会显示“本次允许”、“当前服务进程内允许”、
 “永久允许”和“拒绝”四个选择。批准后服务会自动重试原始调用；拒绝则不产生文件
