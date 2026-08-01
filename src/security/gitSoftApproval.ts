@@ -77,7 +77,10 @@ export async function createGitConfirmation(
     expiresAt,
   };
   const token = await mintApprovalState(payload, ctx);
-  logger.info("git_soft_confirmation", { digest: confirmationDigest(payload) });
+  logger.info("git_soft_confirmation", {
+    outcome: "confirmation_requested",
+    digest: confirmationDigest(payload),
+  });
   return toolError(
     "GIT_CONFIRMATION_REQUIRED",
     "Explicit confirmation is required before retrying this Git command.",
@@ -101,6 +104,9 @@ export async function consumeGitConfirmation(
   const expiry = Date.parse(verified.expiresAt);
   if (!Number.isFinite(expiry) || expiry <= Date.now()) return false;
   if (!consumeSignedNonce(verified.nonce)) return false;
-  logger.info("git_soft_confirmation", { digest: confirmationDigest(verified) });
+  logger.info("git_soft_confirmation", {
+    outcome: "confirmation_accepted",
+    digest: confirmationDigest(verified),
+  });
   return true;
 }

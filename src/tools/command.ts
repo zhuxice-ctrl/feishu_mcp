@@ -6,14 +6,21 @@ import {
   COMMAND_MAX_OUTPUT_BYTES,
   COMMAND_MAX_TIMEOUT_MS,
   COMMAND_TIMEOUT_MS,
+  GIT_COMMAND_POLICY,
+  OWNER_USER_ID,
 } from "../config.js";
 import { getRequestUserId } from "../security/requestContext.js";
+import { logger } from "../security/logger.js";
 import { directoryGrantStore } from "../security/directoryGrantStore.js";
 import {
   containsInternalApprovalPath,
   isInternalApprovalPath,
 } from "../security/approvalStore.js";
 import { digestArguments, requestApproval } from "../security/approval.js";
+import {
+  consumeGitConfirmation,
+  createGitConfirmation,
+} from "../security/gitSoftApproval.js";
 import { authorizeToolCall } from "../security/toolAccess.js";
 import { classifyCommand } from "./commandPolicy.js";
 import { runProcess } from "./processRunner.js";
@@ -25,6 +32,7 @@ export interface ExecuteCommandArgs {
   command: string;
   workdir?: string;
   timeout?: number;
+  confirmationToken?: string;
 }
 
 function commandSubject(command: string, workdir: string): string {
@@ -55,22 +63,48 @@ export async function executeCommand(
   if (!fs.existsSync(workdir) || !fs.statSync(workdir).isDirectory()) {
     return toolError("INVALID_ARGUMENT", "The working directory does not exist or is not a directory.");
   }
-  if (risk.level === "approval_required") {
+  const timeoutMs = Math.min(args.timeout ?? COMMAND_TIMEOUT_MS, COMMAND_MAX_TIMEOUT_MS);
+  const userId = getRequestUserId();
+  const softGit = GIT_COMMAND_POLICY === "soft_owner" &&
+    userId === OWNER_USER_ID && risk.gitCategory !== undefined;
+  if (softGit && risk.gitCategory === "confirmation_required") {
+    const confirmationRequest = {
+      userId: OWNER_USER_ID,
+      command: risk.normalized,
+      workdir,
+      timeoutMs,
+    };
+    if (!args.confirmationToken) return createGitConfirmation(ctx, confirmationRequest);
+    if (!(await consumeGitConfirmation(ctx, args.confirmationToken, confirmationRequest))) {
+      logger.info("git_soft_confirmation", {
+        outcome: "confirmation_rejected",
+        digest: commandSubject(risk.normalized, workdir),
+      });
+      return toolError(
+        "APPROVAL_DENIED",
+        "Git confirmation token is invalid, expired, changed, or already used.",
+      );
+    }
+  } else if (softGit) {
+    logger.info("git_soft_confirmation", {
+      outcome: "authorized",
+      digest: commandSubject(risk.normalized, workdir),
+    });
+  } else if (!softGit && risk.level === "approval_required") {
     const approval = await requestApproval(ctx, {
       tool: "execute_command",
-      userId: getRequestUserId(),
+      userId,
       subject: {
         kind: "command",
         key: commandSubject(risk.normalized, workdir),
         display: `${risk.normalized}\nWorking directory: ${workdir}`,
       },
-      argsDigest: digestArguments(args),
+      argsDigest: digestArguments({ command: args.command, workdir: args.workdir, timeout: args.timeout }),
       reasons: risk.reasons,
       authorizedDirectoryRootsDigest: workdirGuard.directoryProof?.rootsDigest,
     });
     if (approval !== true) return approval;
   }
-  const timeoutMs = Math.min(args.timeout ?? COMMAND_TIMEOUT_MS, COMMAND_MAX_TIMEOUT_MS);
   return runTool(
     {
       name: "execute_command",
@@ -108,6 +142,7 @@ export function registerCommandTool(server: McpServer): void {
         command: z.string().min(1).max(32_768),
         workdir: z.string().optional(),
         timeout: z.number().int().positive().optional(),
+        confirmationToken: z.string().min(1).max(16_384).optional(),
       },
     },
     async (args, ctx) => {

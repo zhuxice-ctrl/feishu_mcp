@@ -9,6 +9,7 @@ const dataDir = await mkdtemp(path.join(os.tmpdir(), "git-soft-approval-"));
 process.env.AUTH_MODE = "none";
 process.env.APPROVAL_DATA_DIR = dataDir;
 process.env.APPROVAL_STATE_SECRET = "0123456789abcdef0123456789abcdef";
+process.env.LOG_LEVEL = "error";
 
 const { runWithRequestContext } = await import("../dist/security/requestContext.js");
 const { approvalStateCodec } = await import("../dist/security/approvalState.js");

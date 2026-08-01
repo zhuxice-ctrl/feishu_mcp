@@ -28,6 +28,7 @@ import {
   DEV_TASK_DATA_DIR,
   DEV_TASK_QUEUE_TIMEOUT_MS,
   DIRECTORY_APPROVAL_FALLBACK,
+  GIT_COMMAND_POLICY,
   HOST,
   MCP_ENDPOINT,
   NGROK_DOMAIN,
@@ -102,7 +103,10 @@ const SERVER_INSTRUCTIONS =
   "DIRECTORY_APPROVAL_REQUIRED, show its directories and four decisions to the owner, " +
   "wait for an explicit choice, submit the signed challenge through auth.directoryApproval, " +
   "then immediately retry the original tool with identical arguments. Never suggest editing " +
-  "ALLOWED_DIRS or restarting the service for this error.";
+  "ALLOWED_DIRS or restarting the service for this error. When execute_command returns " +
+  "GIT_CONFIRMATION_REQUIRED, show the Git confirmation request, wait for the owner's " +
+  "explicit confirmation, then retry the identical call with confirmationToken. Never " +
+  "reuse, alter, log, or invent a confirmation token.";
 
 // ---------------------------------------------------------------------------
 // Development task subsystem — one coordinator per process
@@ -369,6 +373,7 @@ app.get("/health", (_req: Request, res: Response) => {
       choices: ["allow_once", "allow_session", "allow_permanent", "deny"],
       stored: approvalStore.summary(),
       unsupportedClientPolicy: "deny",
+      gitCommandPolicy: GIT_COMMAND_POLICY,
     },
     directoryAuthorization: {
       enabled: true,

@@ -51,6 +51,8 @@ function gitCategory(tokens: string[]): CommandRisk["gitCategory"] {
   const args = tokens.slice(1);
   const [subcommand, ...subcommandArgs] = args;
   if (
+    (subcommand === "status" && subcommandArgs.every((arg) =>
+      ["--short", "-s", "--branch", "-b", "--porcelain", "--porcelain=v1", "--porcelain=v2"].includes(arg))) ||
     (subcommand === "add" && subcommandArgs.length === 1 && !subcommandArgs[0].startsWith("-")) ||
     (subcommand === "commit" && subcommandArgs.length === 2 && subcommandArgs[0] === "-m") ||
     (subcommand === "merge" && subcommandArgs.length === 1 && !subcommandArgs[0].startsWith("-")) ||
