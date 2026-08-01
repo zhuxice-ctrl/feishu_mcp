@@ -2,6 +2,7 @@ export interface CommandRisk {
   level: "read_only" | "approval_required";
   reasons: string[];
   normalized: string;
+  gitCategory?: "ordinary" | "confirmation_required";
 }
 
 const SAFE_ZERO_TARGET = new Set(["whoami", "hostname", "cd", "pwd"]);
@@ -46,6 +47,20 @@ function baseName(executable: string): string {
   return executable.replace(/^.*[\\/]/, "").toLowerCase();
 }
 
+function gitCategory(tokens: string[]): CommandRisk["gitCategory"] {
+  const args = tokens.slice(1);
+  const [subcommand, ...subcommandArgs] = args;
+  if (
+    (subcommand === "add" && subcommandArgs.length === 1 && !subcommandArgs[0].startsWith("-")) ||
+    (subcommand === "commit" && subcommandArgs.length === 2 && subcommandArgs[0] === "-m") ||
+    (subcommand === "merge" && subcommandArgs.length === 1 && !subcommandArgs[0].startsWith("-")) ||
+    (subcommand === "push" && subcommandArgs.length === 2 && !subcommandArgs.some((arg) => arg.startsWith("-")))
+  ) {
+    return "ordinary";
+  }
+  return "confirmation_required";
+}
+
 export function classifyCommand(command: string): CommandRisk {
   const normalized = command.trim();
   const reasons: string[] = [];
@@ -73,6 +88,7 @@ export function classifyCommand(command: string): CommandRisk {
   }
   if (executable === "git" || executable === "git.exe") {
     reasons.push("Git configuration can invoke local helpers; use the dedicated Git tools for automatic read-only access.");
+    return { level: "approval_required", reasons, normalized, gitCategory: gitCategory(tokens) };
   } else if (executable === "rg" || executable === "rg.exe" || executable === "ripgrep") {
     reasons.push("Command-line search paths can escape the allowed directory; use search_content for automatic access.");
   } else if (executable === "findstr" || executable === "findstr.exe") {

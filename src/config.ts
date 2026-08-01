@@ -233,6 +233,15 @@ function envPathList(name: string): string[] {
  */
 export const ALLOWED_DIRS = envPathList("ALLOWED_DIRS");
 export const OWNER_USER_ID = process.env.OWNER_USER_ID?.trim() ?? "";
+export type GitCommandPolicy = "approval" | "soft_owner";
+export const GIT_COMMAND_POLICY: GitCommandPolicy = envEnum(
+  "GIT_COMMAND_POLICY",
+  ["approval", "soft_owner"] as const,
+  "approval",
+);
+if (GIT_COMMAND_POLICY === "soft_owner" && !OWNER_USER_ID) {
+  throw new Error("OWNER_USER_ID is required when GIT_COMMAND_POLICY is soft_owner");
+}
 export const OWNER_DEFAULT_DIRS = envPathList("OWNER_DEFAULT_DIRS");
 export type DirectoryApprovalFallback = "deny" | "owner";
 export const DIRECTORY_APPROVAL_FALLBACK: DirectoryApprovalFallback = envEnum(

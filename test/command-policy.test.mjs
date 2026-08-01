@@ -18,6 +18,44 @@ for (const command of [
 }
 
 for (const command of [
+  "git add README.md",
+  "git commit -m message",
+  "git merge topic",
+  "git push origin topic",
+]) {
+  test(`classifies ordinary Git command: ${command}`, () => {
+    const risk = classifyCommand(command);
+    assert.equal(risk.level, "approval_required");
+    assert.equal(risk.gitCategory, "ordinary");
+  });
+}
+
+for (const command of [
+  "git reset --hard",
+  "git clean -fdx",
+  "git commit --amend",
+  "git push --force",
+  "git remote set-url",
+  "git -C C:\\other status",
+  "git -c alias.x=!cmd status",
+  "git frobnicate",
+]) {
+  test(`requires Git confirmation: ${command}`, () => {
+    const risk = classifyCommand(command);
+    assert.equal(risk.level, "approval_required");
+    assert.equal(risk.gitCategory, "confirmation_required");
+  });
+}
+
+for (const command of ["git status && echo done", "cmd /c git status"]) {
+  test(`does not classify indirect Git command: ${command}`, () => {
+    const risk = classifyCommand(command);
+    assert.equal(risk.level, "approval_required");
+    assert.equal(risk.gitCategory, undefined);
+  });
+}
+
+for (const command of [
   "dir | more",
   "type README.md > copy.txt",
   "dir && del file.txt",

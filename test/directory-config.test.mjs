@@ -12,7 +12,8 @@ function readConfig(overrides) {
     " ownerUserId: c.OWNER_USER_ID,",
     " ownerDefaultDirs: c.OWNER_DEFAULT_DIRS,",
     " allowedDirs: c.ALLOWED_DIRS,",
-    " directoryApprovalFallback: c.DIRECTORY_APPROVAL_FALLBACK",
+    " directoryApprovalFallback: c.DIRECTORY_APPROVAL_FALLBACK,",
+    " gitCommandPolicy: c.GIT_COMMAND_POLICY",
     "}));",
   ].join("\n");
   return spawnSync(process.execPath, ["--input-type=module", "--eval", source], {
@@ -39,11 +40,22 @@ test("owner defaults are empty unless both settings are configured", () => {
     ownerDefaultDirs: [],
     allowedDirs: [],
     directoryApprovalFallback: "deny",
+    gitCommandPolicy: "approval",
   });
 
   const missingIdentity = readConfig({ OWNER_DEFAULT_DIRS: "F:\\" });
   assert.notEqual(missingIdentity.status, 0);
   assert.match(missingIdentity.stderr, /OWNER_USER_ID.*required/i);
+});
+
+test("Git command policy defaults to approval and permits only supported values", () => {
+  const softOwner = readConfig({ OWNER_USER_ID: "owner", GIT_COMMAND_POLICY: "soft_owner" });
+  assert.equal(softOwner.status, 0, softOwner.stderr);
+  assert.equal(JSON.parse(softOwner.stdout).gitCommandPolicy, "soft_owner");
+
+  const invalid = readConfig({ GIT_COMMAND_POLICY: "invalid" });
+  assert.notEqual(invalid.status, 0);
+  assert.match(invalid.stderr, /GIT_COMMAND_POLICY.*approval.*soft_owner/i);
 });
 
 test("legacy directory fallback defaults to deny and owner mode requires an owner", () => {
