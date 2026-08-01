@@ -72,6 +72,17 @@ test("checklist document exists and covers prerequisites and sign-off", async ()
   assert.match(checklist, /Windows/i);
 });
 
+test("MCP transport headers negotiate initialize before modern metadata", () => {
+  const headersFunction = content.match(/function\s+Get-McpHeaders\s*\([\s\S]*?\r?\n\}/i);
+  assert.ok(headersFunction, "Get-McpHeaders must exist");
+  assert.match(
+    headersFunction[0],
+    /if\s*\(\s*\$Method\s+-ne\s+['"]initialize['"]\s*\)\s*\{[\s\S]*?\$headers\[['"]mcp-protocol-version['"]\]\s*=\s*['"]2026-07-28['"]/i,
+    "modern protocol metadata must be conditional on post-initialize requests",
+  );
+  assert.match(headersFunction[0], /\$headers\[['"]mcp-method['"]\]\s*=\s*\$Method/i);
+});
+
 test("runner completes MCP approval retries and drains background task logs by cursor", () => {
   assert.match(content, /resultType\s+-eq\s+"input_required"/i);
   assert.match(content, /requestState/i);
@@ -144,7 +155,25 @@ test("Inspect mode executes the read-only MCP sequence and emits only redacted e
     let raw = "";
     for await (const chunk of req) raw += chunk;
     const rpc = JSON.parse(raw);
-    calls.push({ method: rpc.method, name: rpc.params?.name });
+    calls.push({
+      method: rpc.method,
+      name: rpc.params?.name,
+      headers: {
+        protocolVersion: req.headers["mcp-protocol-version"],
+        mcpMethod: req.headers["mcp-method"],
+        mcpName: req.headers["mcp-name"],
+      },
+    });
+    if (rpc.method === "initialize" && req.headers["mcp-protocol-version"]) {
+      res.statusCode = 400;
+      res.end(JSON.stringify({ error: "initialize must negotiate before modern transport metadata" }));
+      return;
+    }
+    if (rpc.method !== "initialize" && req.headers["mcp-protocol-version"] !== "2026-07-28") {
+      res.statusCode = 400;
+      res.end(JSON.stringify({ error: "post-initialize requests require modern protocol metadata" }));
+      return;
+    }
     let result;
     if (rpc.method === "initialize") {
       result = { protocolVersion: "2025-06-18", serverInfo: { name: "fixture", version: "1" } };
@@ -188,11 +217,18 @@ test("Inspect mode executes the read-only MCP sequence and emits only redacted e
     child.stderr.on("data", (chunk) => { output += chunk; });
     const exitCode = await new Promise((resolve) => child.once("exit", resolve));
     assert.equal(exitCode, 0, output);
-    assert.deepEqual(calls, [
+    assert.deepEqual(calls.map(({ method, name }) => ({ method, name })), [
       { method: "initialize", name: undefined },
       { method: "tools/list", name: undefined },
       { method: "tools/call", name: "inspect_development_environment" },
     ]);
+    assert.equal(calls[0].headers.protocolVersion, undefined);
+    assert.equal(calls[0].headers.mcpMethod, undefined);
+    for (const call of calls.slice(1)) {
+      assert.equal(call.headers.protocolVersion, "2026-07-28");
+      assert.equal(call.headers.mcpMethod, call.method);
+    }
+    assert.equal(calls[2].headers.mcpName, "inspect_development_environment");
     assert.match(output, /"state"\s*:\s*"passed"/);
     assert.doesNotMatch(output, new RegExp(secret));
     assert.doesNotMatch(output, new RegExp(owner));

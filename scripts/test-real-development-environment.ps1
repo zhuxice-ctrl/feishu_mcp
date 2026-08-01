@@ -72,8 +72,12 @@ function Get-McpHeaders([string]$Method, [string]$ToolName = "") {
         Authorization = "Bearer $authToken"
         Accept = "application/json, text/event-stream"
         "Content-Type" = "application/json"
-        "mcp-protocol-version" = "2026-07-28"
-        "mcp-method" = $Method
+    }
+    # MCP initialize negotiates the protocol before modern transport metadata
+    # is valid. Keep modern transport headers on post-initialize requests.
+    if ($Method -ne "initialize") {
+        $headers["mcp-protocol-version"] = "2026-07-28"
+        $headers["mcp-method"] = $Method
     }
     $headers[$identityHeader] = $ownerId
     if (-not [string]::IsNullOrWhiteSpace($ToolName)) { $headers["mcp-name"] = $ToolName }
