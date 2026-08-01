@@ -95,6 +95,10 @@ function ConvertFrom-McpPayload([string]$Content) {
 
 function Invoke-McpRpc([string]$Method, $Params, [string]$ToolName = "") {
     $script:RpcId++
+    if ($Method -ne "initialize" -and -not $Params.ContainsKey("_meta")) {
+        $Params = @{} + $Params
+        $Params["_meta"] = Get-ToolMeta
+    }
     $payload = @{ jsonrpc = "2.0"; id = $script:RpcId; method = $Method; params = $Params }
     $response = Invoke-WebRequest -UseBasicParsing -Uri "$BaseUrl/mcp" -Method Post `
         -Headers (Get-McpHeaders $Method $ToolName) `

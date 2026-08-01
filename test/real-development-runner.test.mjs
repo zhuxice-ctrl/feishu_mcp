@@ -158,6 +158,7 @@ test("Inspect mode executes the read-only MCP sequence and emits only redacted e
     calls.push({
       method: rpc.method,
       name: rpc.params?.name,
+      hasModernMeta: rpc.params?._meta?.["io.modelcontextprotocol/protocolVersion"] === "2026-07-28",
       headers: {
         protocolVersion: req.headers["mcp-protocol-version"],
         mcpMethod: req.headers["mcp-method"],
@@ -172,6 +173,11 @@ test("Inspect mode executes the read-only MCP sequence and emits only redacted e
     if (rpc.method !== "initialize" && req.headers["mcp-protocol-version"] !== "2026-07-28") {
       res.statusCode = 400;
       res.end(JSON.stringify({ error: "post-initialize requests require modern protocol metadata" }));
+      return;
+    }
+    if (rpc.method !== "initialize" && !rpc.params?._meta?.["io.modelcontextprotocol/protocolVersion"]) {
+      res.statusCode = 400;
+      res.end(JSON.stringify({ error: "post-initialize requests require modern client metadata" }));
       return;
     }
     let result;
@@ -227,6 +233,7 @@ test("Inspect mode executes the read-only MCP sequence and emits only redacted e
     for (const call of calls.slice(1)) {
       assert.equal(call.headers.protocolVersion, "2026-07-28");
       assert.equal(call.headers.mcpMethod, call.method);
+      assert.equal(call.hasModernMeta, true);
     }
     assert.equal(calls[2].headers.mcpName, "inspect_development_environment");
     assert.match(output, /"state"\s*:\s*"passed"/);
