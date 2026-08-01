@@ -64,7 +64,10 @@ if ($actualHex -ne $expectedSha.ToLowerInvariant()) {
 # ---------------------------------------------------------------------------
 
 if (-not (Test-Path -LiteralPath $BrokerDir)) {
-  New-Item -ItemType Directory -LiteralPath $BrokerDir -Force | Out-Null
+  # New-Item has no -LiteralPath parameter in Windows PowerShell 5.1. The
+  # broker directory is derived solely from ProgramData and fixed literals,
+  # so create it through the .NET API without wildcard expansion.
+  [System.IO.Directory]::CreateDirectory($BrokerDir) | Out-Null
 }
 
 # ---------------------------------------------------------------------------

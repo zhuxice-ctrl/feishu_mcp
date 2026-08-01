@@ -38,9 +38,10 @@ test("install uses a fixed service name", () => {
   assert.match(installPs1, /FeishuMcpAdminBroker/i);
 });
 
-test("install creates directory under ProgramData with literal path", () => {
+test("install creates the fixed ProgramData directory compatibly with Windows PowerShell", () => {
   assert.match(installPs1, /ProgramData[%\\/]*\s*FeishuMcp[\\/]Broker/i);
-  assert.match(installPs1, /-LiteralPath/i);
+  assert.match(installPs1, /Directory\]::CreateDirectory\(\$BrokerDir\)/);
+  assert.doesNotMatch(installPs1, /^\s*New-Item\b[^\r\n]*-LiteralPath/im);
 });
 
 test("install generates a random key", () => {
