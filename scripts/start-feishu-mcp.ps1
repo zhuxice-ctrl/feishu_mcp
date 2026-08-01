@@ -216,10 +216,26 @@ function Get-BrokerState {
     if ($service.Status -ne "Running") {
         return "incompatible"
     }
-    # A running service is considered ready only when its named pipe responds
-    # to a lightweight protocol handshake. We do not send commands — only
-    # confirm the pipe endpoint exists.
-    $pipeName = "\\.\pipe\feishu-mcp-admin-broker"
+    $ownerSid = [Environment]::GetEnvironmentVariable("DEV_ENV_OWNER_SID", "Process")
+    $keyPath = [Environment]::GetEnvironmentVariable("DEV_ENV_BROKER_KEY_PATH", "Process")
+    if ([string]::IsNullOrWhiteSpace($ownerSid) -or
+        [string]::IsNullOrWhiteSpace($keyPath) -or
+        -not (Test-Path -LiteralPath $keyPath -PathType Leaf)) {
+        return "incompatible"
+    }
+    try {
+        [void][System.Security.Principal.SecurityIdentifier]::new($ownerSid)
+    } catch {
+        return "incompatible"
+    }
+    $sha256 = [System.Security.Cryptography.SHA256]::Create()
+    try {
+        $digest = $sha256.ComputeHash([System.Text.Encoding]::UTF8.GetBytes($ownerSid))
+    } finally {
+        $sha256.Dispose()
+    }
+    $suffix = ([System.BitConverter]::ToString($digest, 0, 8) -replace '-', '').ToLowerInvariant()
+    $pipeName = "\\.\pipe\feishu-mcp-admin-$suffix"
     $pipeExists = Test-Path -LiteralPath $pipeName -ErrorAction SilentlyContinue
     if (-not $pipeExists) {
         return "incompatible"
@@ -229,6 +245,16 @@ function Get-BrokerState {
 
 function Invoke-Launcher {
     Import-DotEnv $EnvFile
+
+    $brokerService = Get-Service -Name "FeishuMcpAdminBroker" -ErrorAction SilentlyContinue
+    if ($brokerService) {
+        if ([string]::IsNullOrWhiteSpace($env:DEV_ENV_OWNER_SID)) {
+            $env:DEV_ENV_OWNER_SID = [System.Security.Principal.WindowsIdentity]::GetCurrent().User.Value
+        }
+        if ([string]::IsNullOrWhiteSpace($env:DEV_ENV_BROKER_KEY_PATH)) {
+            $env:DEV_ENV_BROKER_KEY_PATH = Join-Path $env:ProgramData "FeishuMcp\Broker\broker.key"
+        }
+    }
 
     $rawPort = Require-Value "PORT"
     $port = 0

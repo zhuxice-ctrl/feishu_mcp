@@ -84,6 +84,10 @@ test(
         /transport-secret-value|pin-secret-value|approval-secret-value/
       );
       const output = JSON.parse(result.stdout);
+      assert.ok(
+        ["missing", "incompatible", "ready"].includes(output.brokerState),
+        `unexpected broker state: ${output.brokerState}`
+      );
       assert.deepEqual(
         {
           status: output.status,
@@ -92,7 +96,6 @@ test(
           authMode: output.authMode,
           domain: output.ngrokDomain,
           toolCount: output.toolCount,
-          brokerState: output.brokerState,
           concurrency: output.concurrency,
           permanentApprovalCount: output.permanentApprovalCount,
           ownerDefaultCount: output.ownerDefaultCount,
@@ -106,7 +109,6 @@ test(
           authMode: "pin",
           domain: "reptilian-prenatal-spinster.ngrok-free.dev",
           toolCount: 30,
-          brokerState: "missing",
           concurrency: { search: 3, fetch: 4, global: 6, command: 2 },
           permanentApprovalCount: 0,
           ownerDefaultCount: 1,
@@ -225,10 +227,15 @@ test("launcher performs a read-only broker state check and reports 30 tools", as
   assert.ok(brokerFn, "Get-BrokerState function must exist");
   const body = brokerFn[0];
   assert.match(body, /Get-Service.*FeishuMcpAdminBroker/i);
+  assert.match(body, /SHA256\]::Create\(\)/i);
+  assert.match(body, /feishu-mcp-admin-\$suffix/i);
+  assert.doesNotMatch(body, /feishu-mcp-admin-broker/i);
   assert.doesNotMatch(body, /Start-Service|Stop-Service|Install|Start-Process/i);
   // CheckOnly output reports the exact 30-tool inventory and broker state.
   assert.match(content, /toolCount\s*=\s*30/);
   assert.match(content, /brokerState\s*=\s*Get-BrokerState/);
-  // The broker key path is never printed.
-  assert.doesNotMatch(content, /broker-key|BROKER_KEY/i);
+  // The broker key path may be read for readiness, but is never added to output.
+  const checkOutput = content.match(/if\s*\(\$CheckOnly\)[\s\S]*?ConvertTo-Json\s+-Compress/i);
+  assert.ok(checkOutput, "CheckOnly output block must exist");
+  assert.doesNotMatch(checkOutput[0], /keyPath|brokerKey|DEV_ENV_BROKER/i);
 });

@@ -38,7 +38,19 @@ public static class Program
             ?? Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.CommonApplicationData),
                 "FeishuMcp", "Broker", "broker.key");
         var ownerSid = Environment.GetEnvironmentVariable("FEISHU_BROKER_OWNER_SID") ?? "";
+        try
+        {
+            _ = new SecurityIdentifier(ownerSid);
+        }
+        catch (ArgumentException ex)
+        {
+            throw new InvalidOperationException("FEISHU_BROKER_OWNER_SID is missing or invalid.", ex);
+        }
         var key = await ReadKeyAsync(keyPath);
+        if (key.Length != 32)
+        {
+            throw new InvalidOperationException("The broker key must contain exactly 32 bytes.");
+        }
 
         var ctx = new BrokerValidationContext
         {
@@ -66,20 +78,9 @@ public static class Program
             new SecurityIdentifier(WellKnownSidType.LocalSystemSid, null),
             PipeAccessRights.FullControl, AccessControlType.Allow));
         // Configured owner only
-        SecurityIdentifier? sid = null;
-        try
-        {
-            sid = new SecurityIdentifier(ownerSid);
-        }
-        catch (ArgumentException)
-        {
-            // An empty or malformed owner SID must not grant an extra pipe ACL.
-        }
-        if (sid is not null)
-        {
-            security.AddAccessRule(new PipeAccessRule(
-                sid, PipeAccessRights.ReadWrite, AccessControlType.Allow));
-        }
+        var sid = new SecurityIdentifier(ownerSid);
+        security.AddAccessRule(new PipeAccessRule(
+            sid, PipeAccessRights.ReadWrite, AccessControlType.Allow));
         return NamedPipeServerStreamAcl.Create(pipeName, PipeDirection.InOut, 1,
             PipeTransmissionMode.Byte, PipeOptions.Asynchronous, 0, 0, security);
     }

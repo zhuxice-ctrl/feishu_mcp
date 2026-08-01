@@ -28,6 +28,12 @@ const installBat = await fs.readFile(
 const uninstallBat = await fs.readFile(
   path.resolve("uninstall-feishu-mcp-admin-broker.bat"), "utf8",
 );
+const brokerClientTs = await fs.readFile(
+  path.resolve("src/development/environment/brokerClient.ts"), "utf8",
+);
+const brokerHostCs = await fs.readFile(
+  path.resolve("broker/FeishuMcp.AdminBroker.Host/Program.cs"), "utf8",
+);
 const allScripts = installPs1 + "\n" + uninstallPs1 + "\n" + installBat + "\n" + uninstallBat;
 
 // ---------------------------------------------------------------------------
@@ -39,7 +45,7 @@ test("install uses a fixed service name", () => {
 });
 
 test("install creates the fixed ProgramData directory compatibly with Windows PowerShell", () => {
-  assert.match(installPs1, /ProgramData[%\\/]*\s*FeishuMcp[\\/]Broker/i);
+  assert.match(installPs1, /Join-Path\s+\$env:ProgramData\s+['"]FeishuMcp\\Broker['"]/i);
   assert.match(installPs1, /Directory\]::CreateDirectory\(\$BrokerDir\)/);
   assert.doesNotMatch(installPs1, /^\s*New-Item\b[^\r\n]*-LiteralPath/im);
 });
@@ -52,7 +58,7 @@ test("install applies ACLs for SYSTEM and owner SID", () => {
   assert.match(installPs1, /PipeSecurity|SetAccessControl|ACL|System\.Security\.Principal/i);
   assert.match(installPs1, /WellKnownSidType\]::LocalSystemSid/i);
   assert.match(installPs1, /CurrentUser|owner|SID/i);
-  assert.match(installPs1, /SecurityIdentifier\]::new\(\$ownerSid\)/i);
+  assert.match(installPs1, /WindowsIdentity\]::GetCurrent\(\)\.User/i);
   assert.doesNotMatch(installPs1, /FileSystemAccessRule\(\s*\$ownerSid/i);
 });
 
@@ -68,6 +74,45 @@ test("install requires elevation", () => {
 test("install installs and starts the Windows service", () => {
   assert.match(installPs1, /New-Service|sc\.exe.*create|Install-Service/i);
   assert.match(installPs1, /Start-Service|sc\.exe.*start/i);
+});
+
+test("install repairs only the expected existing service and interrupted ACL state", () => {
+  assert.match(installPs1, /Get-ServiceExecutable/);
+  assert.match(installPs1, /existing broker service points to an unexpected executable/i);
+  assert.match(installPs1, /Set-TemporaryDirectoryAcl/);
+  assert.match(installPs1, /Set-FinalDirectoryAcl/);
+  assert.doesNotMatch(installPs1, /already exists\. Uninstall first/i);
+});
+
+test("install validates complete manifest metadata before mutation", () => {
+  for (const field of ["protocolVersion", "runtime", "filename", "byteSize", "sha256", "catalogDigest"]) {
+    assert.match(installPs1, new RegExp(`manifest\\.${field}`));
+  }
+  assert.match(installPs1, /ReparsePoint/);
+});
+
+test("install binds service environment and waits for the owner-scoped pipe", () => {
+  assert.match(installPs1, /FEISHU_BROKER_OWNER_SID=\$ownerSid/);
+  assert.match(installPs1, /FEISHU_BROKER_KEY_PATH=\$KeyPath/);
+  assert.match(installPs1, /RegistryValueKind\]::MultiString/);
+  assert.match(installPs1, /feishu-mcp-admin-\$\(Get-PipeSuffix \$ownerSid\)/);
+  assert.match(installPs1, /WaitForStatus\('Running'/);
+});
+
+test("install rolls back a newly created service when startup fails", () => {
+  assert.match(installPs1, /\$CreatedService/);
+  assert.match(installPs1, /sc\.exe delete \$ServiceName/);
+});
+
+test("host and client derive the pipe suffix with the same plain SHA-256", () => {
+  assert.match(brokerHostCs, /SHA256\.HashData/);
+  assert.match(brokerClientTs, /createHash\("sha256"\)\.update\(sid, "utf8"\)/);
+  assert.doesNotMatch(brokerClientTs, /createHmac\("sha256", sid\)/);
+});
+
+test("host fails closed on a missing owner SID or invalid key length", () => {
+  assert.match(brokerHostCs, /FEISHU_BROKER_OWNER_SID is missing or invalid/);
+  assert.match(brokerHostCs, /key\.Length != 32/);
 });
 
 // ---------------------------------------------------------------------------
@@ -88,6 +133,8 @@ test("uninstall deletes only the verified broker directory", () => {
   assert.match(uninstallPs1, /Remove-Item/i);
   // path and service name must be checked before deletion
   assert.match(uninstallPs1, /Test-Path|if.*exist/i);
+  assert.match(uninstallPs1, /ReparsePoint/);
+  assert.match(uninstallPs1, /Grant-BrokerDirectoryCleanupAccess/);
 });
 
 test("uninstall requires elevation", () => {
@@ -101,6 +148,8 @@ test("uninstall requires elevation", () => {
 test("install BAT invokes the PowerShell script", () => {
   assert.match(installBat, /install-admin-broker\.ps1/i);
   assert.match(installBat, /powershell/i);
+  assert.match(installBat, /artifacts\\admin-broker\\win-x64\\FeishuMcp\.AdminBroker\.Host\.exe/i);
+  assert.match(installBat, /artifacts\\admin-broker\\win-x64\\manifest\.json/i);
 });
 
 test("uninstall BAT invokes the PowerShell script", () => {

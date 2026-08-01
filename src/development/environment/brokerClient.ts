@@ -9,7 +9,7 @@
  */
 
 import net from "node:net";
-import { createHmac, randomUUID } from "node:crypto";
+import { createHash, createHmac, randomUUID } from "node:crypto";
 
 export const BROKER_PIPE_PREFIX = "\\\\.\\pipe\\feishu-mcp-admin-";
 export const BROKER_CONNECT_TIMEOUT_MS = 30_000;
@@ -60,7 +60,7 @@ export class BrokerClientError extends Error {
 }
 
 function sidHash(sid: string): string {
-  return createHmac("sha256", sid).update(sid).digest("hex").slice(0, 16);
+  return createHash("sha256").update(sid, "utf8").digest("hex").slice(0, 16);
 }
 
 export function brokerPipePath(ownerSid: string): string {

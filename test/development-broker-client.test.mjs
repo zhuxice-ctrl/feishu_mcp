@@ -16,7 +16,7 @@ import net from "node:net";
 import os from "node:os";
 import path from "node:path";
 import fs from "node:fs";
-import { createHmac, randomBytes } from "node:crypto";
+import { createHash, createHmac, randomBytes } from "node:crypto";
 import test from "node:test";
 
 function cleanupSocket(sockPath) {
@@ -34,7 +34,13 @@ function socketPath(label = "broker-test") {
 process.env.AUTH_MODE = "none";
 process.env.LOG_LEVEL = "error";
 
-const { BrokerClient, BrokerClientError, BROKER_MAX_FRAME_BYTES, BROKER_PROTOCOL_VERSION } =
+const {
+  BrokerClient,
+  BrokerClientError,
+  BROKER_MAX_FRAME_BYTES,
+  BROKER_PROTOCOL_VERSION,
+  brokerPipePath,
+} =
   await import("../dist/development/environment/brokerClient.js");
 
 // ---------------------------------------------------------------------------
@@ -145,6 +151,11 @@ function makeClient(sockPath, overrides = {}) {
 // ---------------------------------------------------------------------------
 // Tests
 // ---------------------------------------------------------------------------
+
+test("derives the owner-scoped pipe with plain SHA-256", () => {
+  const suffix = createHash("sha256").update(OWNER_SID, "utf8").digest("hex").slice(0, 16);
+  assert.equal(brokerPipePath(OWNER_SID), `\\\\.\\pipe\\feishu-mcp-admin-${suffix}`);
+});
 
 test("signs canonical fields with HMAC and server can verify", async () => {
   const { server, sockPath } = await startMockServer((socket, req) => {
