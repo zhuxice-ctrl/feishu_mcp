@@ -52,7 +52,7 @@ public static class Program
         var pipeName = PipePrefix + SidHash(ownerSid);
         var service = new BrokerService(catalog, ctx, executor, () => CreatePipe(pipeName, ownerSid));
 
-        var builder = Host.CreateApplicationBuilder(args);
+        var builder = Microsoft.Extensions.Hosting.Host.CreateApplicationBuilder(args);
         builder.Services.AddWindowsService(o => o.ServiceName = ServiceName);
         builder.Services.AddHostedService(_ => new BrokerHostedService(service));
         await builder.Build().RunAsync();
@@ -66,7 +66,16 @@ public static class Program
             new SecurityIdentifier(WellKnownSidType.LocalSystemSid, null),
             PipeAccessRights.FullControl, AccessControlType.Allow));
         // Configured owner only
-        if (SecurityIdentifier.TryParse(ownerSid, out var sid))
+        SecurityIdentifier? sid = null;
+        try
+        {
+            sid = new SecurityIdentifier(ownerSid);
+        }
+        catch (ArgumentException)
+        {
+            // An empty or malformed owner SID must not grant an extra pipe ACL.
+        }
+        if (sid is not null)
         {
             security.AddAccessRule(new PipeAccessRule(
                 sid, PipeAccessRights.ReadWrite, AccessControlType.Allow));

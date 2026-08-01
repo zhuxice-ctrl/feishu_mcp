@@ -43,6 +43,11 @@ test("uses a fixed service name and named pipe prefix", () => {
   assert.match(script, /FeishuMcp\.AdminBroker\.Host\.csproj/);
 });
 
+test("constructs the broker project path with one Join-Path child argument", () => {
+  assert.match(script, /Join-Path\s+\$repoRoot\s+'broker\\FeishuMcp\.AdminBroker\.Host\\FeishuMcp\.AdminBroker\.Host\.csproj'/);
+  assert.match(script, /Join-Path\s+\(Join-Path\s+\$repoRoot\s+\$OutputRoot\)\s+\$Runtime/);
+});
+
 test("never uses Invoke-Expression", () => {
   assert.doesNotMatch(script, /Invoke-Expression/i);
 });

@@ -27,8 +27,8 @@ if ([System.IO.Path]::IsPathRooted($OutputRoot)) {
 }
 
 $repoRoot = Resolve-Path -LiteralPath (Join-Path $PSScriptRoot '..')
-$project = Join-Path $repoRoot 'broker' 'FeishuMcp.AdminBroker.Host' 'FeishuMcp.AdminBroker.Host.csproj'
-$outDir = Join-Path $repoRoot $OutputRoot $Runtime
+$project = Join-Path $repoRoot 'broker\FeishuMcp.AdminBroker.Host\FeishuMcp.AdminBroker.Host.csproj'
+$outDir = Join-Path (Join-Path $repoRoot $OutputRoot) $Runtime
 New-Item -ItemType Directory -Force -Path $outDir | Out-Null
 
 Write-Host "Publishing FeishuMcp.AdminBroker.Host for $Runtime ..."
