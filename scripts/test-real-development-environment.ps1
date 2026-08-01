@@ -72,6 +72,7 @@ function Get-McpHeaders([string]$Method, [string]$ToolName = "") {
         Authorization = "Bearer $authToken"
         Accept = "application/json, text/event-stream"
         "Content-Type" = "application/json"
+        "ngrok-skip-browser-warning" = "true"
     }
     # MCP initialize negotiates the protocol before modern transport metadata
     # is valid. Keep modern transport headers on post-initialize requests.
@@ -250,7 +251,8 @@ function Stop-RemainingLongTasks {
 
 function Initialize-AcceptanceClient {
     $script:CurrentStep = "initialize"
-    $health = Invoke-RestMethod -Uri "$BaseUrl/health" -Method Get
+    $health = Invoke-RestMethod -Uri "$BaseUrl/health" -Method Get `
+        -Headers @{ "ngrok-skip-browser-warning" = "true" }
     if ($health.toolCount -ne 30 -or @($health.tools).Count -ne 30) { throw "Health did not report 30 tools." }
     if (@($health.tools | Select-Object -Unique).Count -ne 30) { throw "Health tool inventory contains duplicates." }
     [void](Invoke-McpRpc "initialize" @{

@@ -141,8 +141,10 @@ test("Inspect mode executes the read-only MCP sequence and emits only redacted e
 }, async () => {
   const calls = [];
   const toolNames = Array.from({ length: 30 }, (_, index) => `tool_${index + 1}`);
+  let healthWarningBypass;
   const server = http.createServer(async (req, res) => {
     if (req.method === "GET" && req.url === "/health") {
+      healthWarningBypass = req.headers["ngrok-skip-browser-warning"];
       res.setHeader("content-type", "application/json");
       res.end(JSON.stringify({
         toolCount: 30,
@@ -163,6 +165,7 @@ test("Inspect mode executes the read-only MCP sequence and emits only redacted e
         protocolVersion: req.headers["mcp-protocol-version"],
         mcpMethod: req.headers["mcp-method"],
         mcpName: req.headers["mcp-name"],
+        warningBypass: req.headers["ngrok-skip-browser-warning"],
       },
     });
     if (rpc.method === "initialize" && req.headers["mcp-protocol-version"]) {
@@ -230,10 +233,12 @@ test("Inspect mode executes the read-only MCP sequence and emits only redacted e
     ]);
     assert.equal(calls[0].headers.protocolVersion, undefined);
     assert.equal(calls[0].headers.mcpMethod, undefined);
+    assert.equal(healthWarningBypass, "true");
     for (const call of calls.slice(1)) {
       assert.equal(call.headers.protocolVersion, "2026-07-28");
       assert.equal(call.headers.mcpMethod, call.method);
       assert.equal(call.hasModernMeta, true);
+      assert.equal(call.headers.warningBypass, "true");
     }
     assert.equal(calls[2].headers.mcpName, "inspect_development_environment");
     assert.match(output, /"state"\s*:\s*"passed"/);
