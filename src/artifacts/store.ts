@@ -151,6 +151,24 @@ export class BinaryArtifactStore {
     }
   }
 
+  copyArtifactTo(id: string, destination: string): ArtifactMetadata {
+    const metadata = this.inspect(id);
+    if (!metadata) throw new ArtifactStoreError("BINARY_ARTIFACT_NOT_FOUND", "Artifact was not found.");
+    try {
+      fs.copyFileSync(path.join(this.objectDirectory(metadata.sha256), "content"), destination, fs.constants.COPYFILE_EXCL);
+      this.syncFile(destination);
+      const copied = sha256File(destination);
+      if (copied.sha256 !== metadata.sha256 || copied.size !== metadata.size) {
+        fs.rmSync(destination, { force: true });
+        throw new Error("Copied bytes do not match.");
+      }
+      return metadata;
+    } catch (error) {
+      if (error instanceof ArtifactStoreError) throw error;
+      throw new ArtifactStoreError("BINARY_ARTIFACT_STORE_FAILED", "Artifact copy failed.");
+    }
+  }
+
   healthSummary(): { schemaVersion: 1; activeUploads: number; storedObjects: number } {
     return {
       schemaVersion: 1,
