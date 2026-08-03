@@ -85,6 +85,9 @@ import { registerPatchTool } from "./tools/patch.js";
 import { runTool } from "./tools/registry.js";
 import { registerTodoTools } from "./tools/todo.js";
 import { registerWebFetchTool } from "./tools/webFetch.js";
+import { registerBinaryArtifactTool } from "./tools/binaryArtifacts.js";
+import { BinaryArtifactStore } from "./artifacts/store.js";
+import { ArtifactUploadService } from "./artifacts/uploads.js";
 
 const TOOL_NAMES = [
   "ping", "read_file", "write_file", "edit_file", "create_directory",
@@ -97,6 +100,7 @@ const TOOL_NAMES = [
   "android_development",
   "windows_development",
   "manage_development_project",
+  "manage_binary_artifact",
 ] as const;
 
 const SERVER_INSTRUCTIONS =
@@ -132,6 +136,8 @@ const developmentTaskCoordinator = new DevelopmentTaskCoordinator(
 // ---------------------------------------------------------------------------
 
 const developmentEnvironment = createDevelopmentEnvironmentSubsystem();
+const binaryArtifactStore = new BinaryArtifactStore();
+const binaryArtifactUploads = new ArtifactUploadService(binaryArtifactStore);
 
 // ---------------------------------------------------------------------------
 // Android development subsystem — project provider + credential store
@@ -223,6 +229,7 @@ function createMcpServer(): McpServer {
   registerDiffTool(server);
   registerPatchTool(server);
   registerWebFetchTool(server);
+  registerBinaryArtifactTool(server, { store: binaryArtifactStore, uploads: binaryArtifactUploads });
   registerTodoTools(server);
   registerAskUserTool(server);
   registerDevelopmentTaskTools(server, developmentTaskCoordinator);
@@ -395,6 +402,7 @@ app.get("/health", (_req: Request, res: Response) => {
       brokerState: developmentEnvironment.brokerState,
       plans: developmentEnvironment.planStore.summary(),
     },
+    binaryArtifacts: binaryArtifactStore.healthSummary(),
     timestamp: new Date().toISOString(),
   });
 });

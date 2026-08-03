@@ -108,7 +108,7 @@ test(
           host: "127.0.0.1",
           authMode: "pin",
           domain: "reptilian-prenatal-spinster.ngrok-free.dev",
-          toolCount: 30,
+          toolCount: 31,
           concurrency: { search: 3, fetch: 4, global: 6, command: 2 },
           permanentApprovalCount: 0,
           ownerDefaultCount: 1,
@@ -226,7 +226,7 @@ test("launcher resolves its bundled ngrok from the project directory", async () 
   assert.doesNotMatch(content, /Split-Path\s+-Parent\s+\$projectDir\)[\s\S]{0,80}ngrok\\ngrok\.exe/i);
 });
 
-test("launcher performs a read-only broker state check and reports 30 tools", async () => {
+test("launcher performs a read-only broker state check and reports 31 tools", async () => {
   const content = await readFile(launcherScript, "utf8");
   // Broker check is read-only — never installs, starts, stops, or elevates.
   const brokerFn = content.match(/function\s+Get-BrokerState[\s\S]*?\r?\n\}\r?\n/);
@@ -237,8 +237,8 @@ test("launcher performs a read-only broker state check and reports 30 tools", as
   assert.match(body, /feishu-mcp-admin-\$suffix/i);
   assert.doesNotMatch(body, /feishu-mcp-admin-broker/i);
   assert.doesNotMatch(body, /Start-Service|Stop-Service|Install|Start-Process/i);
-  // CheckOnly output reports the exact 30-tool inventory and broker state.
-  assert.match(content, /toolCount\s*=\s*30/);
+  // CheckOnly output reports the exact 31-tool inventory and broker state.
+  assert.match(content, /toolCount\s*=\s*31/);
   assert.match(content, /brokerState\s*=\s*Get-BrokerState/);
   // The broker key path may be read for readiness, but is never added to output.
   const checkOutput = content.match(/if\s*\(\$CheckOnly\)[\s\S]*?ConvertTo-Json\s+-Compress/i);
