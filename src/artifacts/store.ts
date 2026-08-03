@@ -200,6 +200,10 @@ export class BinaryArtifactStore {
     this.writeJsonAtomic(this.uploadSessionPath(session.id), session);
   }
 
+  discardUpload(sessionId: string): void {
+    if (isSafeSessionId(sessionId)) this.removeOwnedUpload(sessionId);
+  }
+
   private uploadDirectory(sessionId: string): string {
     return path.join(this.dataDir, "uploads", sessionId);
   }
