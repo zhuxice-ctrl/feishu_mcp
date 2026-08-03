@@ -220,6 +220,12 @@ test(
   }
 );
 
+test("launcher resolves its bundled ngrok from the project directory", async () => {
+  const content = await readFile(launcherScript, "utf8");
+  assert.match(content, /Join-Path\s+\$projectDir\s+"tools\\ngrok\\ngrok\.exe"/i);
+  assert.doesNotMatch(content, /Split-Path\s+-Parent\s+\$projectDir\)[\s\S]{0,80}ngrok\\ngrok\.exe/i);
+});
+
 test("launcher performs a read-only broker state check and reports 30 tools", async () => {
   const content = await readFile(launcherScript, "utf8");
   // Broker check is read-only — never installs, starts, stops, or elevates.

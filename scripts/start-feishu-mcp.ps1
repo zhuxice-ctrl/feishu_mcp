@@ -91,12 +91,12 @@ function Resolve-Ngrok([string]$Requested) {
         return $command.Source
     }
 
-    $bundled = Join-Path (Split-Path -Parent $projectDir) "ngrok\ngrok.exe"
+    $bundled = Join-Path $projectDir "tools\ngrok\ngrok.exe"
     if (Test-Path -LiteralPath $bundled -PathType Leaf) {
         return (Resolve-Path -LiteralPath $bundled).Path
     }
 
-    throw "ngrok was not found in PATH or the sibling ngrok directory"
+    throw "ngrok was not found in PATH or the project tools/ngrok directory"
 }
 
 function Wait-Json(

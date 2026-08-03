@@ -1,4 +1,5 @@
 node_modules/
+tools/ngrok/
 dist/
 .env
 .env.*
