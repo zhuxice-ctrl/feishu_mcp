@@ -4,7 +4,7 @@ import crypto from "node:crypto";
 import { BINARY_ARTIFACT_DATA_DIR } from "../config.js";
 import { artifactId, parseSha256, sha256File } from "./digest.js";
 import { validateArtifactType } from "./signatures.js";
-import type { ArtifactClass, ArtifactId, ArtifactMetadata, ArtifactSourceKind } from "./types.js";
+import type { ArtifactClass, ArtifactId, ArtifactMetadata, ArtifactSourceKind, UploadSession } from "./types.js";
 
 export type ArtifactStoreErrorCode =
   | "BINARY_ARTIFACT_NOT_FOUND"
@@ -131,7 +131,7 @@ export class BinaryArtifactStore {
       fs.renameSync(staging, content);
       this.syncFile(content);
       this.writeMetadata(metadataPath, metadata);
-      try { fs.rmdirSync(this.uploadDirectory(request.sessionId)); } catch {}
+      this.removeOwnedUpload(request.sessionId);
       return this.resultFromMetadata(metadata);
     } catch (error) {
       if (error instanceof ArtifactStoreError) throw error;
@@ -176,12 +176,40 @@ export class BinaryArtifactStore {
     return removed;
   }
 
+  appendUploadBytes(sessionId: string, bytes: Buffer): void {
+    if (!isSafeSessionId(sessionId)) throw new ArtifactStoreError("BINARY_ARTIFACT_STORE_FAILED", "Invalid upload session.");
+    const fd = fs.openSync(this.uploadContentPath(sessionId), "a", 0o600);
+    try {
+      fs.writeSync(fd, bytes);
+      fs.fsyncSync(fd);
+    } finally {
+      fs.closeSync(fd);
+    }
+  }
+
+  readUploadSession(sessionId: string): UploadSession | null {
+    if (!isSafeSessionId(sessionId)) return null;
+    try {
+      const value = JSON.parse(fs.readFileSync(this.uploadSessionPath(sessionId), "utf8")) as UploadSession;
+      return value.version === 1 && value.id === sessionId ? value : null;
+    } catch { return null; }
+  }
+
+  writeUploadSession(session: UploadSession): void {
+    if (!isSafeSessionId(session.id)) throw new ArtifactStoreError("BINARY_ARTIFACT_STORE_FAILED", "Invalid upload session.");
+    this.writeJsonAtomic(this.uploadSessionPath(session.id), session);
+  }
+
   private uploadDirectory(sessionId: string): string {
     return path.join(this.dataDir, "uploads", sessionId);
   }
 
   private uploadContentPath(sessionId: string): string {
     return path.join(this.uploadDirectory(sessionId), "content.partial");
+  }
+
+  private uploadSessionPath(sessionId: string): string {
+    return path.join(this.uploadDirectory(sessionId), "session.json");
   }
 
   private objectDirectory(digest: string): string {
@@ -198,10 +226,14 @@ export class BinaryArtifactStore {
   }
 
   private writeMetadata(file: string, metadata: ArtifactMetadata): void {
+    this.writeJsonAtomic(file, metadata);
+  }
+
+  private writeJsonAtomic(file: string, value: unknown): void {
     const temp = `${file}.${process.pid}.${crypto.randomUUID()}.tmp`;
     const fd = fs.openSync(temp, "wx", 0o600);
     try {
-      fs.writeFileSync(fd, JSON.stringify(metadata) + "\n", "utf8");
+      fs.writeFileSync(fd, JSON.stringify(value) + "\n", "utf8");
       fs.fsyncSync(fd);
     } finally {
       fs.closeSync(fd);
