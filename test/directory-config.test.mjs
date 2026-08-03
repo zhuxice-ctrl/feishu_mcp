@@ -13,7 +13,8 @@ function readConfig(overrides) {
     " ownerDefaultDirs: c.OWNER_DEFAULT_DIRS,",
     " allowedDirs: c.ALLOWED_DIRS,",
     " directoryApprovalFallback: c.DIRECTORY_APPROVAL_FALLBACK,",
-    " gitCommandPolicy: c.GIT_COMMAND_POLICY",
+    " gitCommandPolicy: c.GIT_COMMAND_POLICY,",
+    " ownerCommandPolicy: c.OWNER_COMMAND_POLICY",
     "}));",
   ].join("\n");
   return spawnSync(process.execPath, ["--input-type=module", "--eval", source], {
@@ -41,6 +42,7 @@ test("owner defaults are empty unless both settings are configured", () => {
     allowedDirs: [],
     directoryApprovalFallback: "deny",
     gitCommandPolicy: "approval",
+    ownerCommandPolicy: "approval",
   });
 
   const missingIdentity = readConfig({ OWNER_DEFAULT_DIRS: "F:\\" });
@@ -96,4 +98,18 @@ test("path lists trim, resolve and deduplicate case-insensitively on Windows", (
   });
   assert.equal(result.status, 0, result.stderr);
   assert.equal(JSON.parse(result.stdout).ownerDefaultDirs.length, 1);
+});
+
+test("owner command policy defaults to approval and permits only supported values", () => {
+  const direct = readConfig({ OWNER_USER_ID: "owner", OWNER_COMMAND_POLICY: "direct" });
+  assert.equal(direct.status, 0, direct.stderr);
+  assert.equal(JSON.parse(direct.stdout).ownerCommandPolicy, "direct");
+
+  const missingOwner = readConfig({ OWNER_COMMAND_POLICY: "direct" });
+  assert.notEqual(missingOwner.status, 0);
+  assert.match(missingOwner.stderr, /OWNER_USER_ID.*required.*OWNER_COMMAND_POLICY/i);
+
+  const invalid = readConfig({ OWNER_COMMAND_POLICY: "invalid" });
+  assert.notEqual(invalid.status, 0);
+  assert.match(invalid.stderr, /OWNER_COMMAND_POLICY.*approval.*direct/i);
 });

@@ -29,6 +29,7 @@ import {
   DEV_TASK_QUEUE_TIMEOUT_MS,
   DIRECTORY_APPROVAL_FALLBACK,
   GIT_COMMAND_POLICY,
+  OWNER_COMMAND_POLICY,
   HOST,
   MCP_ENDPOINT,
   NGROK_DOMAIN,
@@ -106,7 +107,11 @@ const SERVER_INSTRUCTIONS =
   "ALLOWED_DIRS or restarting the service for this error. When execute_command returns " +
   "GIT_CONFIRMATION_REQUIRED, show the Git confirmation request, wait for the owner's " +
   "explicit confirmation, then retry the identical call with confirmationToken. Never " +
-  "reuse, alter, log, or invent a confirmation token.";
+  "reuse, alter, log, or invent a confirmation token. " +
+  "When OWNER_COMMAND_POLICY=direct, the configured owner may run build verification " +
+  "commands (npm install, npm run build, npx tsc --noEmit, and tests) inside an " +
+  "authorized project root without a second command approval; authentication, directory " +
+  "confinement, timeout/output limits, cancellation, and Git confirmation remain active.";
 
 // ---------------------------------------------------------------------------
 // Development task subsystem — one coordinator per process
@@ -374,6 +379,7 @@ app.get("/health", (_req: Request, res: Response) => {
       stored: approvalStore.summary(),
       unsupportedClientPolicy: "deny",
       gitCommandPolicy: GIT_COMMAND_POLICY,
+      ownerCommandPolicy: OWNER_COMMAND_POLICY,
     },
     directoryAuthorization: {
       enabled: true,

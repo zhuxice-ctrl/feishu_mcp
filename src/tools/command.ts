@@ -7,6 +7,7 @@ import {
   COMMAND_MAX_TIMEOUT_MS,
   COMMAND_TIMEOUT_MS,
   GIT_COMMAND_POLICY,
+  OWNER_COMMAND_POLICY,
   OWNER_USER_ID,
 } from "../config.js";
 import { getRequestUserId } from "../security/requestContext.js";
@@ -68,6 +69,8 @@ export async function executeCommand(
   const { confirmationToken: _confirmationToken, ...approvalArgs } = args;
   const softGit = GIT_COMMAND_POLICY === "soft_owner" &&
     userId === OWNER_USER_ID && risk.gitCategory !== undefined;
+  const ownerDirect = OWNER_COMMAND_POLICY === "direct" &&
+    OWNER_USER_ID.length > 0 && userId === OWNER_USER_ID;
   if (softGit && risk.gitCategory === "confirmation_required") {
     const confirmationRequest = {
       userId: OWNER_USER_ID,
@@ -91,7 +94,7 @@ export async function executeCommand(
       outcome: "authorized",
       digest: commandSubject(risk.normalized, workdir),
     });
-  } else if (!softGit && risk.level === "approval_required") {
+  } else if (!softGit && risk.level === "approval_required" && !ownerDirect) {
     const approval = await requestApproval(ctx, {
       tool: "execute_command",
       userId,
@@ -138,7 +141,10 @@ export function registerCommandTool(server: McpServer): void {
   server.registerTool(
     "execute_command",
     {
-      description: "Execute a local command inside an allowed working directory. Risky commands require Feishu approval.",
+      description: "Execute a local command inside an allowed working directory. Risky commands require Feishu approval. " +
+        "When OWNER_COMMAND_POLICY=direct, the configured owner may run build verification commands " +
+        "(npm install, npm run build, npx tsc --noEmit, and tests) without a second approval; " +
+        "directory confinement, timeouts, output limits, cancellation, and Git confirmation remain active.",
       inputSchema: {
         command: z.string().min(1).max(32_768),
         workdir: z.string().optional(),

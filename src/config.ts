@@ -131,6 +131,33 @@ const localAppData = process.env.LOCALAPPDATA || path.join(os.homedir(), "AppDat
 export const APPROVAL_DATA_DIR = process.env.APPROVAL_DATA_DIR || path.join(localAppData, "feishu-mcp");
 
 // ---------------------------------------------------------------------------
+// Binary artifact pipeline limits and protected data
+// ---------------------------------------------------------------------------
+
+export const BINARY_ARTIFACT_MAX_BYTES = envBoundedPositiveInt(
+  "BINARY_ARTIFACT_MAX_BYTES", 100 * 1024 * 1024, 1024 * 1024 * 1024,
+);
+export const BINARY_ARTIFACT_CHUNK_BYTES = envBoundedPositiveInt(
+  "BINARY_ARTIFACT_CHUNK_BYTES", 512 * 1024, 4 * 1024 * 1024,
+);
+export const BINARY_ARTIFACT_UPLOAD_TTL_MS = envBoundedPositiveInt(
+  "BINARY_ARTIFACT_UPLOAD_TTL_MS", 15 * 60_000, 2 * 60 * 60_000,
+);
+export const BINARY_ARTIFACT_MAX_UPLOADS = envBoundedPositiveInt(
+  "BINARY_ARTIFACT_MAX_UPLOADS", 8, 32,
+);
+export const BINARY_ARTIFACT_MAX_BATCH = envBoundedPositiveInt(
+  "BINARY_ARTIFACT_MAX_BATCH", 64, 256,
+);
+export const BINARY_ARTIFACT_DATA_DIR = path.resolve(
+  process.env.BINARY_ARTIFACT_DATA_DIR || path.join(APPROVAL_DATA_DIR, "binary-artifacts"),
+);
+const binaryArtifactDataRelative = path.relative(path.resolve(APPROVAL_DATA_DIR), BINARY_ARTIFACT_DATA_DIR);
+if (binaryArtifactDataRelative.startsWith("..") || path.isAbsolute(binaryArtifactDataRelative)) {
+  throw new Error("BINARY_ARTIFACT_DATA_DIR must be inside APPROVAL_DATA_DIR");
+}
+
+// ---------------------------------------------------------------------------
 // Development task execution limits (Phase 1 — owner-only background tasks)
 // ---------------------------------------------------------------------------
 
@@ -241,6 +268,16 @@ export const GIT_COMMAND_POLICY: GitCommandPolicy = envEnum(
 );
 if (GIT_COMMAND_POLICY === "soft_owner" && !OWNER_USER_ID) {
   throw new Error("OWNER_USER_ID is required when GIT_COMMAND_POLICY is soft_owner");
+}
+
+export type OwnerCommandPolicy = "approval" | "direct";
+export const OWNER_COMMAND_POLICY: OwnerCommandPolicy = envEnum(
+  "OWNER_COMMAND_POLICY",
+  ["approval", "direct"] as const,
+  "approval",
+);
+if (OWNER_COMMAND_POLICY === "direct" && !OWNER_USER_ID) {
+  throw new Error("OWNER_USER_ID is required when OWNER_COMMAND_POLICY is direct");
 }
 export const OWNER_DEFAULT_DIRS = envPathList("OWNER_DEFAULT_DIRS");
 export type DirectoryApprovalFallback = "deny" | "owner";

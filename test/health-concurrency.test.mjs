@@ -56,6 +56,7 @@ test("health exposes redacted approval and concurrency summaries", async () => {
       MAX_CONCURRENT_COMMANDS: "3",
       MAX_CONCURRENT_SEARCHES: "4",
       MAX_CONCURRENT_FETCHES: "5",
+      BINARY_ARTIFACT_MAX_UPLOADS: "6",
       NGROK_DOMAIN: "",
     },
     stdio: "ignore",
@@ -76,7 +77,7 @@ test("health exposes redacted approval and concurrency summaries", async () => {
     assert.equal(health.tools.length, 30);
     assert.deepEqual(
       Object.fromEntries(Object.entries(health.concurrency).map(([key, value]) => [key, value.limit])),
-      { global: 7, command: 3, search: 4, fetch: 5 },
+      { global: 7, command: 3, search: 4, fetch: 5, artifact: 6 },
     );
     for (const value of Object.values(health.concurrency)) {
       assert.deepEqual(Object.keys(value).sort(), ["active", "limit", "queued"]);
@@ -96,6 +97,7 @@ test("health exposes redacted approval and concurrency summaries", async () => {
     assert.deepEqual(health.approval.stored, { session: 0, permanent: 0 });
     assert.equal(health.approval.unsupportedClientPolicy, "deny");
     assert.equal(health.approval.gitCommandPolicy, "approval");
+    assert.equal(health.approval.ownerCommandPolicy, "approval");
     assert.deepEqual(health.directoryAuthorization, {
       enabled: true,
       ownerDefaults: 1,

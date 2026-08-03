@@ -1,4 +1,5 @@
 import {
+  BINARY_ARTIFACT_MAX_UPLOADS,
   MAX_CONCURRENT_COMMANDS,
   MAX_CONCURRENT_FETCHES,
   MAX_CONCURRENT_SEARCHES,
@@ -6,7 +7,7 @@ import {
   TOOL_QUEUE_TIMEOUT_MS,
 } from "../config.js";
 
-export type ConcurrencyClass = "default" | "command" | "search" | "fetch" | "ungated";
+export type ConcurrencyClass = "default" | "command" | "search" | "fetch" | "artifact" | "ungated";
 
 export interface ConcurrencyStats {
   active: number;
@@ -100,12 +101,14 @@ const globalGate = new Semaphore(MAX_CONCURRENT_TOOLS, "tools");
 const commandGate = new Semaphore(MAX_CONCURRENT_COMMANDS, "commands");
 const searchGate = new Semaphore(MAX_CONCURRENT_SEARCHES, "searches");
 const fetchGate = new Semaphore(MAX_CONCURRENT_FETCHES, "fetches");
+const artifactGate = new Semaphore(BINARY_ARTIFACT_MAX_UPLOADS, "artifacts");
 
 function childGate(kind: Exclude<ConcurrencyClass, "ungated">): Semaphore | null {
   switch (kind) {
     case "command": return commandGate;
     case "search": return searchGate;
     case "fetch": return fetchGate;
+    case "artifact": return artifactGate;
     case "default": return null;
   }
 }
@@ -129,11 +132,12 @@ export async function withConcurrency<T>(
   }
 }
 
-export function concurrencySummary(): Record<"global" | "command" | "search" | "fetch", ConcurrencyStats> {
+export function concurrencySummary(): Record<"global" | "command" | "search" | "fetch" | "artifact", ConcurrencyStats> {
   return {
     global: globalGate.summary(),
     command: commandGate.summary(),
     search: searchGate.summary(),
     fetch: fetchGate.summary(),
+    artifact: artifactGate.summary(),
   };
 }

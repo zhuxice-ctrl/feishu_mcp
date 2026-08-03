@@ -24,3 +24,23 @@ test("allows localhost after validation while rejecting metadata literals", asyn
   assert.deepEqual(localhost.addresses, [{ address: "127.0.0.1", family: 4 }]);
   await assert.rejects(validateNetworkTarget("http://169.254.169.254/latest/meta-data"), /metadata/);
 });
+
+test("artifact imports require public HTTPS network targets", async () => {
+  await assert.rejects(
+    validateNetworkTarget("http://8.8.8.8/file", { policy: "artifact_import" }),
+    /HTTPS/i,
+  );
+  await assert.rejects(
+    validateNetworkTarget("https://user:pass@8.8.8.8/file", { policy: "artifact_import" }),
+    /credentials/i,
+  );
+  for (const host of ["127.0.0.1", "10.0.0.1", "100.64.0.1", "169.254.1.1", "224.0.0.1", "[::1]", "[fc00::1]", "[fe80::1]"]) {
+    await assert.rejects(
+      validateNetworkTarget(`https://${host}/file`, { policy: "artifact_import" }),
+      /public network|metadata/i,
+      host,
+    );
+  }
+  const target = await validateNetworkTarget("https://8.8.8.8/file", { policy: "artifact_import" });
+  assert.equal(target.origin, "https://8.8.8.8");
+});
