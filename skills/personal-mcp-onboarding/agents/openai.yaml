@@ -1,0 +1,4 @@
+interface:
+  display_name: "Personal MCP Onboarding"
+  short_description: "Inspect a Windows device and teach manual Aily MCP setup"
+  default_prompt: "Use $personal-mcp-onboarding to inspect my Windows device and teach me how to manually connect this MCP to Aily."
