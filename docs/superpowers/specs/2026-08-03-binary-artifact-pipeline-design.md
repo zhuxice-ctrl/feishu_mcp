@@ -365,6 +365,37 @@ The current project-local ngrok relocation is retained as groundwork:
   artifact/catalog path after an immutable official source and redistribution
   policy are documented.
 
+## Owner build-verification compatibility
+
+The same Aily workflow must be able to verify source changes rather than
+asking the user to run `npm install`, `npm run build`, or `tsc` manually.
+This is not a binary-transfer action and does not add a second shell tool:
+the existing `execute_command` tool is the public command capability.
+
+Add `OWNER_COMMAND_POLICY=approval|direct`, with `approval` as the
+deployment-safe default. When an operator intentionally configures
+`OWNER_COMMAND_POLICY=direct`, the configured `OWNER_USER_ID` runs
+commands directly inside an already directory-authorized project root; it
+does not receive the normal per-command MCP approval. All other identities
+retain the existing approval flow. A missing owner identity must not fall back
+to direct execution.
+
+Direct owner execution retains transport/PIN authentication, directory
+authorization and real-path confinement, the protected approval-data
+directory exclusion, command timeout/output limits, cancellation propagation,
+process-tree handling, audit redaction, and command concurrency limits. It
+does not make a command reversible: package installation can run lifecycle
+scripts, make network requests, or change external state. The policy is an
+explicit owner deployment choice, not a claim that trash/rollback can undo
+those effects.
+
+The MCP server instructions and the `execute_command` description must
+advertise that the configured owner can use it for dependency installation,
+compilation, and test verification. The response must include exit code,
+bounded stdout/stderr, duration, and the existing process result contract so
+a calling agent can repair a reported compiler error. No new arbitrary shell
+endpoint or binary-execution capability is introduced.
+
 ## Stable errors
 
 Add specific errors including:
