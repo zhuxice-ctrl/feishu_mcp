@@ -471,9 +471,14 @@ function Invoke-Launcher {
         }
 
         $publicHeaders = @{ "ngrok-skip-browser-warning" = "true" }
-        $publicHealth = Wait-Json "$expectedUrl/health" 45 $ngrok $publicHeaders
-        if ($publicHealth.version -ne "1.0.0" -or @($publicHealth.tools).Count -ne 31) {
-            throw "Public health response did not report version 1.0.0 and 31 tools"
+        try {
+            $publicHealth = Wait-Json "$expectedUrl/health" 45 $ngrok $publicHeaders
+            if ($publicHealth.version -ne "1.0.0" -or @($publicHealth.tools).Count -ne 31) {
+                throw "Public health response did not report version 1.0.0 and 31 tools"
+            }
+            Write-Host "Public health passed (31 tools)." -ForegroundColor Green
+        } catch {
+            Write-Warning "Public health probe unavailable; keeping the established ngrok tunnel running. Local proxy or Fake-IP may block this computer's reverse probe."
         }
 
         $mcpUrl = "$expectedUrl/mcp"

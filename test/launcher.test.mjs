@@ -211,10 +211,12 @@ test(
   { skip: process.platform !== "win32" },
   async () => {
     const content = await readFile(launcherScript, "utf8");
-    assert.match(content, /function\s+Wait-NgrokTunnel/i);
-    assert.match(content, /--url=https:\/\/\$domain/);
-    assert.doesNotMatch(content, /--domain=\$domain/);
-    assert.match(content, /ngrok-skip-browser-warning/);
+  assert.match(content, /function\s+Wait-NgrokTunnel/i);
+  assert.match(content, /--url=https:\/\/\$domain/);
+  assert.doesNotMatch(content, /--domain=\$domain/);
+  assert.match(content, /ngrok-skip-browser-warning/);
+  assert.match(content, /Public health probe unavailable; keeping the established ngrok tunnel running/i);
+  assert.match(content, /try\s*\{[\s\S]{0,600}Wait-Json "\$expectedUrl\/health" 45 \$ngrok \$publicHeaders[\s\S]{0,600}\}\s*catch/i);
     assert.match(content, /\[Console\]::KeyAvailable/);
     assert.match(content, /Press Q or Enter to stop/);
   }
