@@ -70,7 +70,7 @@ npm start
 Invoke-RestMethod http://127.0.0.1:3000/health
 ```
 
-正常时应返回 `status: ok`，并报告 31 个工具。若你使用 Clash Fake-IP，启动器对公网
+正常时应返回 `status: ok`，并报告 32 个工具。若你使用 Clash Fake-IP，启动器对公网
 `/health` 的回访失败只会警告；本地服务和隧道仍可正常工作。
 
 ### 4. 手动配置自己的 ngrok
@@ -97,8 +97,10 @@ Authorization: Bearer <your-own-MCP_AUTH_TOKEN>
 x-aily-user: <your-own-OWNER_USER_ID>
 ```
 
-`Authorization` 和 `x-aily-user` 必须添加在**请求头**中。`Bearer ` 加 Token 必须填入
-真正的请求头输入值；展示名称或描述栏只显示说明，不会发送该值。
+`Authorization` 和 `x-aily-user` 必须添加在**请求头**中。对于这个仅自己可用的个人
+MCP，`Authorization` 应使用**固定值**，其参数值为 `Bearer <your-own-MCP_AUTH_TOKEN>`，
+这样 Aily 才能在注册阶段发现完整工具清单。不要把真实 Token 放在展示名称、描述、图片
+或普通对话中；`x-aily-user` 应固定为你的 owner 身份。
 
 保存或更新 MCP 后，重新打开 Aily 对话并调用 `ping` 或让它枚举工具。出现 401 时，先
 核对 Token 是否与本机 `.env` 一致，以及是否包含 `Bearer ` 前缀。
@@ -122,7 +124,7 @@ x-aily-user: <your-own-OWNER_USER_ID>
 检查这个 Windows 原生项目需要的 MSVC、Windows SDK 和 CMake 环境。
 ```
 
-## 能力概览：31 个工具
+## 能力概览：32 个工具
 
 工具清单由服务在 `tools/list` 中实际返回；Aily 的文字总结可能合并或漏列工具，
 应以该响应和 `/health` 为准。
@@ -133,7 +135,7 @@ x-aily-user: <your-own-OWNER_USER_ID>
 | 文件与目录 | `read_file`、`write_file`、`edit_file`、`create_directory`、`list_directory`、`move_file`、`search_files`、`search_content`、`get_file_info`、`compare_files`、`apply_patch` |
 | 命令与 Git | `execute_command`、`git_status`、`git_diff` |
 | 网络与任务 | `web_fetch`、`todo_write`、`todo_read`、`ask_user` |
-| 开发环境 | `get_development_task`、`read_development_task_logs`、`cancel_development_task`、`inspect_development_environment`、`plan_environment_changes`、`apply_environment_plan`、`android_development`、`windows_development`、`manage_development_project` |
+| 开发环境 | `get_development_task`、`read_development_task_logs`、`cancel_development_task`、`inspect_development_environment`、`plan_environment_changes`、`apply_environment_plan`、`android_development`、`windows_development`、`node_development`、`manage_development_project` |
 | 二进制制品 | `manage_binary_artifact` |
 
 `manage_binary_artifact` 用于验证、分块接收、存储和原子落盘 PNG、ZIP 等二进制制品；
@@ -142,8 +144,18 @@ x-aily-user: <your-own-OWNER_USER_ID>
 
 ## 构建与测试命令
 
-现有的 `execute_command` 是唯一的命令执行工具。它只能在已授权目录中运行，并受目录
-边界、受保护内部目录、超时、输出上限、取消、并发限制和审计约束。
+`execute_command` 是本地 MCP 的通用命令工具；Aily 可能不会把任意 Shell 执行能力
+交给智能体。Node/PNPM 验证应优先使用结构化的 `node_development`：它要求已授权的
+`workdir`，且只允许 `pnpm_version`、`test_run`、`build`、`typecheck` 四个 action，
+内部以固定参数直接启动 `pnpm`，不接收任意命令或参数。两类工具都受目录边界、受保护
+内部目录、审批、超时、输出上限、取消、并发限制和审计约束。
+
+在 Aily 中可这样请求：
+
+```text
+请调用 node_development，action 为 typecheck，workdir 为已授权 Node 项目目录。
+如需审批，请在当前窗口展示审批卡；不要改用任意 shell 命令。
+```
 
 默认策略：
 
@@ -179,13 +191,14 @@ OWNER_COMMAND_POLICY=direct
 ### Aily 显示 401 或没有工具
 
 检查顺序：本地 `/health` 是否正常、ngrok 是否在线、Aily endpoint 是否为 `/mcp`、
-`Authorization` 是否位于请求头、值是否为 `Bearer <your token>`。Aily 的描述栏不会
-代替真实请求头输入。
+`Authorization` 是否为固定请求头且值为 `Bearer <your token>`。Aily 的描述栏不会
+代替真实请求头值。
 
 ### Aily 的文字回答只列出一部分工具
 
-这是模型的概括，不代表服务只暴露了这些工具。让它调用 `tools/list`，或检查
-`/health` 的工具清单；当前服务应返回 31 个工具。
+服务的 `/health` 与 `tools/list` 当前应返回 32 个工具。Aily 可能因平台安全策略只把
+其中一部分交给智能体；如果没有 `execute_command`，请使用 `node_development` 完成四个
+受限的 PNPM 操作，而不要要求智能体改用任意 Shell。
 
 ### 启动器报告公网 health 超时
 

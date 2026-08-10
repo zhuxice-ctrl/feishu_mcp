@@ -28,7 +28,7 @@ Guide one developer through running this repository on their own Windows compute
 
 Check only what is needed and report versions or paths only when they are not sensitive:
 
-- Node.js and npm;
+- Node.js, npm and pnpm when the target is a Node project;
 - Git;
 - repository dependencies and build state when the repository is present;
 - local MCP health endpoint and port 3000 only after the user has started it;
@@ -70,6 +70,12 @@ x-aily-user: <the-user's-own-OWNER_USER_ID>
 
 State explicitly: `Bearer ` plus the token belongs in the actual request-header input value. A display name or description field is only explanatory text and does not send the authorization value.
 
+For a personal MCP restricted to its owner, tell the user to configure `Authorization` as a fixed
+request header value so Aily can discover the server tools during registration. The fixed value is
+`Bearer <the-user's-own-MCP_AUTH_TOKEN>`; never place a real token in the display name, optional
+description, image, prompt, or ordinary conversation. Keep `x-aily-user` fixed to the user's owner
+identity and limit the Aily availability scope to that owner.
+
 ## Response shape
 
 Use these sections when relevant:
@@ -85,7 +91,12 @@ Use these sections when relevant:
 
 ### Node project connected through ngrok
 
-Start by reporting whether Node, npm, Git, the repository, the local health endpoint, and ngrok are ready. If the local server is not running, tell the user to start it manually with the repository-provided launcher. Then guide them to configure their own tunnel, copy their own endpoint into Aily, enter the authorization header with `Bearer ` in the real input field, and verify that Aily can enumerate the MCP tools. Do not provide an actual endpoint or token.
+Start by reporting whether Node, npm, pnpm, Git, the repository, the local health endpoint, and ngrok are ready. If the local server is not running, tell the user to start it manually with the repository-provided launcher. Then guide them to configure their own tunnel, copy their own endpoint into Aily, set the owner-only fixed Authorization header to `Bearer <the-user's-own-MCP_AUTH_TOKEN>`, and verify that Aily can enumerate the MCP tools. Do not provide an actual endpoint or token.
+
+When an Aily agent needs PNPM verification, guide it to call `node_development` with an authorized
+project `workdir` and exactly one of `pnpm_version`, `test_run`, `build`, or `typecheck`. Explain
+that this is the supported structured route when Aily does not attach the generic
+`execute_command` tool; it never accepts arbitrary Shell commands or arguments.
 
 ### Android machine without SDK command-line tools or adb
 
