@@ -69,6 +69,7 @@ import {
   registerDevelopmentEnvironmentTools,
 } from "./tools/developmentEnvironment.js";
 import { registerAndroidDevelopmentTool } from "./tools/androidDevelopment.js";
+import { registerNodeDevelopmentTool } from "./tools/nodeDevelopment.js";
 import { registerWindowsDevelopmentTool } from "./tools/windowsDevelopment.js";
 import { registerDevelopmentProjectTool } from "./tools/developmentProjects.js";
 import { AndroidProjectProvider } from "./development/android/projectProvider.js";
@@ -99,6 +100,7 @@ const TOOL_NAMES = [
   "inspect_development_environment", "plan_environment_changes", "apply_environment_plan",
   "android_development",
   "windows_development",
+  "node_development",
   "manage_development_project",
   "manage_binary_artifact",
 ] as const;
@@ -249,6 +251,7 @@ function createMcpServer(): McpServer {
     electronProvider: projectRegistry.get("electron"),
     credentialStore: windowsCredentialStore,
   });
+  registerNodeDevelopmentTool(server);
   registerDevelopmentProjectTool(server, { registry: projectRegistry });
 
   return server;

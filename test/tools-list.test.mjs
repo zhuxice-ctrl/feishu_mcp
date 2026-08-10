@@ -17,6 +17,7 @@ const expected = [
   "inspect_development_environment", "plan_environment_changes", "apply_environment_plan",
   "android_development",
   "windows_development",
+  "node_development",
   "manage_development_project",
 ];
 
@@ -46,7 +47,7 @@ async function stop(child) {
   if (child.exitCode === null) child.kill("SIGKILL");
 }
 
-test("production MCP advertises exactly the 31-tool inventory", async () => {
+test("production MCP advertises exactly the 32-tool inventory", async () => {
   const root = await mkdtemp(path.join(os.tmpdir(), "feishu-tools-list-"));
   const port = await freePort();
   const child = spawn(process.execPath, ["dist/index.js"], {
@@ -82,7 +83,16 @@ test("production MCP advertises exactly the 31-tool inventory", async () => {
     const payload = parseMcp(await response.text());
     assert.equal(response.status, 200);
     assert.deepEqual(payload.result.tools.map((tool) => tool.name), expected);
-    assert.equal(new Set(payload.result.tools.map((tool) => tool.name)).size, 31);
+    assert.equal(new Set(payload.result.tools.map((tool) => tool.name)).size, 32);
+    const nodeTool = payload.result.tools.find((tool) => tool.name === "node_development");
+    assert.ok(nodeTool);
+    assert.deepEqual(Object.keys(nodeTool.inputSchema.properties).sort(), [
+      "action", "timeout", "workdir",
+    ]);
+    assert.deepEqual(nodeTool.inputSchema.required, ["action", "workdir"]);
+    assert.deepEqual(nodeTool.inputSchema.properties.action.enum, [
+      "pnpm_version", "test_run", "build", "typecheck",
+    ]);
   } finally {
     await stop(child);
     await rm(root, { recursive: true, force: true });
