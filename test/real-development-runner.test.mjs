@@ -140,14 +140,14 @@ test("Inspect mode executes the read-only MCP sequence and emits only redacted e
   skip: process.platform !== "win32",
 }, async () => {
   const calls = [];
-  const toolNames = Array.from({ length: 30 }, (_, index) => `tool_${index + 1}`);
+  const toolNames = Array.from({ length: 32 }, (_, index) => `tool_${index + 1}`);
   let healthWarningBypass;
   const server = http.createServer(async (req, res) => {
     if (req.method === "GET" && req.url === "/health") {
       healthWarningBypass = req.headers["ngrok-skip-browser-warning"];
       res.setHeader("content-type", "application/json");
       res.end(JSON.stringify({
-        toolCount: 30,
+        toolCount: 32,
         tools: toolNames,
         authMode: "none",
         developmentEnvironment: { brokerState: "missing" },

@@ -20,26 +20,26 @@ const ALL_TOOLS = [
   "list_directory", "move_file", "search_files", "get_file_info",
   "list_allowed_directories", "auth", "execute_command", "search_content",
   "git_status", "git_diff", "compare_files", "apply_patch", "web_fetch",
-  "todo_write", "todo_read", "ask_user",
+  "manage_binary_artifact", "todo_write", "todo_read", "ask_user",
   "get_development_task", "read_development_task_logs", "cancel_development_task",
   "inspect_development_environment", "plan_environment_changes", "apply_environment_plan",
-  "android_development", "windows_development", "manage_development_project",
+  "android_development", "windows_development", "node_development", "manage_development_project",
 ];
 
 const NEW_TOOLS = [
   "get_development_task", "read_development_task_logs", "cancel_development_task",
   "inspect_development_environment", "plan_environment_changes", "apply_environment_plan",
-  "android_development", "windows_development", "manage_development_project",
+  "android_development", "windows_development", "node_development", "manage_development_project",
 ];
 
 // ---------------------------------------------------------------------------
-// 1. All 30 tool names appear in README
+// 1. All 32 tool names appear in README
 // ---------------------------------------------------------------------------
-test("README contains all 30 tool names", () => {
+test("README contains all 32 tool names", () => {
   for (const name of ALL_TOOLS) {
     assert.ok(README.includes(name), `README missing tool name: ${name}`);
   }
-  assert.equal(ALL_TOOLS.length, 30, "expected exactly 30 tools");
+  assert.equal(ALL_TOOLS.length, 32, "expected exactly 32 tools");
 });
 
 // ---------------------------------------------------------------------------
@@ -111,7 +111,7 @@ test("admin broker install and uninstall commands are documented", () => {
 test("README does not expose real credentials", () => {
   // Should use placeholders, not real tokens
   assert.ok(
-    /your-domain|your-secret|YOUR_TOKEN|your-token|placeholder/i.test(README),
+    /your-domain|your-secret|YOUR_TOKEN|your-token|your-own|placeholder/i.test(README),
     "should use placeholder domain/token examples",
   );
   // Should NOT contain ngrok authtoken values
@@ -173,12 +173,12 @@ test("all scripts referenced in docs actually exist", () => {
 });
 
 // ---------------------------------------------------------------------------
-// 9. Tool inventory number is 30 in README
+// 9. Tool inventory number is 32 in README
 // ---------------------------------------------------------------------------
-test("README states 30 tools", () => {
+test("README states 32 tools", () => {
   assert.ok(
-    /30\s*(个|tools?|工具)/i.test(README),
-    "README should state 30 tools",
+    /32\s*(个|tools?|工具)/i.test(README),
+    "README should state 32 tools",
   );
   // Old count should not appear
   assert.ok(

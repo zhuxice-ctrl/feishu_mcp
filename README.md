@@ -146,8 +146,9 @@ MCP，`Authorization` 应使用**固定值**，其参数值为 `Bearer <your-own
 
 `execute_command` 是本地 MCP 的通用命令工具；Aily 可能不会把任意 Shell 执行能力
 交给智能体。Node/PNPM 验证应优先使用结构化的 `node_development`：它要求已授权的
-`workdir`，且只允许 `pnpm_version`、`test_run`、`build`、`typecheck` 四个 action，
-内部以固定参数直接启动 `pnpm`，不接收任意命令或参数。两类工具都受目录边界、受保护
+`workdir`，且只允许 `pnpm_version`、`test_run`、`build`、`typecheck` 四个 action。
+Windows 上会以完全固定的 `pnpm.cmd` 命令片段启动包管理器；调用方仍不能传入任意命令或
+参数。两类工具都受目录边界、受保护
 内部目录、审批、超时、输出上限、取消、并发限制和审计约束。
 
 在 Aily 中可这样请求：

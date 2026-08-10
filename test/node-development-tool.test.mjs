@@ -13,7 +13,7 @@ process.env.APPROVAL_DATA_DIR = approvalRoot;
 process.env.APPROVAL_STATE_SECRET = "00112233445566778899aabbccddeeff";
 process.env.LOG_LEVEL = "error";
 
-const { NODE_ACTIONS, nodeDevelopment, resolveNodeAction } =
+const { NODE_ACTIONS, nodeDevelopment, resolveNodeAction, resolveNodeInvocation } =
   await import("../dist/tools/nodeDevelopment.js");
 
 function context(modern = true) {
@@ -53,6 +53,16 @@ test("exports exactly the four approved PNPM actions", () => {
     executable: "pnpm",
     args: ["typecheck"],
   });
+});
+
+test("uses a fixed Windows command shim only for approved PNPM actions", () => {
+  const invocation = resolveNodeInvocation("pnpm_version");
+  if (process.platform === "win32") {
+    assert.equal(invocation.executable, process.env.ComSpec || "cmd.exe");
+    assert.deepEqual(invocation.args, ["/d", "/s", "/c", "pnpm.cmd --version"]);
+  } else {
+    assert.deepEqual(invocation, { executable: "pnpm", args: ["--version"] });
+  }
 });
 
 test("requires an explicit working directory", async () => {

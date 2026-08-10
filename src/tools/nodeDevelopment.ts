@@ -42,6 +42,20 @@ export function resolveNodeAction(action: NodeDevelopmentAction) {
   return { executable: resolved.executable, args: [...resolved.args] };
 }
 
+export function resolveNodeInvocation(action: NodeDevelopmentAction): {
+  executable: string;
+  args: string[];
+} {
+  const resolved = resolveNodeAction(action);
+  if (process.platform !== "win32") return resolved;
+  return {
+    executable: process.env.ComSpec || "cmd.exe",
+    // Windows cannot directly spawn the pnpm.cmd shim with shell disabled.
+    // The complete command string is assembled from the closed action map.
+    args: ["/d", "/s", "/c", `pnpm.cmd ${resolved.args.join(" ")}`],
+  };
+}
+
 function actionSubject(action: NodeDevelopmentAction, workdir: string, timeoutMs: number): string {
   return createHash("sha256")
     .update(`${action}\u0000${workdir}\u0000${timeoutMs}`)
@@ -102,7 +116,7 @@ export async function nodeDevelopment(
   });
   if (approval !== true) return approval;
 
-  const action = resolveNodeAction(args.action);
+  const invocation = resolveNodeInvocation(args.action);
   return runTool(
     {
       name: "node_development",
@@ -114,7 +128,7 @@ export async function nodeDevelopment(
       },
     },
     async () => {
-      const result = await runProcess(action.executable, action.args, {
+      const result = await runProcess(invocation.executable, invocation.args, {
         cwd: workdir,
         timeoutMs,
         maxOutputBytes: COMMAND_MAX_OUTPUT_BYTES,

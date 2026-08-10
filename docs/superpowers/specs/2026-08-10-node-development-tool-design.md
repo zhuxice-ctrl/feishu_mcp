@@ -47,9 +47,13 @@ long-running development-task records.
    subject displays the fixed PNPM action and the resolved working directory.
    A client that cannot handle in-window elicitation is denied; no terminal or
    browser confirmation fallback is introduced.
-4. Execute `pnpm` with a fixed argv array through `runProcess`, not through a
-   shell. Preserve the existing command concurrency group, output byte cap,
-   cancellation signal, default timeout, and maximum timeout.
+4. On non-Windows hosts, execute `pnpm` with a fixed argv array through
+   `runProcess`. On Windows, execute the `pnpm.cmd` shim through a fixed
+   `cmd.exe /d /s /c` invocation because Node cannot directly spawn `.cmd`
+   files with `shell: false`. The complete Windows command fragment is built
+   only from the closed action map, never from a caller value. Preserve the
+   existing command concurrency group, output byte cap, cancellation signal,
+   default timeout, and maximum timeout.
 5. Add the action and resolved directory to the audit/concurrency subject, but
    never accept caller-provided commands or arguments.
 

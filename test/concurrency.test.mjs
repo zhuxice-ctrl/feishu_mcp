@@ -50,7 +50,7 @@ test("withConcurrency releases slots after exceptions", async () => {
 test("concurrency summary separates global and resource gate statistics", () => {
   const summary = concurrencySummary();
 
-  assert.deepEqual(Object.keys(summary).sort(), ["command", "fetch", "global", "search"]);
+  assert.deepEqual(Object.keys(summary).sort(), ["artifact", "command", "fetch", "global", "search"]);
   for (const stats of Object.values(summary)) {
     assert.equal(typeof stats.active, "number");
     assert.equal(typeof stats.queued, "number");

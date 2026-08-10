@@ -171,9 +171,9 @@ if (!fs.existsSync(workdir) || !fs.statSync(workdir).isDirectory()) {
 }
 ```
 
-Request standard approval using `tool: "node_development"`, `kind: "development"`, a SHA-256 key over `action`, `workdir`, and `timeoutMs`, `digestArguments(args)`, and the directory-proof digest. On approval, call `runProcess(resolved.executable, resolved.args, { cwd: workdir, timeoutMs, maxOutputBytes: COMMAND_MAX_OUTPUT_BYTES, signal: ctx.mcpReq.signal, env: { ...process.env } })` inside `runTool` with `concurrency: "command"` and a `development` subject. Return `toolJson({ ok: true, action: args.action, ...result })`.
+Request standard approval using `tool: "node_development"`, `kind: "development"`, a SHA-256 key over `action`, `workdir`, and `timeoutMs`, `digestArguments(args)`, and the directory-proof digest. On approval, resolve a fixed invocation and call `runProcess(invocation.executable, invocation.args, { cwd: workdir, timeoutMs, maxOutputBytes: COMMAND_MAX_OUTPUT_BYTES, signal: ctx.mcpReq.signal, env: { ...process.env } })` inside `runTool` with `concurrency: "command"` and a `development` subject. Return `toolJson({ ok: true, action: args.action, ...result })`.
 
-Do not call `cmd.exe`, `/bin/sh`, `executeCommand`, or any shell. Do not add a `command`, `args`, `script`, `executable`, or environment field to the schema.
+On Windows, `resolveNodeInvocation` must use `cmd.exe /d /s /c` with a command fragment assembled only from `pnpm.cmd` and the closed action map, because Node cannot directly spawn `.cmd` files with `shell: false`. On non-Windows hosts, call `pnpm` directly. Do not call `executeCommand`, and do not add a `command`, `args`, `script`, `executable`, or environment field to the schema.
 
 - [ ] **Step 4: Register the restricted MCP schema**
 

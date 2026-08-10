@@ -5,7 +5,7 @@ Real Windows/Android development environment acceptance runner.
 
 .DESCRIPTION
 The default Inspect mode is read-only. It checks /health, initializes MCP,
-lists exactly 30 unique tools, inspects all development targets, and verifies
+lists exactly 32 unique tools, inspects all development targets, and verifies
 the broker summary without applying plans, creating projects, or starting a
 device.
 
@@ -253,8 +253,8 @@ function Initialize-AcceptanceClient {
     $script:CurrentStep = "initialize"
     $health = Invoke-RestMethod -Uri "$BaseUrl/health" -Method Get `
         -Headers @{ "ngrok-skip-browser-warning" = "true" }
-    if ($health.toolCount -ne 30 -or @($health.tools).Count -ne 30) { throw "Health did not report 30 tools." }
-    if (@($health.tools | Select-Object -Unique).Count -ne 30) { throw "Health tool inventory contains duplicates." }
+    if ($health.toolCount -ne 32 -or @($health.tools).Count -ne 32) { throw "Health did not report 32 tools." }
+    if (@($health.tools | Select-Object -Unique).Count -ne 32) { throw "Health tool inventory contains duplicates." }
     [void](Invoke-McpRpc "initialize" @{
         protocolVersion = "2025-06-18"
         capabilities = @{ elicitation = @{ form = @{} } }
@@ -266,8 +266,8 @@ function Initialize-AcceptanceClient {
     }
     $listed = Invoke-McpRpc "tools/list" @{}
     $names = @($listed.tools | ForEach-Object { $_.name })
-    if ($names.Count -ne 30 -or @($names | Select-Object -Unique).Count -ne 30) {
-        throw "MCP tools/list did not return exactly 30 unique tools."
+    if ($names.Count -ne 32 -or @($names | Select-Object -Unique).Count -ne 32) {
+        throw "MCP tools/list did not return exactly 32 unique tools."
     }
     return $health
 }
@@ -324,7 +324,7 @@ function Run-InspectAcceptance {
     }
     $watch.Stop()
     Add-StepResult "read-only-inspection" "passed" $watch.ElapsedMilliseconds `
-        "tools=30; targets=4; broker=$($health.developmentEnvironment.brokerState)"
+        "tools=32; targets=4; broker=$($health.developmentEnvironment.brokerState)"
 }
 
 function Run-AndroidAcceptance {

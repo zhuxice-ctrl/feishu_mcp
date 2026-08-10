@@ -35,9 +35,9 @@ credential references locally.
 .\test-real-development-environment.bat -Mode Inspect
 ```
 
-- [ ] `/health` returns 30 tools and the expected broker state.
+- [ ] `/health` returns 32 tools and the expected broker state.
 - [ ] MCP `initialize` succeeds.
-- [ ] MCP `tools/list` returns exactly 30 unique tools.
+- [ ] MCP `tools/list` returns exactly 32 unique tools.
 - [ ] `inspect_development_environment` returns component states without paths or identities.
 - [ ] No files written outside the temporary report directory.
 

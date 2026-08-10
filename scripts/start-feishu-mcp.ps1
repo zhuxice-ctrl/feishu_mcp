@@ -391,7 +391,7 @@ function Invoke-Launcher {
             authMode = $authMode
             ngrokDomain = $domain
             ngrokPath = $resolvedNgrok
-            toolCount = 31
+            toolCount = 32
             brokerState = Get-BrokerState
             concurrency = @{
                 global = $maxConcurrentTools
@@ -444,10 +444,10 @@ function Invoke-Launcher {
 
         $localHealthUrl = "http://127.0.0.1:$port/health"
         $localHealth = Wait-Json $localHealthUrl 30 $server
-        if ($localHealth.version -ne "1.0.0" -or @($localHealth.tools).Count -ne 31) {
-            throw "Local health response did not report version 1.0.0 and 31 tools"
+        if ($localHealth.version -ne "1.0.0" -or @($localHealth.tools).Count -ne 32) {
+            throw "Local health response did not report version 1.0.0 and 32 tools"
         }
-        Write-Host "Local health passed (31 tools, auth mode $($localHealth.authMode))." -ForegroundColor Green
+        Write-Host "Local health passed (32 tools, auth mode $($localHealth.authMode))." -ForegroundColor Green
 
         Write-Host "Starting fixed ngrok tunnel..." -ForegroundColor Cyan
         $ngrokArguments = @(
@@ -473,10 +473,10 @@ function Invoke-Launcher {
         $publicHeaders = @{ "ngrok-skip-browser-warning" = "true" }
         try {
             $publicHealth = Wait-Json "$expectedUrl/health" 45 $ngrok $publicHeaders
-            if ($publicHealth.version -ne "1.0.0" -or @($publicHealth.tools).Count -ne 31) {
-                throw "Public health response did not report version 1.0.0 and 31 tools"
+            if ($publicHealth.version -ne "1.0.0" -or @($publicHealth.tools).Count -ne 32) {
+                throw "Public health response did not report version 1.0.0 and 32 tools"
             }
-            Write-Host "Public health passed (31 tools)." -ForegroundColor Green
+            Write-Host "Public health passed (32 tools)." -ForegroundColor Green
         } catch {
             Write-Warning "Public health probe unavailable; keeping the established ngrok tunnel running. Local proxy or Fake-IP may block this computer's reverse probe."
         }
