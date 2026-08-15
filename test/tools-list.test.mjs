@@ -13,12 +13,14 @@ const expected = [
   "list_allowed_directories", "auth", "execute_command", "search_content",
   "git_status", "git_diff", "compare_files", "apply_patch", "web_fetch", "manage_binary_artifact",
   "todo_write", "todo_read", "ask_user",
-  "get_development_task", "read_development_task_logs", "cancel_development_task",
+  "get_development_task", "list_development_tasks", "read_development_task_logs", "cancel_development_task",
   "inspect_development_environment", "plan_environment_changes", "apply_environment_plan",
   "android_development",
   "windows_development",
   "node_development",
   "manage_development_project",
+  "list_local_workspaces",
+  "run_local_workflow",
 ];
 
 async function freePort() {
@@ -47,7 +49,7 @@ async function stop(child) {
   if (child.exitCode === null) child.kill("SIGKILL");
 }
 
-test("production MCP advertises exactly the 32-tool inventory", async () => {
+test("production MCP advertises exactly the 35-tool inventory", async () => {
   const root = await mkdtemp(path.join(os.tmpdir(), "feishu-tools-list-"));
   const port = await freePort();
   const child = spawn(process.execPath, ["dist/index.js"], {
@@ -83,7 +85,7 @@ test("production MCP advertises exactly the 32-tool inventory", async () => {
     const payload = parseMcp(await response.text());
     assert.equal(response.status, 200);
     assert.deepEqual(payload.result.tools.map((tool) => tool.name), expected);
-    assert.equal(new Set(payload.result.tools.map((tool) => tool.name)).size, 32);
+    assert.equal(new Set(payload.result.tools.map((tool) => tool.name)).size, 35);
     const nodeTool = payload.result.tools.find((tool) => tool.name === "node_development");
     assert.ok(nodeTool);
     assert.deepEqual(Object.keys(nodeTool.inputSchema.properties).sort(), [

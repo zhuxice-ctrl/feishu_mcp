@@ -187,6 +187,24 @@ if (taskDataRelative.startsWith("..") || path.isAbsolute(taskDataRelative)) {
 }
 
 // ---------------------------------------------------------------------------
+// Local workspace catalog (Phase 1 — trusted workspace/recipe configuration)
+// ---------------------------------------------------------------------------
+
+/**
+ * Protected operator-owned catalog of trusted local development workspaces
+ * and verification recipes. Must remain inside APPROVAL_DATA_DIR so the
+ * catalog shares the same ACL-protected boundary as approval state.
+ */
+export const LOCAL_WORKSPACE_CATALOG_PATH = path.resolve(
+  process.env.LOCAL_WORKSPACE_CATALOG_PATH ||
+    path.join(APPROVAL_DATA_DIR, "local-workspaces.json"),
+);
+const localWorkspaceCatalogRelative = path.relative(path.resolve(APPROVAL_DATA_DIR), LOCAL_WORKSPACE_CATALOG_PATH);
+if (localWorkspaceCatalogRelative.startsWith("..") || path.isAbsolute(localWorkspaceCatalogRelative)) {
+  throw new Error("LOCAL_WORKSPACE_CATALOG_PATH must be inside APPROVAL_DATA_DIR");
+}
+
+// ---------------------------------------------------------------------------
 // Development environment subsystem (Phase 2 — trusted toolchain provisioning)
 // ---------------------------------------------------------------------------
 

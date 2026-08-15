@@ -6,7 +6,7 @@
 
 ## 前置条件
 
-- MCP 服务已构建（`npm run build`），`/health` 返回 `toolCount: 32`
+- MCP 服务已构建（`npm run build`），`/health` 返回 `toolCount: 35`
 - `AUTH_MODE=pin` 或 `header`，owner 身份已通过 `auth` 工具认证
 - Windows 部署已安装管理员代理（见下文"管理员代理"）
 - Android 开发需本地安装 Android SDK 和 JDK

@@ -17,6 +17,17 @@ export type DevelopmentTaskState =
 
 export type DevelopmentTaskClass = "default" | "build" | "privileged";
 
+export type DevelopmentTaskKind = "command" | "workflow";
+
+/** Terminal-safe per-step state for serial workflow execution. */
+export type DevelopmentStepState =
+  | "pending"
+  | "running"
+  | "succeeded"
+  | "failed"
+  | "skipped"
+  | "cancelled";
+
 export interface DevelopmentArtifact {
   name: string;
   path: string;
@@ -71,6 +82,64 @@ export interface DevelopmentLaunchSpec {
   windowsSigningCleanup?: DevelopmentWindowsSigningCleanup;
 }
 
+// ---------------------------------------------------------------------------
+// Workflow launch specification (Phase 1 — serial PNPM verification)
+// ---------------------------------------------------------------------------
+
+/**
+ * A single fixed step in a serial development workflow. The executable and
+ * arguments are constructed entirely by the closed web adapter from the
+ * trusted catalog — an MCP caller can never supply them.
+ */
+export interface DevelopmentWorkflowStep {
+  id: string;
+  kind: "typecheck" | "lint" | "test_selected" | "build";
+  executable: string;
+  args: string[];
+  /** Per-step timeout in milliseconds. */
+  timeoutMs: number;
+  enabled: boolean;
+}
+
+/**
+ * Launch specification for a `kind: "workflow"` task. The worker executes
+ * each enabled step serially with `shell: false`, redacts output, and
+ * persists safe per-step results.
+ */
+export interface DevelopmentWorkflowLaunchSpec {
+  workspaceId: string;
+  recipeId: string;
+  /** SHA-256 digest binding this launch to a specific catalog recipe version. */
+  recipeDigest: string;
+  /** Canonical workspace root used as cwd for every step. */
+  cwd: string;
+  steps: DevelopmentWorkflowStep[];
+  /** Total timeout across all steps. */
+  timeoutMs: number;
+  /** Canonical output directories for artifact summaries. */
+  artifactDirs?: string[];
+}
+
+/** Per-step result persisted in the task record. */
+export interface DevelopmentTaskStepResult {
+  id: string;
+  kind: "typecheck" | "lint" | "test_selected" | "build";
+  state: DevelopmentStepState;
+  exitCode: number | null;
+  startedAt?: string;
+  endedAt?: string;
+  durationMs?: number;
+}
+
+/** Directory artifact summary published after a successful workflow. */
+export interface DevelopmentDirectorySummary {
+  id: string;
+  kind: "directory-summary";
+  path: string;
+  fileCount: number;
+  byteTotal: number;
+}
+
 export interface DevelopmentWorkerHandle {
   pid: number;
   nonce: string;
@@ -90,6 +159,8 @@ export interface DevelopmentTaskRecord {
   tool: string;
   action: string;
   class: DevelopmentTaskClass;
+  /** Discriminates command-launch vs workflow-launch tasks. */
+  kind?: DevelopmentTaskKind;
   resources: string[];
   state: DevelopmentTaskState;
   stage: string;
@@ -100,6 +171,10 @@ export interface DevelopmentTaskRecord {
   worker?: DevelopmentWorkerHandle;
   exit?: DevelopmentTaskExit;
   artifacts: DevelopmentArtifact[];
+  /** Per-step results for workflow tasks; absent for command tasks. */
+  steps?: DevelopmentTaskStepResult[];
+  /** Directory artifact summaries published after successful workflows. */
+  directorySummaries?: DevelopmentDirectorySummary[];
 }
 
 /** Input accepted by the store when creating a new task record. */
@@ -109,6 +184,8 @@ export interface DevelopmentTaskCreateInput {
   action: string;
   class: DevelopmentTaskClass;
   resources: string[];
+  /** Optional kind for new tasks; legacy persisted JSON defaults to "command". */
+  kind?: DevelopmentTaskKind;
 }
 
 /** Partial update applied by a compare-and-set transition. */
@@ -120,4 +197,6 @@ export interface DevelopmentTaskUpdatePatch {
   worker?: DevelopmentWorkerHandle;
   exit?: DevelopmentTaskExit;
   artifacts?: DevelopmentArtifact[];
+  steps?: DevelopmentTaskStepResult[];
+  directorySummaries?: DevelopmentDirectorySummary[];
 }

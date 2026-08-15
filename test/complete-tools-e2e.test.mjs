@@ -15,11 +15,11 @@ const expectedTools = [
   "list_allowed_directories", "auth", "execute_command", "search_content",
   "git_status", "git_diff", "compare_files", "apply_patch", "web_fetch",
   "manage_binary_artifact", "todo_write", "todo_read", "ask_user",
-  "get_development_task", "read_development_task_logs", "cancel_development_task",
+  "get_development_task", "list_development_tasks", "read_development_task_logs", "cancel_development_task",
   "inspect_development_environment", "plan_environment_changes", "apply_environment_plan",
   "android_development",
   "windows_development", "node_development",
-  "manage_development_project",
+  "manage_development_project", "list_local_workspaces", "run_local_workflow",
 ];
 
 async function freePort() {

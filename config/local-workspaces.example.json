@@ -1,0 +1,25 @@
+{
+  "version": 1,
+  "workspaces": [
+    {
+      "id": "zeroxcore-web",
+      "label": "Zeroxcore Web",
+      "root": "C:\\projects\\zeroxcore\\apps\\web",
+      "packageManager": "pnpm",
+      "artifactDirs": ["dist", ".next"],
+      "recipes": [
+        {
+          "id": "verify_web",
+          "label": "Verify Web Build",
+          "packageManager": "pnpm",
+          "steps": [
+            { "id": "typecheck", "kind": "typecheck", "enabled": true },
+            { "id": "lint", "kind": "lint", "enabled": true },
+            { "id": "test_selected", "kind": "test_selected", "enabled": true },
+            { "id": "build", "kind": "build", "enabled": true }
+          ]
+        }
+      ]
+    }
+  ]
+}

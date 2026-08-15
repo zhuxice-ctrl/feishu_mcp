@@ -1,7 +1,7 @@
 import fs from "node:fs";
 import path from "node:path";
 import { createHash } from "node:crypto";
-import type { DevelopmentArtifact } from "./types.js";
+import type { DevelopmentArtifact, DevelopmentDirectorySummary } from "./types.js";
 import { artifactManifestPath } from "./workerProtocol.js";
 
 const MAX_MANIFEST_BYTES = 1_048_576;
@@ -147,4 +147,96 @@ export function collectDevelopmentArtifacts(
     if (artifact) artifacts.push(artifact);
   }
   return artifacts;
+}
+
+// ---------------------------------------------------------------------------
+// Directory artifact summaries (Phase 1 — workflow output inspection)
+// ---------------------------------------------------------------------------
+
+const MAX_DIR_ENTRIES = 100_000;
+const MAX_DIR_BYTES = 1_073_741_824; // 1 GiB cap on traversal
+
+/**
+ * Inspect a configured output directory and return aggregate file count and
+ * byte total. Never follows symlinks, never returns file names or paths —
+ * only the aggregate summary. Returns undefined when the directory is absent,
+ * is a link, escapes an authorized root, or exceeds the traversal cap.
+ */
+export function summarizeDirectory(
+  dirPath: string,
+  authorizedRoots: readonly string[],
+): DevelopmentDirectorySummary | undefined {
+  const candidate = path.resolve(dirPath);
+  // Find an authorized root that contains this directory.
+  for (const configuredRoot of authorizedRoots) {
+    try {
+      const root = path.resolve(configuredRoot);
+      const rootStat = fs.lstatSync(root);
+      if (!rootStat.isDirectory() || rootStat.isSymbolicLink()) continue;
+      if (!isInside(root, candidate)) continue;
+      if (hasLinkBetween(root, candidate)) continue;
+      const realRoot = fs.realpathSync.native(root);
+      const realCandidate = fs.realpathSync.native(candidate);
+      if (!isInside(realRoot, realCandidate)) continue;
+      const dirStat = fs.lstatSync(candidate);
+      if (!dirStat.isDirectory() || dirStat.isSymbolicLink()) continue;
+
+      let fileCount = 0;
+      let byteTotal = 0;
+      const walk = (current: string): boolean => {
+        let entries: fs.Dirent[];
+        try {
+          entries = fs.readdirSync(current, { withFileTypes: true });
+        } catch {
+          return true; // vanished mid-walk; return what we have
+        }
+        for (const entry of entries) {
+          if (entry.isSymbolicLink()) continue;
+          const full = path.join(current, entry.name);
+          if (entry.isDirectory()) {
+            if (!walk(full)) return false;
+          } else if (entry.isFile()) {
+            fileCount += 1;
+            if (fileCount > MAX_DIR_ENTRIES) return false;
+            try {
+              byteTotal += fs.lstatSync(full).size;
+            } catch {
+              // vanished; ignore
+            }
+            if (byteTotal > MAX_DIR_BYTES) return false;
+          }
+        }
+        return true;
+      };
+      walk(candidate);
+      return {
+        id: path.basename(candidate),
+        kind: "directory-summary",
+        path: realCandidate,
+        fileCount: Math.min(fileCount, MAX_DIR_ENTRIES),
+        byteTotal: Math.min(byteTotal, MAX_DIR_BYTES),
+      };
+    } catch {
+      // try next root
+    }
+  }
+  return undefined;
+}
+
+/**
+ * Collect directory summaries for all configured artifact directories of a
+ * successful workflow. Returns only summaries for directories that remain
+ * inside authorized roots.
+ */
+export function collectDirectorySummaries(
+  artifactDirs: readonly string[],
+  authorizedRoots: readonly string[],
+): DevelopmentDirectorySummary[] {
+  if (artifactDirs.length === 0 || authorizedRoots.length === 0) return [];
+  const summaries: DevelopmentDirectorySummary[] = [];
+  for (const dir of artifactDirs) {
+    const summary = summarizeDirectory(dir, authorizedRoots);
+    if (summary) summaries.push(summary);
+  }
+  return summaries;
 }

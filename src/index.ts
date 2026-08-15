@@ -72,6 +72,7 @@ import { registerAndroidDevelopmentTool } from "./tools/androidDevelopment.js";
 import { registerNodeDevelopmentTool } from "./tools/nodeDevelopment.js";
 import { registerWindowsDevelopmentTool } from "./tools/windowsDevelopment.js";
 import { registerDevelopmentProjectTool } from "./tools/developmentProjects.js";
+import { registerLocalWorkflowTools } from "./tools/localWorkflows.js";
 import { AndroidProjectProvider } from "./development/android/projectProvider.js";
 import { installReviewedGradleWrapper } from "./development/android/wrapperAssets.js";
 import { DotnetProjectProvider } from "./development/windows/dotnetProjectProvider.js";
@@ -103,6 +104,9 @@ const TOOL_NAMES = [
   "node_development",
   "manage_development_project",
   "manage_binary_artifact",
+  "list_local_workspaces",
+  "run_local_workflow",
+  "list_development_tasks",
 ] as const;
 
 const SERVER_INSTRUCTIONS =
@@ -253,6 +257,7 @@ function createMcpServer(): McpServer {
   });
   registerNodeDevelopmentTool(server);
   registerDevelopmentProjectTool(server, { registry: projectRegistry });
+  registerLocalWorkflowTools(server, developmentTaskCoordinator);
 
   return server;
 }

@@ -22,7 +22,9 @@ import type { DevelopmentTaskCoordinator } from "../development/tasks/coordinato
 import { developmentOwnerKey } from "../development/tasks/ownerKey.js";
 import type {
   DevelopmentArtifact,
+  DevelopmentDirectorySummary,
   DevelopmentTaskRecord,
+  DevelopmentTaskStepResult,
 } from "../development/tasks/types.js";
 import {
   stderrLogPath,
@@ -33,6 +35,7 @@ import { toolError, toolJson } from "./results.js";
 
 export const MAX_LOG_BYTES = 65_536;
 export const MAX_LOG_LINES = 500;
+export const MAX_TASK_LIST = 50;
 
 const EXIT_MESSAGE_MAX = 500;
 
@@ -85,6 +88,37 @@ function artifactView(
   return view;
 }
 
+function directorySummaryView(
+  summary: DevelopmentDirectorySummary,
+  userId: string,
+  deps: DevelopmentTaskToolDeps,
+): Record<string, unknown> {
+  const view: Record<string, unknown> = {
+    id: summary.id,
+    kind: summary.kind,
+    fileCount: summary.fileCount,
+    byteTotal: summary.byteTotal,
+  };
+  const hasAccess = deps.hasDirectoryAccess ?? defaultHasAccess;
+  if (hasAccess(userId, summary.path)) {
+    view.path = summary.path;
+  }
+  return view;
+}
+
+function stepResultView(step: DevelopmentTaskStepResult): Record<string, unknown> {
+  const view: Record<string, unknown> = {
+    id: step.id,
+    kind: step.kind,
+    state: step.state,
+    exitCode: step.exitCode,
+  };
+  if (step.startedAt !== undefined) view.startedAt = step.startedAt;
+  if (step.endedAt !== undefined) view.endedAt = step.endedAt;
+  if (step.durationMs !== undefined) view.durationMs = step.durationMs;
+  return view;
+}
+
 function publicTask(
   record: DevelopmentTaskRecord,
   userId: string,
@@ -100,6 +134,7 @@ function publicTask(
     createdAt: record.createdAt,
     updatedAt: record.updatedAt,
   };
+  if (record.kind !== undefined) task.kind = record.kind;
   if (record.startedAt !== undefined) task.startedAt = record.startedAt;
   if (record.endedAt !== undefined) task.endedAt = record.endedAt;
   if (record.exit !== undefined) {
@@ -113,6 +148,16 @@ function publicTask(
   task.artifacts = record.artifacts.map((artifact) =>
     artifactView(artifact, record.ownerKey, userId, deps)
   );
+  // Workflow step results — ID/state/time/exit only, no launch data.
+  if (record.steps !== undefined) {
+    task.steps = record.steps.map(stepResultView);
+  }
+  // Directory summaries — path shown only when still authorized.
+  if (record.directorySummaries !== undefined) {
+    task.directorySummaries = record.directorySummaries.map((summary) =>
+      directorySummaryView(summary, userId, deps)
+    );
+  }
   return task;
 }
 
@@ -129,6 +174,41 @@ export async function getDevelopmentTask(
   const owned = ownedRecord(args.taskId, deps);
   if ("error" in owned) return owned.error;
   return toolJson({ ok: true, task: publicTask(owned.record, owned.userId, deps) });
+}
+
+// ----------------------------------------------------------- list tasks ---
+
+export interface ListDevelopmentTasksArgs {
+  state?: "queued" | "running" | "terminal";
+}
+
+export async function listDevelopmentTasks(
+  args: ListDevelopmentTasksArgs,
+  deps: DevelopmentTaskToolDeps,
+) {
+  const userId = (deps.userId ?? getRequestUserId)();
+  if (!userId) {
+    return toolError("AUTHENTICATION_REQUIRED", "An authenticated owner is required.");
+  }
+  const ownerKey = developmentOwnerKey(userId);
+  const all = deps.coordinator.store.list(ownerKey);
+  const terminalStates = new Set(["succeeded", "failed", "cancelled", "interrupted"]);
+  const filtered = args.state
+    ? all.filter((record) => {
+        if (args.state === "queued") return record.state === "queued";
+        if (args.state === "running") return record.state === "running" || record.state === "cancel_requested";
+        if (args.state === "terminal") return terminalStates.has(record.state as string);
+        return true;
+      })
+    : all;
+  // Most-recent-first, capped at MAX_TASK_LIST.
+  const sorted = filtered
+    .sort((a, b) => b.createdAt.localeCompare(a.createdAt))
+    .slice(0, MAX_TASK_LIST);
+  return toolJson({
+    ok: true,
+    tasks: sorted.map((record) => publicTask(record, userId, deps)),
+  });
 }
 
 // -------------------------------------------------------------- log read ---
@@ -329,6 +409,30 @@ export function registerDevelopmentTaskTools(
           subject: { kind: "development", key: "task", display: "development task" },
         },
         async () => getDevelopmentTask(args, { coordinator }),
+      ),
+  );
+
+  server.registerTool(
+    "list_development_tasks",
+    {
+      description:
+        "List your development tasks in most-recent-first order, capped at 50. " +
+        "Optionally filter by state (queued, running, terminal). Returns only " +
+        "safe task views — never launch specs, roots, worker details, or env. " +
+        "Use this to rediscover a task ID after an interrupted session.",
+      inputSchema: {
+        state: z.enum(["queued", "running", "terminal"]).optional(),
+      },
+    },
+    async (args) =>
+      authorizeOwnerToolCall("list_development_tasks", args) ??
+      runTool(
+        {
+          name: "list_development_tasks",
+          concurrency: "default",
+          subject: { kind: "development", key: "task-list", display: "development task list" },
+        },
+        async () => listDevelopmentTasks(args ?? {}, { coordinator }),
       ),
   );
 

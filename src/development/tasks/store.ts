@@ -16,26 +16,40 @@ import type {
   DevelopmentDirectArtifact,
   DevelopmentWindowsSigningCleanup,
   DevelopmentArtifact,
+  DevelopmentDirectorySummary,
   DevelopmentLaunchSpec,
   DevelopmentTaskCreateInput,
+  DevelopmentTaskKind,
   DevelopmentTaskRecord,
   DevelopmentTaskState,
+  DevelopmentTaskStepResult,
   DevelopmentTaskUpdatePatch,
+  DevelopmentWorkflowLaunchSpec,
+  DevelopmentWorkflowStep,
+  DevelopmentStepState,
 } from "./types.js";
 import { isSensitiveEnvEntry } from "./redaction.js";
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const CREDENTIAL_ID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
 const ENV_NAME_RE = /^[A-Za-z_][A-Za-z0-9_]*$/;
+const STEP_ID_RE = /^[a-z0-9_-]{1,64}$/;
 const VALID_STATES: readonly DevelopmentTaskState[] = [
   "queued", "running", "succeeded", "failed",
   "cancel_requested", "cancelled", "interrupted",
 ];
 const VALID_CLASSES = new Set(["default", "build", "privileged"]);
+const VALID_KINDS = new Set<DevelopmentTaskKind>(["command", "workflow"]);
+const VALID_STEP_STATES: readonly DevelopmentStepState[] = [
+  "pending", "running", "succeeded", "failed", "skipped", "cancelled",
+];
+const VALID_STEP_KINDS = new Set(["typecheck", "lint", "test_selected", "build"]);
 
 const MAX_STDIN_BYTES = 4096;
 const MAX_LAUNCH_BYTES = 1_048_576;
+const MAX_WORKFLOW_BYTES = 1_048_576;
 const MAX_ARGUMENTS = 1024;
+const MAX_WORKFLOW_STEPS = 8;
 const BINARY_SINK_KEYS = new Set(["stream", "type", "target", "name", "kind"]);
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -201,6 +215,157 @@ function validateLaunchSpec(value: unknown): DevelopmentLaunchSpec {
   };
 }
 
+function validateWorkflowStep(value: unknown, index: number): DevelopmentWorkflowStep {
+  if (!isRecord(value)) {
+    throw new DevelopmentTaskStoreError(`invalid workflow step ${index}`);
+  }
+  if (typeof value.id !== "string" || !STEP_ID_RE.test(value.id)) {
+    throw new DevelopmentTaskStoreError(`invalid workflow step ${index} id`);
+  }
+  if (typeof value.kind !== "string" || !VALID_STEP_KINDS.has(value.kind)) {
+    throw new DevelopmentTaskStoreError(`invalid workflow step ${index} kind`);
+  }
+  if (typeof value.executable !== "string" || !path.isAbsolute(value.executable)) {
+    throw new DevelopmentTaskStoreError(`workflow step ${index} executable must be an absolute path`);
+  }
+  if (
+    !Array.isArray(value.args) || value.args.length > MAX_ARGUMENTS ||
+    value.args.some((arg) => typeof arg !== "string" || Buffer.byteLength(arg, "utf8") > 32_768)
+  ) {
+    throw new DevelopmentTaskStoreError(`invalid workflow step ${index} args`);
+  }
+  if (!Number.isSafeInteger(value.timeoutMs) || (value.timeoutMs as number) <= 0 || (value.timeoutMs as number) > 86_400_000) {
+    throw new DevelopmentTaskStoreError(`invalid workflow step ${index} timeoutMs`);
+  }
+  if (typeof value.enabled !== "boolean") {
+    throw new DevelopmentTaskStoreError(`invalid workflow step ${index} enabled`);
+  }
+  return {
+    id: value.id,
+    kind: value.kind as DevelopmentWorkflowStep["kind"],
+    executable: value.executable,
+    args: [...value.args] as string[],
+    timeoutMs: value.timeoutMs as number,
+    enabled: value.enabled,
+  };
+}
+
+function validateWorkflowSpec(value: unknown): DevelopmentWorkflowLaunchSpec {
+  if (!isRecord(value)) throw new DevelopmentTaskStoreError("invalid workflow spec");
+  if (typeof value.workspaceId !== "string" || !STEP_ID_RE.test(value.workspaceId)) {
+    throw new DevelopmentTaskStoreError("invalid workflow workspaceId");
+  }
+  if (typeof value.recipeId !== "string" || !STEP_ID_RE.test(value.recipeId)) {
+    throw new DevelopmentTaskStoreError("invalid workflow recipeId");
+  }
+  if (typeof value.recipeDigest !== "string" || value.recipeDigest.length !== 64) {
+    throw new DevelopmentTaskStoreError("invalid workflow recipeDigest");
+  }
+  if (typeof value.cwd !== "string" || !path.isAbsolute(value.cwd)) {
+    throw new DevelopmentTaskStoreError("workflow cwd must be an absolute path");
+  }
+  if (!Array.isArray(value.steps) || value.steps.length === 0 || value.steps.length > MAX_WORKFLOW_STEPS) {
+    throw new DevelopmentTaskStoreError(`workflow must have 1-${MAX_WORKFLOW_STEPS} steps`);
+  }
+  const steps = value.steps.map((step, i) => validateWorkflowStep(step, i));
+  // Reject duplicate step IDs.
+  const stepIds = new Set<string>();
+  for (const step of steps) {
+    if (stepIds.has(step.id)) {
+      throw new DevelopmentTaskStoreError(`duplicate workflow step id: ${step.id}`);
+    }
+    stepIds.add(step.id);
+  }
+  if (!Number.isSafeInteger(value.timeoutMs) || (value.timeoutMs as number) <= 0 || (value.timeoutMs as number) > 86_400_000) {
+    throw new DevelopmentTaskStoreError("invalid workflow timeoutMs");
+  }
+  let artifactDirs: string[] | undefined;
+  if (value.artifactDirs !== undefined) {
+    if (
+      !Array.isArray(value.artifactDirs) || value.artifactDirs.length > 16 ||
+      value.artifactDirs.some((dir) => typeof dir !== "string" || !path.isAbsolute(dir))
+    ) {
+      throw new DevelopmentTaskStoreError("workflow artifactDirs must contain absolute paths");
+    }
+    artifactDirs = [...value.artifactDirs as string[]];
+  }
+  return {
+    workspaceId: value.workspaceId,
+    recipeId: value.recipeId,
+    recipeDigest: value.recipeDigest,
+    cwd: value.cwd,
+    steps,
+    timeoutMs: value.timeoutMs as number,
+    ...(artifactDirs === undefined ? {} : { artifactDirs }),
+  };
+}
+
+function validateStepResults(value: unknown): DevelopmentTaskStepResult[] {
+  if (!Array.isArray(value) || value.length > MAX_WORKFLOW_STEPS) {
+    throw new DevelopmentTaskStoreError("invalid step results");
+  }
+  return value.map((entry, i) => {
+    if (!isRecord(entry)) throw new DevelopmentTaskStoreError(`invalid step result ${i}`);
+    if (typeof entry.id !== "string" || !STEP_ID_RE.test(entry.id)) {
+      throw new DevelopmentTaskStoreError(`invalid step result ${i} id`);
+    }
+    if (typeof entry.kind !== "string" || !VALID_STEP_KINDS.has(entry.kind)) {
+      throw new DevelopmentTaskStoreError(`invalid step result ${i} kind`);
+    }
+    if (typeof entry.state !== "string" || !VALID_STEP_STATES.includes(entry.state as DevelopmentStepState)) {
+      throw new DevelopmentTaskStoreError(`invalid step result ${i} state`);
+    }
+    if (entry.exitCode !== null && !Number.isSafeInteger(entry.exitCode)) {
+      throw new DevelopmentTaskStoreError(`invalid step result ${i} exitCode`);
+    }
+    const result: DevelopmentTaskStepResult = {
+      id: entry.id,
+      kind: entry.kind as DevelopmentTaskStepResult["kind"],
+      state: entry.state as DevelopmentStepState,
+      exitCode: entry.exitCode === null ? null : entry.exitCode as number,
+    };
+    if (typeof entry.startedAt === "string") result.startedAt = entry.startedAt;
+    if (typeof entry.endedAt === "string") result.endedAt = entry.endedAt;
+    if (typeof entry.durationMs === "number" && Number.isSafeInteger(entry.durationMs)) {
+      result.durationMs = entry.durationMs;
+    }
+    return result;
+  });
+}
+
+function validateDirectorySummaries(value: unknown): DevelopmentDirectorySummary[] {
+  if (!Array.isArray(value) || value.length > 16) {
+    throw new DevelopmentTaskStoreError("invalid directory summaries");
+  }
+  return value.map((entry, i) => {
+    if (!isRecord(entry)) throw new DevelopmentTaskStoreError(`invalid directory summary ${i}`);
+    if (typeof entry.id !== "string" || entry.id.length === 0 || entry.id.length > 255) {
+      throw new DevelopmentTaskStoreError(`invalid directory summary ${i} id`);
+    }
+    if (entry.kind !== "directory-summary") {
+      throw new DevelopmentTaskStoreError(`invalid directory summary ${i} kind`);
+    }
+    if (typeof entry.path !== "string" || !path.isAbsolute(entry.path)) {
+      throw new DevelopmentTaskStoreError(`invalid directory summary ${i} path`);
+    }
+    const fileCount = entry.fileCount;
+    if (typeof fileCount !== "number" || !Number.isSafeInteger(fileCount) || fileCount < 0) {
+      throw new DevelopmentTaskStoreError(`invalid directory summary ${i} fileCount`);
+    }
+    const byteTotal = entry.byteTotal;
+    if (typeof byteTotal !== "number" || !Number.isSafeInteger(byteTotal) || byteTotal < 0) {
+      throw new DevelopmentTaskStoreError(`invalid directory summary ${i} byteTotal`);
+    }
+    return {
+      id: entry.id,
+      kind: "directory-summary" as const,
+      path: entry.path,
+      fileCount,
+      byteTotal,
+    };
+  });
+}
+
 export class DevelopmentTaskStoreError extends Error {}
 
 function validateTaskId(id: string): void {
@@ -243,6 +408,10 @@ export class DevelopmentTaskStore {
     return path.join(this.taskDir(id), "launch.json");
   }
 
+  workflowPath(id: string): string {
+    return path.join(this.taskDir(id), "workflow.json");
+  }
+
   create(input: DevelopmentTaskCreateInput): DevelopmentTaskRecord {
     if (!input.ownerKey) throw new DevelopmentTaskStoreError("ownerKey is required");
     if (!input.tool) throw new DevelopmentTaskStoreError("tool is required");
@@ -260,6 +429,7 @@ export class DevelopmentTaskStore {
       tool: input.tool,
       action: input.action,
       class: input.class,
+      ...(input.kind !== undefined ? { kind: input.kind } : {}),
       resources: [...new Set(input.resources)].sort((a, b) => a.localeCompare(b)),
       state: "queued",
       stage: "queued",
@@ -308,6 +478,12 @@ export class DevelopmentTaskStore {
     if (patch.worker !== undefined) next.worker = patch.worker;
     if (patch.exit !== undefined) next.exit = patch.exit;
     if (patch.artifacts !== undefined) next.artifacts = patch.artifacts;
+    if (patch.steps !== undefined) {
+      next.steps = validateStepResults(patch.steps);
+    }
+    if (patch.directorySummaries !== undefined) {
+      next.directorySummaries = validateDirectorySummaries(patch.directorySummaries);
+    }
     next.updatedAt = nowIso();
     this.persistMetadata(next);
     return next;
@@ -353,43 +529,44 @@ export class DevelopmentTaskStore {
         );
       }
     }
-    const dir = this.taskDir(id);
-    fs.mkdirSync(dir, { recursive: true, mode: 0o700 });
-    const temporary = path.join(dir, `.launch-${process.pid}-${randomUUID()}.tmp`);
-    try {
-      const fd = fs.openSync(temporary, "wx", 0o600);
-      try {
-        fs.writeFileSync(fd, `${JSON.stringify(validated, null, 2)}\n`, "utf8");
-        fs.fsyncSync(fd);
-      } finally {
-        fs.closeSync(fd);
-      }
-      fs.renameSync(temporary, this.launchPath(id));
-      try { fs.chmodSync(this.launchPath(id), 0o600); } catch {}
-    } finally {
-      try { fs.rmSync(temporary, { force: true }); } catch {}
-    }
+    this.atomicWrite(this.launchPath(id), validated);
   }
 
   loadLaunchSpec(id: string): DevelopmentLaunchSpec | undefined {
     validateTaskId(id);
-    const file = this.launchPath(id);
-    try {
-      const stat = fs.lstatSync(file);
-      if (!stat.isFile() || stat.isSymbolicLink() || stat.size > MAX_LAUNCH_BYTES) {
-        throw new DevelopmentTaskStoreError("invalid launch file");
-      }
-      const flags = fs.constants.O_RDONLY | (fs.constants.O_NOFOLLOW ?? 0);
-      const fd = fs.openSync(file, flags);
-      try {
-        return validateLaunchSpec(JSON.parse(fs.readFileSync(fd, "utf8")));
-      } finally {
-        fs.closeSync(fd);
-      }
-    } catch (error) {
-      if ((error as NodeJS.ErrnoException).code === "ENOENT") return undefined;
-      throw error;
-    }
+    return this.loadValidated<DevelopmentLaunchSpec>(
+      this.launchPath(id), MAX_LAUNCH_BYTES, validateLaunchSpec,
+    );
+  }
+
+  /**
+   * Persist the workflow launch spec to a separate mode-0600 file. Like the
+   * command launch spec, this file is never returned to MCP callers.
+   */
+  saveWorkflowSpec(id: string, spec: DevelopmentWorkflowLaunchSpec): void {
+    validateTaskId(id);
+    if (!this.get(id)) throw new DevelopmentTaskStoreError(`task not found: ${id}`);
+    const validated = validateWorkflowSpec(spec);
+    this.atomicWrite(this.workflowPath(id), validated);
+  }
+
+  loadWorkflowSpec(id: string): DevelopmentWorkflowLaunchSpec | undefined {
+    validateTaskId(id);
+    return this.loadValidated<DevelopmentWorkflowLaunchSpec>(
+      this.workflowPath(id), MAX_WORKFLOW_BYTES, validateWorkflowSpec,
+    );
+  }
+
+  /**
+   * Load either launch spec type based on the task's kind field.
+   * Returns undefined when neither file exists.
+   */
+  loadLaunchSpecForTask(id: string): DevelopmentLaunchSpec | DevelopmentWorkflowLaunchSpec | undefined {
+    validateTaskId(id);
+    const record = this.get(id);
+    if (!record) return undefined;
+    if (record.kind === "workflow") return this.loadWorkflowSpec(id);
+    return this.loadLaunchSpec(id);
   }
 
   recordArtifact(id: string, artifact: DevelopmentArtifact): DevelopmentTaskRecord {
@@ -496,25 +673,65 @@ export class DevelopmentTaskStore {
       quarantine(id, file);
       return undefined;
     }
+    // Validate optional new fields if present.
+    if (record.kind !== undefined) {
+      if (typeof record.kind !== "string" || !VALID_KINDS.has(record.kind as DevelopmentTaskKind)) {
+        quarantine(id, file);
+        return undefined;
+      }
+    }
+    if (record.steps !== undefined) {
+      try { validateStepResults(record.steps); } catch { quarantine(id, file); return undefined; }
+    }
+    if (record.directorySummaries !== undefined) {
+      try { validateDirectorySummaries(record.directorySummaries); } catch { quarantine(id, file); return undefined; }
+    }
     return record as DevelopmentTaskRecord;
   }
 
   private persistMetadata(record: DevelopmentTaskRecord): void {
-    const dir = this.taskDir(record.id);
+    this.atomicWrite(this.metadataPath(record.id), record);
+  }
+
+  private atomicWrite(targetPath: string, value: unknown): void {
+    const dir = path.dirname(targetPath);
     fs.mkdirSync(dir, { recursive: true, mode: 0o700 });
-    const temporary = path.join(dir, `.metadata-${process.pid}-${randomUUID()}.tmp`);
+    const temporary = path.join(dir, `.${path.basename(targetPath)}-${process.pid}-${randomUUID()}.tmp`);
     try {
       const fd = fs.openSync(temporary, "wx", 0o600);
       try {
-        fs.writeFileSync(fd, `${JSON.stringify(record, null, 2)}\n`, "utf8");
+        fs.writeFileSync(fd, `${JSON.stringify(value, null, 2)}\n`, "utf8");
         fs.fsyncSync(fd);
       } finally {
         fs.closeSync(fd);
       }
-      fs.renameSync(temporary, this.metadataPath(record.id));
-      try { fs.chmodSync(this.metadataPath(record.id), 0o600); } catch {}
+      fs.renameSync(temporary, targetPath);
+      try { fs.chmodSync(targetPath, 0o600); } catch {}
     } finally {
       try { fs.rmSync(temporary, { force: true }); } catch {}
+    }
+  }
+
+  private loadValidated<T>(
+    file: string,
+    maxBytes: number,
+    validator: (value: unknown) => T,
+  ): T | undefined {
+    try {
+      const stat = fs.lstatSync(file);
+      if (!stat.isFile() || stat.isSymbolicLink() || stat.size > maxBytes) {
+        throw new DevelopmentTaskStoreError("invalid file");
+      }
+      const flags = fs.constants.O_RDONLY | (fs.constants.O_NOFOLLOW ?? 0);
+      const fd = fs.openSync(file, flags);
+      try {
+        return validator(JSON.parse(fs.readFileSync(fd, "utf8")));
+      } finally {
+        fs.closeSync(fd);
+      }
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code === "ENOENT") return undefined;
+      throw error;
     }
   }
 }

@@ -31,3 +31,6 @@ broker-registration.local.json
 *.p12
 *.keystore
 key.properties
+
+# Local workspace catalog (operator-owned, never tracked)
+local-workspaces.json

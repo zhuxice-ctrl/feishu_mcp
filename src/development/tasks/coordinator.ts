@@ -35,6 +35,7 @@ import type {
   DevelopmentTaskClass,
   DevelopmentTaskCreateInput,
   DevelopmentTaskRecord,
+  DevelopmentWorkflowLaunchSpec,
 } from "./types.js";
 import {
   developmentOwnerKey,
@@ -65,6 +66,10 @@ export interface DevelopmentCoordinatorOptions {
 export interface DevelopmentEnqueueInput extends DevelopmentTaskCreateInput {
   launch: DevelopmentLaunchSpec;
   secretValues?: string[];
+}
+
+export interface DevelopmentEnqueueWorkflowInput extends DevelopmentTaskCreateInput {
+  workflow: DevelopmentWorkflowLaunchSpec;
 }
 
 function defaultWorkerScript(): string {
@@ -109,6 +114,28 @@ export class DevelopmentTaskCoordinator {
     this.store.saveLaunchSpec(record.id, input.launch, input.secretValues ?? []);
     this.dispatch(record.id, input.class, input.resources).catch(() => {
       // If admission is cancelled or fails, ensure the record reflects it.
+      const current = this.store.get(record.id);
+      if (current && (current.state === "queued" || current.state === "running")) {
+        try { this.store.update(record.id, current.state, { state: "interrupted", endedAt: new Date().toISOString() }); } catch {}
+      }
+    });
+    return record;
+  }
+
+  enqueueWorkflow(input: DevelopmentEnqueueWorkflowInput): DevelopmentTaskRecord {
+    if (!OWNER_KEY_RE.test(input.ownerKey)) {
+      throw new Error("invalid development task owner key");
+    }
+    const record = this.store.create({
+      ownerKey: input.ownerKey,
+      tool: input.tool,
+      action: input.action,
+      class: input.class,
+      resources: input.resources,
+      kind: "workflow",
+    });
+    this.store.saveWorkflowSpec(record.id, input.workflow);
+    this.dispatch(record.id, input.class, input.resources).catch(() => {
       const current = this.store.get(record.id);
       if (current && (current.state === "queued" || current.state === "running")) {
         try { this.store.update(record.id, current.state, { state: "interrupted", endedAt: new Date().toISOString() }); } catch {}
@@ -273,7 +300,7 @@ export class DevelopmentTaskCoordinator {
       }
       if (record.state === "queued") {
         try {
-          if (!this.store.loadLaunchSpec(record.id)) throw new Error("launch spec missing");
+          if (!this.store.loadLaunchSpecForTask(record.id)) throw new Error("launch spec missing");
         } catch {
           try {
             this.store.update(record.id, "queued", {

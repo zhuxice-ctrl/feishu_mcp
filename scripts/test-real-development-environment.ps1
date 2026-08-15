@@ -253,8 +253,8 @@ function Initialize-AcceptanceClient {
     $script:CurrentStep = "initialize"
     $health = Invoke-RestMethod -Uri "$BaseUrl/health" -Method Get `
         -Headers @{ "ngrok-skip-browser-warning" = "true" }
-    if ($health.toolCount -ne 32 -or @($health.tools).Count -ne 32) { throw "Health did not report 32 tools." }
-    if (@($health.tools | Select-Object -Unique).Count -ne 32) { throw "Health tool inventory contains duplicates." }
+    if ($health.toolCount -ne 35 -or @($health.tools).Count -ne 35) { throw "Health did not report 35 tools." }
+    if (@($health.tools | Select-Object -Unique).Count -ne 35) { throw "Health tool inventory contains duplicates." }
     [void](Invoke-McpRpc "initialize" @{
         protocolVersion = "2025-06-18"
         capabilities = @{ elicitation = @{ form = @{} } }
@@ -266,8 +266,8 @@ function Initialize-AcceptanceClient {
     }
     $listed = Invoke-McpRpc "tools/list" @{}
     $names = @($listed.tools | ForEach-Object { $_.name })
-    if ($names.Count -ne 32 -or @($names | Select-Object -Unique).Count -ne 32) {
-        throw "MCP tools/list did not return exactly 32 unique tools."
+    if ($names.Count -ne 35 -or @($names | Select-Object -Unique).Count -ne 35) {
+        throw "MCP tools/list did not return exactly 35 unique tools."
     }
     return $health
 }

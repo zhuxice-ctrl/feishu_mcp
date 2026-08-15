@@ -9,12 +9,17 @@
  * redacted stdout/stderr to disk, refreshes a heartbeat, polls for
  * cancellation, and finalizes the task metadata exactly once. It never
  * force-kills a PID it did not spawn itself.
+ *
+ * For `kind: "workflow"` tasks, the worker loads the workflow launch spec
+ * and executes each enabled step serially with `shell: false`, enforcing
+ * per-step and total timeouts, redacting output, and persisting safe
+ * per-step results.
  */
 
 import fs from "node:fs";
 import path from "node:path";
 import { randomUUID } from "node:crypto";
-import { spawn } from "node:child_process";
+import { spawn, type ChildProcess } from "node:child_process";
 import { pathToFileURL } from "node:url";
 import {
   DEV_TASK_CANCEL_GRACE_MS,
@@ -23,11 +28,19 @@ import {
 } from "../../config.js";
 import { DevelopmentTaskStore } from "./store.js";
 import { StreamingTaskRedactor } from "./redaction.js";
-import type { DevelopmentBinaryStdoutSink, DevelopmentLaunchSpec } from "./types.js";
+import type {
+  DevelopmentBinaryStdoutSink,
+  DevelopmentLaunchSpec,
+  DevelopmentWorkflowLaunchSpec,
+  DevelopmentWorkflowStep,
+  DevelopmentTaskStepResult,
+  DevelopmentStepState,
+} from "./types.js";
 import { terminateProcessTree, type ProcessTreeTermination } from "./processTree.js";
 import {
   assertAuthorizedArtifactTarget,
   collectDevelopmentArtifacts,
+  collectDirectorySummaries,
   inspectAuthorizedArtifact,
 } from "./artifacts.js";
 import { safeRuntimeEnvironment } from "./runtimeEnvironment.js";
@@ -97,6 +110,10 @@ function cleanupBinarySink(sink: PreparedBinarySink | undefined): void {
   try { fs.rmSync(sink.stagingPath, { force: true }); } catch {}
 }
 
+// ===========================================================================
+// Command worker (existing path — unchanged)
+// ===========================================================================
+
 export async function runWorker(options: WorkerRunOptions = {}): Promise<void> {
   const taskDir = options.taskDir ?? process.env[TASK_DIR_ENV];
   const token = options.token ?? process.env[WORKER_TOKEN_ENV];
@@ -107,6 +124,13 @@ export async function runWorker(options: WorkerRunOptions = {}): Promise<void> {
   const taskId = path.basename(taskDir);
   const root = path.dirname(taskDir);
   const store = new DevelopmentTaskStore(root);
+
+  // Check task kind to decide which execution path to use.
+  const record = store.get(taskId);
+  if (record?.kind === "workflow") {
+    await runWorkflowWorker(store, taskId, taskDir, options);
+    return;
+  }
 
   let spec: DevelopmentLaunchSpec;
   try {
@@ -352,6 +376,250 @@ export async function runWorker(options: WorkerRunOptions = {}): Promise<void> {
     finalize(null);
   });
   await completion;
+}
+
+// ===========================================================================
+// Workflow worker (serial step execution)
+// ===========================================================================
+
+async function runWorkflowWorker(
+  store: DevelopmentTaskStore,
+  taskId: string,
+  taskDir: string,
+  options: WorkerRunOptions,
+): Promise<void> {
+  let spec: DevelopmentWorkflowLaunchSpec;
+  try {
+    const loaded = store.loadWorkflowSpec(taskId);
+    if (!loaded) throw new Error("workflow spec missing");
+    spec = loaded;
+  } catch (error) {
+    fail(store, taskId, `workflow load failed: ${(error as Error).message}`);
+    return;
+  }
+
+  const nonce = (options.token ?? process.env[WORKER_TOKEN_ENV] ?? "").slice(0, 16);
+  const stdoutFd = fs.openSync(stdoutLogPath(taskDir), "a", 0o600);
+  const stderrFd = fs.openSync(stderrLogPath(taskDir), "a", 0o600);
+
+  // Initialize step results.
+  const stepResults: DevelopmentTaskStepResult[] = spec.steps.map((step) => ({
+    id: step.id,
+    kind: step.kind,
+    state: "pending" as DevelopmentStepState,
+    exitCode: null,
+  }));
+  const initial = store.get(taskId);
+  if (!initial || (initial.state !== "queued" && initial.state !== "running")) {
+    try { fs.closeSync(stdoutFd); } catch {}
+    try { fs.closeSync(stderrFd); } catch {}
+    return;
+  }
+  try {
+    store.update(taskId, initial.state, {
+      ...(initial.state === "queued" ? { state: "running" as const } : {}),
+      stage: "workflow",
+      ...(initial.startedAt === undefined ? { startedAt: new Date().toISOString() } : {}),
+      worker: { pid: process.pid, nonce, heartbeatAt: new Date().toISOString() },
+      steps: stepResults,
+    });
+  } catch {
+    try { fs.closeSync(stdoutFd); } catch {}
+    try { fs.closeSync(stderrFd); } catch {}
+    return;
+  }
+
+  // Heartbeat.
+  const heartbeat = () => writeHeartbeat(taskDir, { pid: process.pid, nonce, heartbeatAt: new Date().toISOString() });
+  heartbeat();
+  const heartbeatTimer = setInterval(heartbeat, DEV_TASK_HEARTBEAT_MS);
+
+  let cancelled = false;
+  const cancelTimer = setInterval(() => {
+    if (isCancelRequested(taskDir)) {
+      cancelled = true;
+      try { store.update(taskId, "running", { state: "cancel_requested" }); } catch {}
+    }
+  }, Math.max(250, Math.floor(DEV_TASK_HEARTBEAT_MS / 2)));
+
+  const workflowDeadline = Date.now() + Math.min(spec.timeoutMs, DEV_TASK_MAX_RUNTIME_MS);
+  let allSucceeded = true;
+
+  for (let i = 0; i < spec.steps.length; i++) {
+    const step = spec.steps[i];
+    if (!step.enabled) {
+      stepResults[i].state = "skipped";
+      continue;
+    }
+    if (cancelled) {
+      stepResults[i].state = "cancelled";
+      continue;
+    }
+    if (!allSucceeded) {
+      stepResults[i].state = "skipped";
+      continue;
+    }
+
+    // Check total timeout.
+    if (Date.now() >= workflowDeadline) {
+      stepResults[i].state = "failed";
+      allSucceeded = false;
+      try { fs.writeSync(stderrFd, `[workflow] total timeout exceeded before step ${step.id}\n`); } catch {}
+      continue;
+    }
+
+    // Write step boundary marker.
+    const marker = `\n[workflow] === step ${step.id} (${step.kind}) ===\n`;
+    try { fs.writeSync(stdoutFd, marker); } catch {}
+
+    // Update step state to running.
+    stepResults[i].state = "running";
+    stepResults[i].startedAt = new Date().toISOString();
+    try {
+      store.update(taskId, "running", { stage: `step:${step.id}`, steps: stepResults });
+    } catch {}
+
+    const stepStart = Date.now();
+    const stepRedactor = new StreamingTaskRedactor([]);
+    const stderrRedactor = new StreamingTaskRedactor([]);
+    const stepDeadline = Math.min(workflowDeadline, stepStart + step.timeoutMs);
+
+    let stepChild: ChildProcess | undefined;
+    let stepTermination: ProcessTreeTermination | undefined;
+    let stepTimedOut = false;
+    let stepExitCode: number | null = null;
+
+    try {
+      const childEnv: NodeJS.ProcessEnv = {
+        ...safeRuntimeEnvironment(),
+        [ARTIFACT_MANIFEST_ENV]: artifactManifestPath(taskDir),
+      };
+      stepChild = spawn(step.executable, step.args, {
+        cwd: spec.cwd,
+        env: childEnv,
+        shell: false,
+        windowsHide: true,
+        detached: true,
+        stdio: ["ignore", "pipe", "pipe"],
+      });
+    } catch (error) {
+      try { fs.writeSync(stderrFd, `[workflow] step ${step.id} spawn failed: ${(error as Error).message}\n`); } catch {}
+      stepResults[i].state = "failed";
+      stepResults[i].exitCode = null;
+      stepResults[i].endedAt = new Date().toISOString();
+      allSucceeded = false;
+      continue;
+    }
+
+    const stepPid = stepChild.pid ?? 0;
+
+    stepChild.stdout?.on("data", (chunk: Buffer) => {
+      const redacted = stepRedactor.push(chunk.toString("utf8"));
+      if (redacted) fs.writeSync(stdoutFd, redacted);
+    });
+    stepChild.stderr?.on("data", (chunk: Buffer) => {
+      const redacted = stderrRedactor.push(chunk.toString("utf8"));
+      if (redacted) fs.writeSync(stderrFd, redacted);
+    });
+
+    // Cancellation and timeout check.
+    const stepCancelCheck = setInterval(() => {
+      if (cancelled) {
+        if (stepChild?.pid && !stepTermination) {
+          stepTermination = terminateProcessTree(stepChild.pid, { graceMs: DEV_TASK_CANCEL_GRACE_MS });
+        }
+      } else if (Date.now() >= stepDeadline) {
+        stepTimedOut = true;
+        if (stepChild?.pid && !stepTermination) {
+          stepTermination = terminateProcessTree(stepChild.pid, { graceMs: DEV_TASK_CANCEL_GRACE_MS });
+        }
+      }
+    }, Math.max(250, Math.floor(DEV_TASK_HEARTBEAT_MS / 2)));
+
+    // Wait for step to exit.
+    await new Promise<void>((resolve) => {
+      stepChild!.on("exit", (code, signal) => {
+        stepExitCode = code ?? (signal ? null : 0);
+        resolve();
+      });
+      stepChild!.on("error", () => {
+        stepExitCode = null;
+        resolve();
+      });
+    });
+
+    clearInterval(stepCancelCheck);
+    stepTermination?.cancel();
+
+    // Flush redactors.
+    const tailOut = stepRedactor.flush();
+    if (tailOut) try { fs.writeSync(stdoutFd, tailOut); } catch {}
+    const tailErr = stderrRedactor.flush();
+    if (tailErr) try { fs.writeSync(stderrFd, tailErr); } catch {}
+
+    const stepDuration = Date.now() - stepStart;
+    stepResults[i].endedAt = new Date().toISOString();
+    stepResults[i].durationMs = stepDuration;
+
+    if (cancelled) {
+      stepResults[i].state = "cancelled";
+      stepResults[i].exitCode = stepExitCode;
+      allSucceeded = false;
+    } else if (stepTimedOut) {
+      stepResults[i].state = "failed";
+      stepResults[i].exitCode = stepExitCode;
+      allSucceeded = false;
+      try { fs.writeSync(stderrFd, `[workflow] step ${step.id} timed out\n`); } catch {}
+    } else if (stepExitCode === 0) {
+      stepResults[i].state = "succeeded";
+      stepResults[i].exitCode = 0;
+    } else {
+      stepResults[i].state = "failed";
+      stepResults[i].exitCode = stepExitCode;
+      allSucceeded = false;
+      try { fs.writeSync(stderrFd, `[workflow] step ${step.id} failed (exit ${stepExitCode})\n`); } catch {}
+    }
+
+    // CAS update step results.
+    try {
+      store.update(taskId, "running", { steps: stepResults });
+    } catch {}
+  }
+
+  // Cleanup timers.
+  clearInterval(heartbeatTimer);
+  clearInterval(cancelTimer);
+
+  // Publish directory summaries on success.
+  let directorySummaries = undefined;
+  if (allSucceeded && !cancelled && spec.artifactDirs && spec.artifactDirs.length > 0) {
+    directorySummaries = collectDirectorySummaries(spec.artifactDirs, spec.artifactDirs);
+  }
+
+  // Finalize.
+  const endedAt = new Date().toISOString();
+  try {
+    const expected = cancelled ? "cancel_requested" : "running";
+    store.update(taskId, expected, {
+      state: cancelled ? "cancelled" : allSucceeded ? "succeeded" : "failed",
+      endedAt,
+      steps: stepResults,
+      ...(directorySummaries !== undefined ? { directorySummaries } : {}),
+      exit: {
+        code: allSucceeded && !cancelled ? 0 : null,
+        errorCode: cancelled
+          ? "TASK_CANCELLED"
+          : allSucceeded
+            ? undefined
+            : "PROCESS_FAILED",
+      },
+    });
+  } catch {
+    // already terminal
+  }
+
+  try { fs.closeSync(stdoutFd); } catch {}
+  try { fs.closeSync(stderrFd); } catch {}
 }
 
 const invokedAsScript = process.argv[1]
