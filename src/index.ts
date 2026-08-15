@@ -73,6 +73,9 @@ import { registerNodeDevelopmentTool } from "./tools/nodeDevelopment.js";
 import { registerWindowsDevelopmentTool } from "./tools/windowsDevelopment.js";
 import { registerDevelopmentProjectTool } from "./tools/developmentProjects.js";
 import { registerLocalWorkflowTools } from "./tools/localWorkflows.js";
+import { registerStagingAndroidVerifyTool } from "./tools/stagingAndroidVerify.js";
+import { ProfileRegistry } from "./android-workflow/profileRegistry.js";
+import { zeroxcoreProfile } from "./android-workflow/profiles/zeroxcore.js";
 import { AndroidProjectProvider } from "./development/android/projectProvider.js";
 import { installReviewedGradleWrapper } from "./development/android/wrapperAssets.js";
 import { DotnetProjectProvider } from "./development/windows/dotnetProjectProvider.js";
@@ -107,6 +110,7 @@ const TOOL_NAMES = [
   "list_local_workspaces",
   "run_local_workflow",
   "list_development_tasks",
+  "staging_android_verify",
 ] as const;
 
 const SERVER_INSTRUCTIONS =
@@ -172,6 +176,13 @@ projectRegistry.register(new DotnetProjectProvider({
 projectRegistry.register(new NativeProjectProvider({}));
 projectRegistry.register(new ElectronProjectProvider({}));
 const windowsCredentialStore = new LocalCredentialStore(APPROVAL_DATA_DIR);
+
+// ---------------------------------------------------------------------------
+// Android workflow — Profile registry (composition root)
+// ---------------------------------------------------------------------------
+
+const androidWorkflowRegistry = new ProfileRegistry();
+androidWorkflowRegistry.register(zeroxcoreProfile);
 
 // ---------------------------------------------------------------------------
 // MCP server factory — one fresh instance per request
@@ -258,6 +269,11 @@ function createMcpServer(): McpServer {
   registerNodeDevelopmentTool(server);
   registerDevelopmentProjectTool(server, { registry: projectRegistry });
   registerLocalWorkflowTools(server, developmentTaskCoordinator);
+  registerStagingAndroidVerifyTool(server, {
+    registry: androidWorkflowRegistry,
+    stateStoreDir: APPROVAL_DATA_DIR,
+    evidenceDir: path.join(APPROVAL_DATA_DIR, "staging-evidence"),
+  });
 
   return server;
 }

@@ -20,6 +20,7 @@ const expectedTools = [
   "android_development",
   "windows_development", "node_development",
   "manage_development_project", "list_local_workspaces", "run_local_workflow",
+  "staging_android_verify",
 ];
 
 async function freePort() {
