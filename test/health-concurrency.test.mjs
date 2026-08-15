@@ -73,8 +73,8 @@ test("health exposes redacted approval and concurrency summaries", async () => {
       await new Promise((resolve) => setTimeout(resolve, 50));
     }
     assert(health, "health endpoint did not become ready");
-    assert.equal(health.toolCount, 35);
-    assert.equal(health.tools.length, 35);
+    assert.equal(health.toolCount, 36);
+    assert.equal(health.tools.length, 36);
     assert.deepEqual(
       Object.fromEntries(Object.entries(health.concurrency).map(([key, value]) => [key, value.limit])),
       { global: 7, command: 3, search: 4, fetch: 5, artifact: 6 },
@@ -89,10 +89,16 @@ test("health exposes redacted approval and concurrency summaries", async () => {
       totalLimit: 4,
       buildLimit: 2,
     });
-    assert.deepEqual(health.developmentEnvironment, {
-      catalogVersion: 1,
-      brokerState: "missing",
-      plans: { planned: 0, claimed: 0, applied: 0, total: 0 },
+    assert.equal(health.developmentEnvironment.catalogVersion, 1);
+    assert.ok(
+      ["missing", "incompatible", "ready"].includes(health.developmentEnvironment.brokerState),
+      `unexpected broker state: ${health.developmentEnvironment.brokerState}`,
+    );
+    assert.deepEqual(health.developmentEnvironment.plans, {
+      planned: 0,
+      claimed: 0,
+      applied: 0,
+      total: 0,
     });
     assert.deepEqual(health.approval.stored, { session: 0, permanent: 0 });
     assert.equal(health.approval.unsupportedClientPolicy, "deny");

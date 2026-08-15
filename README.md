@@ -70,7 +70,7 @@ npm start
 Invoke-RestMethod http://127.0.0.1:3000/health
 ```
 
-正常时应返回 `status: ok`，并报告 35 个工具。若你使用 Clash Fake-IP，启动器对公网
+正常时应返回 `status: ok`，并报告 36 个工具。若你使用 Clash Fake-IP，启动器对公网
 `/health` 的回访失败只会警告；本地服务和隧道仍可正常工作。
 
 ### 4. 手动配置自己的 ngrok
@@ -124,7 +124,7 @@ MCP，`Authorization` 应使用**固定值**，其参数值为 `Bearer <your-own
 检查这个 Windows 原生项目需要的 MSVC、Windows SDK 和 CMake 环境。
 ```
 
-## 能力概览：35 个工具
+## 能力概览：36 个工具
 
 工具清单由服务在 `tools/list` 中实际返回；Aily 的文字总结可能合并或漏列工具，
 应以该响应和 `/health` 为准。
@@ -138,6 +138,7 @@ MCP，`Authorization` 应使用**固定值**，其参数值为 `Bearer <your-own
 | 开发环境 | `get_development_task`、`list_development_tasks`、`read_development_task_logs`、`cancel_development_task`、`inspect_development_environment`、`plan_environment_changes`、`apply_environment_plan`、`android_development`、`windows_development`、`node_development`、`manage_development_project` |
 | 本地工作流 | `list_local_workspaces`（列出受保护目录中的工作空间和配方）、`run_local_workflow`（异步执行已登记的受控验证配方） |
 | 二进制制品 | `manage_binary_artifact` |
+| Android 验证 | `staging_android_verify`（按应用 Profile 执行受控的 SSH/ADB staging 验证） |
 
 `manage_binary_artifact` 用于验证、分块接收、存储和原子落盘 PNG、ZIP 等二进制制品；
 它不提供任意二进制执行或解压能力。二进制构建产物通常应放在制品存储或 Release，
@@ -198,7 +199,7 @@ OWNER_COMMAND_POLICY=direct
 
 ### Aily 的文字回答只列出一部分工具
 
-服务的 `/health` 与 `tools/list` 当前应返回 35 个工具。Aily 可能因平台安全策略只把
+服务的 `/health` 与 `tools/list` 当前应返回 36 个工具。Aily 可能因平台安全策略只把
 其中一部分交给智能体；如果没有 `execute_command`，请使用 `node_development` 完成四个
 受限的 PNPM 操作，而不要要求智能体改用任意 Shell。
 

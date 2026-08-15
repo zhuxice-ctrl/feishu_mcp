@@ -145,8 +145,8 @@ test("PIN authentication is isolated per request identity", async () => {
     if (!ready) throw new Error(`server did not become ready: ${lastError}\n${output}`);
 
     const health = await (await fetch(`${baseUrl}/health`)).json();
-    assert.equal(health.toolCount, 35);
-    assert.equal(health.tools.length, 35);
+    assert.equal(health.toolCount, 36);
+    assert.equal(health.tools.length, 36);
     assert.deepEqual(Object.keys(health.concurrency).sort(), ["artifact", "command", "fetch", "global", "search"]);
     const fixedHostHealth = await rawHealthRequest(port, {
       host: "fixed-test.ngrok-free.dev",

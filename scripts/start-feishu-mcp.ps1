@@ -391,7 +391,7 @@ function Invoke-Launcher {
             authMode = $authMode
             ngrokDomain = $domain
             ngrokPath = $resolvedNgrok
-            toolCount = 35
+            toolCount = 36
             brokerState = Get-BrokerState
             concurrency = @{
                 global = $maxConcurrentTools

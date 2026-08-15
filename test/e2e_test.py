@@ -151,7 +151,7 @@ def main():
     r = httpx.get(f"{BASE_URL}/health", timeout=5)
     health = r.json()
     test("Health check returns 200", r.status_code == 200)
-    test("Health shows 35 tools", len(health.get("tools", [])) == 35, f"got {len(health.get('tools', []))}")
+    test("Health shows 36 tools", len(health.get("tools", [])) == 36, f"got {len(health.get('tools', []))}")
     test(
         "Health shows one owner default",
         health.get("directoryAuthorization", {}).get("ownerDefaults") == 1,
@@ -186,7 +186,7 @@ def main():
     tools = []
     if code == 200 and "result" in body:
         tools = [t["name"] for t in body["result"].get("tools", [])]
-    test("Tools list returns 35 tools", len(tools) == 35, f"got {len(tools)}")
+    test("Tools list returns 36 tools", len(tools) == 36, f"got {len(tools)}")
     expected_tools = {"ping", "read_file", "write_file", "edit_file", "create_directory", "list_directory", "move_file", "search_files", "get_file_info", "list_allowed_directories", "auth", "execute_command", "search_content", "git_status", "git_diff", "compare_files", "apply_patch", "web_fetch", "manage_binary_artifact", "todo_write", "todo_read", "ask_user", "get_development_task", "list_development_tasks", "read_development_task_logs", "cancel_development_task", "inspect_development_environment", "plan_environment_changes", "apply_environment_plan", "android_development", "windows_development", "node_development", "manage_development_project", "list_local_workspaces", "run_local_workflow"}
     test("All expected tools present", set(tools) == expected_tools, f"missing: {expected_tools - set(tools)}")
 
