@@ -1,268 +1,296 @@
-# Android Staging 验证工作流 Implementation Plan
+# 通用 Android 自动化验证工作流 Implementation Plan
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Build a resumable `staging_android_verify` MCP workflow that validates ZeroXCore staging through SSH, the already-running `emulator-5554`, ADB, and the enroll/challenge/verify recovery path without exposing credentials or performing Git writes.
+**Goal:** Build a reusable, contract-first Android verification engine where each application is a Profile or constrained plugin, while SSH, ADB, state, topology, evidence, and MCP integration remain application-independent.
 
-**Architecture:** Keep the MCP tool thin and put orchestration in focused staging modules: preflight, tunnel lifecycle, Android driver, state store, runner, and evidence writer. The runner persists a checkpointed state machine and only accepts a fixed SSH alias, fixed device ID, fixed staging port, and validated APK/package inputs.
+**Architecture:** A thin MCP adapter sends a versioned `RunRequest` to a topology-based coordinator. The coordinator uses `TunnelAdapter`, `AndroidDeviceAdapter`, `ProfileRegistry`, `StateStore`, and `EvidenceWriter` contracts. ZeroXCore is the first Profile only; no core module may branch on its package name, UI text, API path, or directory.
 
-**Tech Stack:** TypeScript/Node.js, existing MCP server/tool registry, child-process runner, Windows OpenSSH, ADB, JSON state files under the existing approval data root, Node test runner.
+**Tech Stack:** TypeScript/Node.js, existing MCP tool registry, Node child-process abstraction, Windows OpenSSH, ADB, JSON checkpoints under `APPROVAL_DATA_DIR`, Node test runner.
 
 ---
 
 ## File map
 
-- Create `src/staging/types.ts`: input, state, result, checkpoint, and redacted evidence types.
-- Create `src/staging/redaction.ts`: deterministic removal of PINs, tokens, cookies, private paths, and auth response fields.
-- Create `src/staging/stateStore.ts`: atomic JSON checkpoint persistence, load/resume, terminal-state cleanup.
-- Create `src/staging/tunnelManager.ts`: fixed SSH alias/port command construction, PID ownership, readiness probe, stop/reconnect.
-- Create `src/staging/androidDriver.ts`: ADB device validation, APK hash/package validation, install, reverse, launch, UI actions, screenshot/logcat capture.
-- Create `src/staging/runner.ts`: state-machine orchestration, retry policy, cancellation, cleanup, and evidence assembly.
-- Create `src/tools/stagingAndroidVerify.ts`: MCP schema, owner authorization, queue wrapper, and runner invocation.
-- Modify `src/index.ts`: register the new tool and add it to the tool list.
-- Create `test/staging-redaction.test.mjs`, `test/staging-state-store.test.mjs`, `test/staging-tunnel-manager.test.mjs`, `test/staging-android-driver.test.mjs`, and `test/staging-runner.test.mjs`.
-- Modify `test/tools-list.test.mjs` and `test/complete-tools-e2e.test.mjs` for the new registered tool and count.
-- Create `docs/deployment/evidence/.gitkeep` only if the evidence directory needs to exist in a clean checkout; generated evidence remains ignored.
+- Create `src/android-workflow/contracts.ts`: versioned request/result, adapter, node, graph, Profile, plugin, error, and evidence interfaces.
+- Create `src/android-workflow/redaction.ts`: shared credential/path/response redaction.
+- Create `src/android-workflow/stateStore.ts`: atomic checkpoints, valid topology transitions, resume and terminal cleanup.
+- Create `src/android-workflow/topology.ts`: graph validation, node execution, retry/cancel rules, and transition events.
+- Create `src/android-workflow/tunnelAdapter.ts`: OpenSSH alias adapter with fixed staging loopback constraints.
+- Create `src/android-workflow/androidDeviceAdapter.ts`: fixed `emulator-5554` ADB adapter.
+- Create `src/android-workflow/profileRegistry.ts`: Profile/plugin registration, version validation, capability allowlist.
+- Create `src/android-workflow/profiles/zeroxcore.ts`: first application Profile; no core module imports this file.
+- Create `src/android-workflow/coordinator.ts`: profile-driven orchestration and evidence assembly.
+- Create `src/tools/stagingAndroidVerify.ts`: MCP schema, owner authorization, queue/cancellation, coordinator call.
+- Modify `src/index.ts`: register the tool and update tool names/count.
+- Create `test/android-workflow-contracts.test.mjs`, `test/android-workflow-topology.test.mjs`, `test/android-workflow-state-store.test.mjs`, `test/android-workflow-tunnel.test.mjs`, `test/android-workflow-device.test.mjs`, `test/android-workflow-profiles.test.mjs`, and `test/android-workflow-coordinator.test.mjs`.
+- Modify `test/tools-list.test.mjs` and `test/complete-tools-e2e.test.mjs` for registration and count.
 
-### Task 1: Define types and redaction rules
+### Task 1: Define versioned contracts and capability boundaries
 
-**Files:** create `src/staging/types.ts`, `src/staging/redaction.ts`; test `test/staging-redaction.test.mjs`.
+**Files:** create `src/android-workflow/contracts.ts`; test `test/android-workflow-contracts.test.mjs`.
 
-- [ ] **Step 1: Write failing tests for redaction and state names.**
+- [ ] **Step 1: Write failing contract tests.**
 
 ```js
-import test from "node:test";
-import assert from "node:assert/strict";
-import { redactStagingText } from "../dist/staging/redaction.js";
+test("accepts a profile request without app-specific fields in the core request", () => {
+  const request = parseRunRequest({ profileId: "zeroxcore", workdir: "F:\\zeroxcore", apkPath: "app-debug.apk", sshHost: "staging" });
+  assert.equal(request.contractVersion, 1);
+  assert.equal(request.deviceId, "emulator-5554");
+});
 
-test("redacts bearer, cookie, pin, and Windows user path values", () => {
-  const result = redactStagingText(
-    "Authorization: Bearer abcdefghijklmnopqrstuvwxyz123456; Cookie: sid=secret; PIN=12345678; C:\\Users\\Lenovo\\x"
-  );
-  assert.match(result, /Bearer \[REDACTED\]/);
-  assert.doesNotMatch(result, /abcdefghijklmnopqrstuvwxyz123456/);
-  assert.doesNotMatch(result, /sid=secret|12345678|Lenovo/);
+test("rejects undeclared profile capabilities and arbitrary node actions", () => {
+  assert.throws(() => validateNode({ type: "shell", command: "whoami" }), /undeclared action/);
 });
 ```
 
-- [ ] **Step 2: Run the focused test and verify it fails because the module is absent.**
+- [ ] **Step 2: Run and verify failure.**
 
-Run: `npm run build; node --test test/staging-redaction.test.mjs`
+Run: `npm run build; node --test test/android-workflow-contracts.test.mjs`
 
-Expected: FAIL with a missing `dist/staging/redaction.js` module.
+Expected: FAIL because the contract module is absent.
 
-- [ ] **Step 3: Implement typed states and deterministic redaction.**
+- [ ] **Step 3: Implement contracts.**
 
-```ts
-export type StagingState =
-  | "created" | "preflight_passed" | "tunnel_connected" | "apk_installed"
-  | "app_ready" | "binding_verified" | "tunnel_interrupted"
-  | "failure_state_confirmed" | "tunnel_reconnected" | "recovery_verified"
-  | "completed" | "failed" | "failed_cleanup" | "cancelled";
+Define `RunRequest`, `RunResult`, `WorkflowNode`, `WorkflowGraph`, `TunnelAdapter`, `AndroidDeviceAdapter`, `AndroidAppProfile`, `ProfilePlugin`, `WorkflowContext`, `StagingError`, and `EvidenceRecord`. Keep app-specific values inside Profile types and expose only capability-scoped context methods to plugins.
 
-export function redactStagingText(input: string): string {
-  return input
-    .replace(/(authorization:\s*bearer\s+)[^\s,;]+/gi, "$1[REDACTED]")
-    .replace(/(cookie:\s*)[^\r\n]+/gi, "$1[REDACTED]")
-    .replace(/(pin|token|secret|password)\s*[:=]\s*[^\s,;]+/gi, "$1=[REDACTED]")
-    .replace(/C:\\Users\\[^\\\r\n ]+/gi, "C:\\Users\\[REDACTED]");
-}
-```
+- [ ] **Step 4: Run and commit.**
 
-- [ ] **Step 4: Run the focused test and commit.**
-
-Run: `npm run build; node --test test/staging-redaction.test.mjs`
+Run: `npm run build; node --test test/android-workflow-contracts.test.mjs`
 
 Expected: PASS.
 
-Commit: `git add src/staging/types.ts src/staging/redaction.ts test/staging-redaction.test.mjs && git commit -m "feat: add staging workflow types and redaction"`
+Commit: `git add src/android-workflow/contracts.ts test/android-workflow-contracts.test.mjs && git commit -m "feat: define reusable Android workflow contracts"`
 
-### Task 2: Add checkpoint state storage
+### Task 2: Add redaction and checkpoint storage
 
-**Files:** create `src/staging/stateStore.ts`; test `test/staging-state-store.test.mjs`.
+**Files:** create `src/android-workflow/redaction.ts`, `src/android-workflow/stateStore.ts`; tests `test/android-workflow-state-store.test.mjs`.
 
-- [ ] **Step 1: Test atomic save/load, resume, and terminal cleanup.**
+- [ ] **Step 1: Test secrets, paths, atomic saves, resume and terminal cleanup.**
 
 ```js
-test("persists the latest checkpoint and removes only terminal run data", async () => {
+test("redacts bearer, cookie, PIN, and Windows user values", () => {
+  const safe = redact("Authorization: Bearer abcdefghijklmnopqrstuvwxyz123456 PIN=12345678 C:\\Users\\Lenovo\\secret");
+  assert.doesNotMatch(safe, /abcdefghijklmnopqrstuvwxyz123456|12345678|Lenovo/);
+});
+
+test("resumes the latest valid checkpoint and removes only terminal state", async () => {
   const store = new StateStore(tempDir);
-  await store.save({ runId: "run-1", state: "tunnel_connected", pid: 1234 });
-  assert.equal((await store.load("run-1")).state, "tunnel_connected");
-  await store.finish("run-1");
-  assert.equal(await store.load("run-1"), null);
+  await store.save({ runId: "r1", state: "tunnel_connected", profileVersion: 1 });
+  assert.equal((await store.load("r1")).state, "tunnel_connected");
+  await store.finish("r1");
+  assert.equal(await store.load("r1"), null);
 });
 ```
 
-- [ ] **Step 2: Run the test and verify failure.**
+- [ ] **Step 2: Run and verify failure.**
 
-Run: `npm run build; node --test test/staging-state-store.test.mjs`
+Run: `npm run build; node --test test/android-workflow-state-store.test.mjs`
 
-Expected: FAIL because `StateStore` is not implemented.
+Expected: FAIL because modules are absent.
 
-- [ ] **Step 3: Implement atomic JSON writes under `APPROVAL_DATA_DIR/staging-runs`.**
+- [ ] **Step 3: Implement atomic state and redaction.**
 
-Use a temporary file plus rename, restrict accepted transitions to the design state graph, preserve only redacted metadata, and retain failed runs until evidence has been written.
+Write temporary JSON beside the run file and rename atomically. Validate all graph transitions before saving. Store only redacted metadata; retain failed runs until evidence is complete and delete terminal checkpoints after successful cleanup.
 
-- [ ] **Step 4: Run tests and commit.**
+- [ ] **Step 4: Run and commit.**
 
-Run: `npm run build; node --test test/staging-state-store.test.mjs`
+Run: `npm run build; node --test test/android-workflow-state-store.test.mjs`
 
 Expected: PASS.
 
-Commit: `git add src/staging/stateStore.ts test/staging-state-store.test.mjs && git commit -m "feat: persist staging workflow checkpoints"`
+Commit: `git add src/android-workflow/redaction.ts src/android-workflow/stateStore.ts test/android-workflow-state-store.test.mjs && git commit -m "feat: add redacted Android workflow checkpoints"`
 
-### Task 3: Implement safe SSH tunnel lifecycle
+### Task 3: Implement topology coordinator
 
-**Files:** create `src/staging/tunnelManager.ts`; test `test/staging-tunnel-manager.test.mjs`.
+**Files:** create `src/android-workflow/topology.ts`; test `test/android-workflow-topology.test.mjs`.
 
-- [ ] **Step 1: Test fixed command construction and PID ownership.**
+- [ ] **Step 1: Test legal/illegal transitions, retries, cancellation and expected interruption.**
 
 ```js
-const args = buildTunnelArgs("staging", 3100, 3100);
-assert.deepEqual(args, ["-N", "-o", "ExitOnForwardFailure=yes", "-o", "ServerAliveInterval=15", "-o", "ServerAliveCountMax=3", "-L", "127.0.0.1:3100:127.0.0.1:3100", "staging"]);
-assert.throws(() => buildTunnelArgs("staging; del *", 3100, 3100), /invalid SSH alias/);
+test("allows the declared offline branch but rejects skipping app_ready", () => {
+  assert.doesNotThrow(() => graph.transition("binding_verified", "tunnel_interrupted"));
+  assert.throws(() => graph.transition("created", "recovery_passed"), /invalid transition/);
+});
 ```
 
-- [ ] **Step 2: Run the test and verify failure.**
+- [ ] **Step 2: Run and verify failure.**
 
-Run: `npm run build; node --test test/staging-tunnel-manager.test.mjs`
+Run: `npm run build; node --test test/android-workflow-topology.test.mjs`
 
-Expected: FAIL because the tunnel module is absent.
+Expected: FAIL because the topology module is absent.
 
-- [ ] **Step 3: Implement `TunnelManager`.**
+- [ ] **Step 3: Implement graph validation and node execution.**
 
-Use the existing process runner abstraction, validate alias against the local SSH config format, allow only `127.0.0.1` and port `3100`, probe the local listener before advancing state, and stop only the recorded child PID/tree.
+Nodes receive `WorkflowContext`, return typed outputs, emit `StateEvent`, honor `AbortSignal`, and retry only when the node contract marks the error retryable. The only expected network interruption edge is the Profile-declared offline branch.
 
-- [ ] **Step 4: Test success, startup timeout, reconnect, and foreign-process protection.**
+- [ ] **Step 4: Run and commit.**
 
-Run: `npm run build; node --test test/staging-tunnel-manager.test.mjs`
+Run: `npm run build; node --test test/android-workflow-topology.test.mjs`
 
-Expected: PASS with no real SSH process started.
+Expected: PASS.
 
-- [ ] **Step 5: Commit.**
+Commit: `git add src/android-workflow/topology.ts test/android-workflow-topology.test.mjs && git commit -m "feat: add contract-driven workflow topology"`
 
-Commit: `git add src/staging/tunnelManager.ts test/staging-tunnel-manager.test.mjs && git commit -m "feat: add owned staging SSH tunnel lifecycle"`
+### Task 4: Implement platform adapters
 
-### Task 4: Implement the ADB/Android driver
+**Files:** create `src/android-workflow/tunnelAdapter.ts`, `src/android-workflow/androidDeviceAdapter.ts`; tests `test/android-workflow-tunnel.test.mjs`, `test/android-workflow-device.test.mjs`.
 
-**Files:** create `src/staging/androidDriver.ts`; test `test/staging-android-driver.test.mjs`.
-
-- [ ] **Step 1: Test device and APK guards.**
+- [ ] **Step 1: Test fixed SSH arguments and device/APK guards.**
 
 ```js
+assert.deepEqual(buildTunnelArgs("staging", 3100, 3100), ["-N", "-o", "ExitOnForwardFailure=yes", "-o", "ServerAliveInterval=15", "-o", "ServerAliveCountMax=3", "-L", "127.0.0.1:3100:127.0.0.1:3100", "staging"]);
+assert.throws(() => buildTunnelArgs("staging;del", 3100, 3100), /invalid SSH alias/);
 assert.equal(selectDevice(["emulator-5554\tdevice"]), "emulator-5554");
 assert.throws(() => selectDevice(["emulator-5556\tdevice"]), /emulator-5554/);
-assert.throws(() => validateApkMetadata({ packageName: "other.app" }, "tech.zeroxcore.app"), /package/);
 ```
 
-- [ ] **Step 2: Run the test and verify failure.**
+- [ ] **Step 2: Run and verify failure.**
 
-Run: `npm run build; node --test test/staging-android-driver.test.mjs`
+Run: `npm run build; node --test test/android-workflow-tunnel.test.mjs test/android-workflow-device.test.mjs`
 
-Expected: FAIL because the driver module is absent.
+Expected: FAIL because adapters are absent.
 
-- [ ] **Step 3: Implement fixed-device ADB operations.**
+- [ ] **Step 3: Implement adapters behind contracts.**
 
-Provide methods `preflight()`, `verifyApk()`, `install()`, `reverse()`, `launch()`, `inputText()`, `tap()`, `screenshot()`, `logcatTail()`, and `clearReverse()`. Every command must pass `-s emulator-5554`, use argument arrays, enforce output/time limits, and redact output before returning.
+Tunnel adapter accepts only an SSH config alias and fixed staging loopback ports. Device adapter passes `-s emulator-5554` to every ADB command, validates APK package/hash, supports install/launch/tap/input/assert/screenshot/logcat, and never exposes raw process handles to Profiles.
 
-- [ ] **Step 4: Test with a fake ADB adapter.**
+- [ ] **Step 4: Run and commit.**
 
-Run: `npm run build; node --test test/staging-android-driver.test.mjs`
+Run: `npm run build; node --test test/android-workflow-tunnel.test.mjs test/android-workflow-device.test.mjs`
 
-Expected: PASS; no real emulator state changes occur in unit tests.
+Expected: PASS without real SSH or ADB side effects.
 
-- [ ] **Step 5: Commit.**
+Commit: `git add src/android-workflow/tunnelAdapter.ts src/android-workflow/androidDeviceAdapter.ts test/android-workflow-tunnel.test.mjs test/android-workflow-device.test.mjs && git commit -m "feat: add contract-backed SSH and Android adapters"`
 
-Commit: `git add src/staging/androidDriver.ts test/staging-android-driver.test.mjs && git commit -m "feat: add fixed-emulator Android driver"`
+### Task 5: Add Profile registry and ZeroXCore first Profile
 
-### Task 5: Build the resumable runner and evidence writer
+**Files:** create `src/android-workflow/profileRegistry.ts`, `src/android-workflow/profiles/zeroxcore.ts`; test `test/android-workflow-profiles.test.mjs`.
 
-**Files:** create `src/staging/runner.ts`; test `test/staging-runner.test.mjs`.
+- [ ] **Step 1: Test generic and app-specific Profile isolation.**
 
-- [ ] **Step 1: Write fake-adapter tests for the complete state graph.**
+```js
+test("registry loads ZeroXCore without leaking its package into core contracts", () => {
+  const profile = registry.get("zeroxcore");
+  assert.equal(profile.packageName, "tech.zeroxcore.app");
+  assert.equal(registry.coreSchema().includes("tech.zeroxcore.app"), false);
+});
 
-Cover successful recovery, SSH interruption, ADB loss, HTTP non-2xx, cancellation, duplicate resume, and cleanup failure. Assert that each result contains `runId`, redacted evidence, and the correct terminal state.
+test("a second dummy profile can be registered without coordinator changes", () => {
+  registry.register(dummyProfile);
+  assert.equal(registry.get("dummy").id, "dummy");
+});
+```
 
-- [ ] **Step 2: Run tests and verify failure.**
+- [ ] **Step 2: Run and verify failure.**
 
-Run: `npm run build; node --test test/staging-runner.test.mjs`
+Run: `npm run build; node --test test/android-workflow-profiles.test.mjs`
 
-Expected: FAIL because `StagingRunner` is absent.
+Expected: FAIL because the registry and Profile are absent.
 
-- [ ] **Step 3: Implement `StagingRunner`.**
+- [ ] **Step 3: Implement registry, declarative nodes, and ZeroXCore Profile.**
 
-The runner must save a checkpoint before and after every side effect, resume only from valid checkpoints, use the fixed sequence from the design, stop on unexpected network/device states, and execute cleanup in a `finally` path. Write evidence only after redaction and include commit/APK digest/device/run metadata.
+Registry validates Profile version, allowed capabilities, unique IDs, fixed device/port policy, and graph node types. ZeroXCore declares its package, staging port, UI assertions, enroll/challenge/verify nodes, offline branch, and recovery branch. Core files must not import the ZeroXCore Profile.
 
-- [ ] **Step 4: Run the complete runner test set.**
+- [ ] **Step 4: Add the restricted plugin seam.**
 
-Run: `npm run build; node --test test/staging-runner.test.mjs`
+Define `ProfilePlugin` loading by explicit registry entry only; provide `WorkflowContext` methods, capability checks, timeout, cancellation, and redacted outputs. Do not load arbitrary paths or execute plugin-provided shell commands.
 
-Expected: PASS for all success and failure paths.
+- [ ] **Step 5: Run and commit.**
 
-- [ ] **Step 5: Commit.**
+Run: `npm run build; node --test test/android-workflow-profiles.test.mjs`
 
-Commit: `git add src/staging/runner.ts test/staging-runner.test.mjs && git commit -m "feat: orchestrate resumable staging verification"`
+Expected: PASS for ZeroXCore and dummy Profile isolation.
 
-### Task 6: Register the MCP tool and update tool-list coverage
+Commit: `git add src/android-workflow/profileRegistry.ts src/android-workflow/profiles/zeroxcore.ts test/android-workflow-profiles.test.mjs && git commit -m "feat: add profile registry and ZeroXCore profile"`
+
+### Task 6: Implement coordinator and evidence
+
+**Files:** create `src/android-workflow/coordinator.ts`; test `test/android-workflow-coordinator.test.mjs`.
+
+- [ ] **Step 1: Test profile-driven success, disconnect/reconnect, failure and cleanup.**
+
+Use fake adapters and a dummy Profile to prove the coordinator does not branch on ZeroXCore names. Assert `runId`, Profile version, APK digest, node statuses, redacted evidence, cleanup, resume, and cancellation.
+
+- [ ] **Step 2: Run and verify failure.**
+
+Run: `npm run build; node --test test/android-workflow-coordinator.test.mjs`
+
+Expected: FAIL because the coordinator is absent.
+
+- [ ] **Step 3: Implement profile-driven coordination.**
+
+Resolve Profile from the registry, run preflight, execute its topology nodes through adapters, checkpoint before/after side effects, write redacted Markdown/JSON evidence, and clean up owned resources in `finally`.
+
+- [ ] **Step 4: Run and commit.**
+
+Run: `npm run build; node --test test/android-workflow-coordinator.test.mjs`
+
+Expected: PASS.
+
+Commit: `git add src/android-workflow/coordinator.ts test/android-workflow-coordinator.test.mjs && git commit -m "feat: coordinate reusable Android verification profiles"`
+
+### Task 7: Register the generic MCP tool
 
 **Files:** create `src/tools/stagingAndroidVerify.ts`; modify `src/index.ts`, `test/tools-list.test.mjs`, `test/complete-tools-e2e.test.mjs`.
 
-- [ ] **Step 1: Add failing registration tests.**
+- [ ] **Step 1: Add failing MCP registration tests.**
 
-Assert that `staging_android_verify` appears in `tools/list`, has the exact schema fields, is owner-authorized, and rejects a non-owner, unsupported device, non-3100 port, or unsafe SSH alias before starting a process.
+Assert the schema accepts `profileId`, `workdir`, `apkPath`, and `sshHost`, defaults the device to `emulator-5554`, rejects unknown profiles and unsafe overrides, requires owner authorization, and returns `runId`/status/evidence metadata.
 
-- [ ] **Step 2: Run tests and verify failure.**
+- [ ] **Step 2: Run and verify failure.**
 
 Run: `npm run build; node --test test/tools-list.test.mjs test/complete-tools-e2e.test.mjs`
 
-Expected: FAIL because the tool is not registered and the expected tool count is unchanged.
+Expected: FAIL because the tool is not registered.
 
-- [ ] **Step 3: Implement the thin MCP adapter.**
+- [ ] **Step 3: Implement a thin adapter.**
 
-Use the existing `authorizeOwnerToolCall`, queue limits, request cancellation signal, and result helpers. The handler validates the schema, creates a run ID, starts/resumes `StagingRunner`, and returns structured status/evidence metadata without exposing process output or credentials.
+Use existing owner authorization, queue limits, cancellation signal, and result helpers. The handler must not contain app-specific branches; it validates the request and delegates to the generic coordinator.
 
-- [ ] **Step 4: Register the tool and update the tool list/count assertions.**
+- [ ] **Step 4: Register and update tool-count assertions.**
 
-Add the registration beside the existing development tools and update only the expected count and explicit tool-name assertions.
+Add the tool beside development tools and update only explicit tool names and expected count.
 
 - [ ] **Step 5: Run focused and full tests.**
 
 Run: `npm run build; node --test test/tools-list.test.mjs test/complete-tools-e2e.test.mjs; npm test`
 
-Expected: all tests PASS; health reports one additional tool.
+Expected: PASS; health reports one additional generic tool.
 
 - [ ] **Step 6: Commit.**
 
-Commit: `git add src/tools/stagingAndroidVerify.ts src/index.ts test/tools-list.test.mjs test/complete-tools-e2e.test.mjs && git commit -m "feat: expose staging Android verification tool"`
+Commit: `git add src/tools/stagingAndroidVerify.ts src/index.ts test/tools-list.test.mjs test/complete-tools-e2e.test.mjs && git commit -m "feat: expose reusable Android verification MCP tool"`
 
-### Task 7: Real-environment acceptance
+### Task 8: Real-environment acceptance and extension check
 
-**Files:** modify `docs/deployment/staging-runbook.md` only if the command and evidence contract needs documenting; generated evidence stays ignored.
+**Files:** modify `docs/deployment/staging-runbook.md` only if command/evidence documentation changes; generated evidence stays ignored.
 
-- [ ] **Step 1: Run preflight only.**
+- [ ] **Step 1: Run Profile preflight with `zeroxcore`.**
 
-Call `staging_android_verify` with the staging SSH alias, the reviewed APK path, package name, and `emulator-5554`; confirm no tunnel or APK side effect occurs when any preflight check fails.
+Use the staging SSH alias, the reviewed APK, and `emulator-5554`; confirm no side effect occurs before all preflight contracts pass.
 
-- [ ] **Step 2: Run the full workflow once with explicit user authorization.**
+- [ ] **Step 2: Run the full ZeroXCore Profile once with explicit authorization.**
 
-Verify the SSH tunnel, APK SHA-256, initial binding, intentional offline failure, recovery binding, evidence file, and cleanup. Do not commit or push from the tool.
+Verify initial binding, intentional offline failure, recovery binding, evidence, and cleanup. Do not commit or push.
 
-- [ ] **Step 3: Run post-acceptance checks.**
+- [ ] **Step 3: Register and execute a dummy Profile in fake adapters.**
+
+Confirm a second application can be added by Profile registration alone and that the coordinator, state store, adapters, MCP schema, and evidence format remain unchanged.
+
+- [ ] **Step 4: Run post-acceptance checks.**
 
 Run: `git status --short; Get-NetTCPConnection -State Listen -LocalPort 3100; adb -s emulator-5554 reverse --list`
 
-Expected: no unowned SSH process, no unexpected listener, and only the documented ADB reverse mapping remains or is explicitly cleaned up.
+Expected: no unowned SSH process, no unexpected listener, and no untracked sensitive evidence.
 
-- [ ] **Step 4: Commit documentation only if changed.**
+## Self-review checklist
 
-Commit: `git add docs/deployment/staging-runbook.md && git commit -m "docs: record staging verification workflow"`
-
-## Coverage review
-
-- The design state graph is covered by Tasks 2 and 5.
-- SSH safety, fixed ports, alias-only execution, and cleanup are covered by Tasks 3 and 5.
-- Fixed `emulator-5554`, APK/package/hash checks, and ADB operations are covered by Task 4.
-- MCP schema, owner authorization, queue/cancellation, and tool-list registration are covered by Task 6.
-- Redaction and credential exclusion are covered by Tasks 1, 2, 4, and 5.
-- Real staging acceptance and evidence are covered by Task 7.
-- No placeholders or unspecified implementation steps remain in this plan.
+- Core contains no ZeroXCore package, UI text, endpoint, or directory branch.
+- All cross-cutting capabilities use contracts and typed errors.
+- Topology transitions, retries, cancellation, resume, cleanup, and evidence are tested.
+- New applications are represented by Profile data or a restricted plugin, not coordinator edits.
+- SSH, ADB, Profile, state, evidence, and MCP layers have separate responsibilities.
+- Security constraints are enforced centrally and cannot be weakened by a Profile.
+- ZeroXCore is covered as the first Profile and a dummy Profile proves reuse.
+- No placeholders or unspecified implementation steps remain.
