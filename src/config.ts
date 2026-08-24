@@ -204,6 +204,21 @@ if (localWorkspaceCatalogRelative.startsWith("..") || path.isAbsolute(localWorks
   throw new Error("LOCAL_WORKSPACE_CATALOG_PATH must be inside APPROVAL_DATA_DIR");
 }
 
+/**
+ * Durable owner-scoped workspace context store. Contexts carry stable IDs and
+ * safe summaries only — never roots, credentials, command text, or raw user
+ * IDs. Must remain inside APPROVAL_DATA_DIR so it shares the ACL-protected
+ * boundary as approval state.
+ */
+export const WORKSPACE_CONTEXT_STORE_PATH = path.resolve(
+  process.env.WORKSPACE_CONTEXT_STORE_PATH ||
+    path.join(APPROVAL_DATA_DIR, "workspace-contexts"),
+);
+const workspaceContextRelative = path.relative(path.resolve(APPROVAL_DATA_DIR), WORKSPACE_CONTEXT_STORE_PATH);
+if (workspaceContextRelative.startsWith("..") || path.isAbsolute(workspaceContextRelative)) {
+  throw new Error("WORKSPACE_CONTEXT_STORE_PATH must be inside APPROVAL_DATA_DIR");
+}
+
 // ---------------------------------------------------------------------------
 // Development environment subsystem (Phase 2 — trusted toolchain provisioning)
 // ---------------------------------------------------------------------------
