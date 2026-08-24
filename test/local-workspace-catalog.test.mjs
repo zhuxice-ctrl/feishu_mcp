@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import { mkdtemp, mkdir, rm, symlink, writeFile } from "node:fs/promises";
+import { writeFileSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import test from "node:test";
@@ -58,4 +59,47 @@ test("rejects invalid catalog files, symbolic links and artifact escapes", async
   } catch (error) {
     if (error instanceof assert.AssertionError) throw error;
   }
+});
+
+function writeCatalogSync(value) {
+  const file = path.join(root, `${crypto.randomUUID()}.json`);
+  writeFileSync(file, JSON.stringify(value));
+  return file;
+}
+
+function withHints(workspaceRoot, hints) {
+  return {
+    version: 1,
+    workspaces: [{
+      ...catalog(workspaceRoot).workspaces[0],
+      hints,
+    }],
+  };
+}
+
+test("catalog accepts root-free declarative hints", async () => {
+  const workspaceRoot = await mkdtemp(path.join(root, "hints-workspace-"));
+  const fixtureWithHints = writeCatalogSync(withHints(workspaceRoot, {
+    ecosystems: ["android"],
+    instructionFiles: ["CLAUDE.md", "docs/setup.md"],
+    capabilities: ["android_development"],
+  }));
+  const loaded = loadLocalWorkspaceCatalog(fixtureWithHints);
+  const view = publicCatalog(loaded.catalog);
+  assert.deepEqual(view.workspaces[0].hints.capabilities, ["android_development"]);
+  assert.equal(JSON.stringify(view).includes(workspaceRoot), false);
+});
+
+test("catalog rejects traversal and unsupported capability", async () => {
+  const workspaceRoot = await mkdtemp(path.join(root, "hints-reject-workspace-"));
+  assert.throws(
+    () => loadLocalWorkspaceCatalog(
+      writeCatalogSync(withHints(workspaceRoot, { instructionFiles: ["../secret.md"] })),
+    ),
+  );
+  assert.throws(
+    () => loadLocalWorkspaceCatalog(
+      writeCatalogSync(withHints(workspaceRoot, { capabilities: ["shell"] })),
+    ),
+  );
 });

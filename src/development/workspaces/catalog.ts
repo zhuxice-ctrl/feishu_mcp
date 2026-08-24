@@ -107,6 +107,7 @@ function publicWorkspace(ws: Workspace): PublicWorkspace {
   return {
     id: ws.id,
     label: ws.label,
+    hints: ws.hints,
     recipes: ws.recipes.map((recipe) => ({
       id: recipe.id,
       label: recipe.label,

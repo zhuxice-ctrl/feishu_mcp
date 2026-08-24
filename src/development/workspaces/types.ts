@@ -8,6 +8,7 @@
  */
 
 import { z } from "zod";
+import path from "node:path";
 
 /** Terminal-safe step kinds for first-phase workflows. */
 export const WORKFLOW_STEP_KINDS = [
@@ -23,6 +24,37 @@ export type WorkflowStepKind = (typeof WORKFLOW_STEP_KINDS)[number];
 export const PACKAGE_MANAGERS = ["pnpm"] as const;
 
 export type PackageManager = (typeof PACKAGE_MANAGERS)[number];
+
+/** Declarative capabilities that map to implemented server routes. */
+export const WORKSPACE_CAPABILITIES = [
+  "file_read",
+  "content_search",
+  "git_read",
+  "node_workflow",
+  "android_development",
+  "development_tasks",
+] as const;
+
+export type WorkspaceCapability = (typeof WORKSPACE_CAPABILITIES)[number];
+
+/** Relative catalog-declared instruction files reject absolute paths and traversal. */
+const relativeInstructionFile = z
+  .string()
+  .min(1)
+  .max(512)
+  .refine((p) => !path.isAbsolute(p) && !p.split(/[\\/]/).includes(".."));
+
+export const workspaceHintsSchema = z
+  .object({
+    ecosystems: z
+      .array(z.enum(["node", "android", "dotnet", "native", "electron"]))
+      .max(5)
+      .default([]),
+    instructionFiles: z.array(relativeInstructionFile).max(16).default([]),
+    capabilities: z.array(z.enum(WORKSPACE_CAPABILITIES)).max(6).default([]),
+  })
+  .strict()
+  .default({ ecosystems: [], instructionFiles: [], capabilities: [] });
 
 export const testSelectionSchema = z.strictObject({
   /** Relative paths to test files, restricted to safe path tokens. */
@@ -53,6 +85,8 @@ export const workspaceSchema = z.strictObject({
   /** Canonical output directories for artifact summaries. */
   artifactDirs: z.array(z.string().min(1).max(4096)).min(0).max(16),
   recipes: z.array(recipeSchema).min(1).max(8),
+  /** Declarative routing hints; optional for old catalog entries. */
+  hints: workspaceHintsSchema,
 });
 
 export const workspaceCatalogSchema = z.strictObject({
@@ -65,11 +99,13 @@ export type Workspace = z.infer<typeof workspaceSchema>;
 export type Recipe = z.infer<typeof recipeSchema>;
 export type WorkflowStep = z.infer<typeof workflowStepSchema>;
 export type TestSelection = z.infer<typeof testSelectionSchema>;
+export type WorkspaceHints = z.infer<typeof workspaceHintsSchema>;
 
 /** Public view of a workspace — no absolute root is exposed. */
 export interface PublicWorkspace {
   id: string;
   label: string;
+  hints: WorkspaceHints;
   recipes: Array<{
     id: string;
     label: string;
