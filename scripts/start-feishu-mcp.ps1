@@ -238,7 +238,16 @@ function Invoke-Launcher {
         throw "AUTH_PIN must contain at least 8 characters when AUTH_MODE=pin"
     }
 
-    $publicHost = Require-Value "PUBLIC_HOST"
+    # Keep the active ngrok endpoint usable during the Cloudflare migration.
+    # The server config has the same fallback; PUBLIC_HOST takes precedence
+    # whenever the operator later supplies a Cloudflare hostname.
+    $publicHost = [Environment]::GetEnvironmentVariable("PUBLIC_HOST", "Process")
+    if ([string]::IsNullOrWhiteSpace($publicHost)) {
+        $publicHost = [Environment]::GetEnvironmentVariable("NGROK_DOMAIN", "Process")
+    }
+    if ([string]::IsNullOrWhiteSpace($publicHost)) {
+        throw "PUBLIC_HOST or NGROK_DOMAIN is required in .env"
+    }
     if ($publicHost -notmatch '^[A-Za-z0-9.-]+$') {
         throw "PUBLIC_HOST must contain only a hostname"
     }

@@ -152,14 +152,33 @@ test(
 );
 
 test(
-  "launcher rejects a missing public host without leaking secrets",
+  "launcher accepts the legacy ngrok domain when PUBLIC_HOST is absent",
   { skip: process.platform !== "win32" },
   async () => {
-    const item = await fixture({ PUBLIC_HOST: "" });
+    const item = await fixture({ PUBLIC_HOST: "", NGROK_DOMAIN: "legacy.ngrok-free.app" });
+    try {
+      const result = checkOnly(item.envFile);
+      assert.equal(result.status, 0, result.stderr);
+      assert.equal(JSON.parse(result.stdout).publicHost, "legacy.ngrok-free.app");
+      assert.doesNotMatch(
+        result.stdout + result.stderr,
+        /transport-secret-value|pin-secret-value|approval-secret-value/
+      );
+    } finally {
+      await rm(item.root, { recursive: true, force: true });
+    }
+  }
+);
+
+test(
+  "launcher rejects a missing public host and legacy domain without leaking secrets",
+  { skip: process.platform !== "win32" },
+  async () => {
+    const item = await fixture({ PUBLIC_HOST: "", NGROK_DOMAIN: "" });
     try {
       const result = checkOnly(item.envFile);
       assert.notEqual(result.status, 0);
-      assert.match(result.stderr, /PUBLIC_HOST/);
+      assert.match(result.stderr, /PUBLIC_HOST or NGROK_DOMAIN/);
       assert.doesNotMatch(
         result.stdout + result.stderr,
         /transport-secret-value|pin-secret-value|approval-secret-value/
@@ -220,8 +239,10 @@ test(
 
 test("launcher is local-service-only and decoupled from any tunnel process", async () => {
   const content = await readFile(launcherScript, "utf8");
-  // Preflight now requires the transport-neutral PUBLIC_HOST.
-  assert.match(content, /Require-Value\s+"PUBLIC_HOST"/);
+  // PUBLIC_HOST is preferred, with NGROK_DOMAIN retained for migration safety.
+  assert.match(content, /GetEnvironmentVariable\("PUBLIC_HOST", "Process"\)/);
+  assert.match(content, /GetEnvironmentVariable\("NGROK_DOMAIN", "Process"\)/);
+  assert.match(content, /PUBLIC_HOST or NGROK_DOMAIN is required/);
   assert.match(content, /PUBLIC_HOST must contain only a hostname/);
   // No coupled tunnel ownership remains.
   assert.doesNotMatch(content, /Resolve-Ngrok|Wait-NgrokTunnel/);
