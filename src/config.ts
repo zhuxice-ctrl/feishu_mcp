@@ -426,11 +426,29 @@ export const LOG_FORMAT: LogFormat = envEnum(
 );
 
 // ---------------------------------------------------------------------------
-// ngrok tunnel (optional — used by start scripts, not by the server itself)
+// Public transport (optional — resolved by the server host/origin checks)
 // ---------------------------------------------------------------------------
 
+/**
+ * Legacy ngrok auth token, referenced only for the documented environment
+ * key. No server module uses it once the transport is transport-neutral.
+ */
 export const NGROK_AUTHTOKEN = process.env.NGROK_AUTHTOKEN || "";
-export const NGROK_DOMAIN = process.env.NGROK_DOMAIN || "";
+
+/**
+ * Legacy ngrok transport host. Kept for exactly one migration release so the
+ * server keeps working until the operator cuts over to PUBLIC_HOST. No server
+ * module may reference NGROK_AUTHTOKEN or transport-specific configuration
+ * beyond this fallback boundary.
+ */
+export const LEGACY_NGROK_DOMAIN = process.env.NGROK_DOMAIN || "";
+
+/**
+ * Transport-neutral public hostname behind which the MCP server is reachable.
+ * Cloudflared and the launcher read this; the server only uses it in its
+ * allowed host/origin checks and never connects outbound through it.
+ */
+export const PUBLIC_HOST = process.env.PUBLIC_HOST || LEGACY_NGROK_DOMAIN;
 
 // ---------------------------------------------------------------------------
 // File-type blacklist (Phase 3)

@@ -32,7 +32,7 @@ import {
   OWNER_COMMAND_POLICY,
   HOST,
   MCP_ENDPOINT,
-  NGROK_DOMAIN,
+  PUBLIC_HOST,
   OWNER_DEFAULT_DIRS,
   PORT,
   SERVER_NAME,
@@ -310,7 +310,7 @@ const allowedRequestHosts = [
   "127.0.0.1",
   "[::1]",
   HOST,
-  NGROK_DOMAIN,
+  PUBLIC_HOST,
 ].filter((value, index, values) => value && values.indexOf(value) === index);
 
 const app: Express = createMcpExpressApp({
