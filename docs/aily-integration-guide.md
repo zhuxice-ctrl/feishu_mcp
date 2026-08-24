@@ -89,11 +89,11 @@ GIT_COMMAND_POLICY=soft_owner
 如果飞书客户端返回 `DIRECTORY_APPROVAL_REQUIRED`，智能体应展示响应中的目录和
 四种决定，等待 owner 明确选择，然后把签名 challenge 与决定提交给现有 `auth`
 工具。auth 成功后必须立即重试原工具。不要建议修改 `ALLOWED_DIRS` 或重启服务。
-该兼容通道只对固定 owner 生效，默认配置仍为 `deny`，公开工具总数为 32。
+该兼容通道只对固定 owner 生效，默认配置仍为 `deny`，公开工具总数为 37。
 
 同时在 Aily 为该 MCP 固定配置 `x-aily-user=owner` 请求头，并仅让所有者看见该
 MCP 工具。该固定身份是 `F:\` 默认目录只对 owner 生效的前提；其他用户不能共享
-或继承此范围。目录授权不会新增工具，`tools/list` 始终保持 32 个工具。
+或继承此范围。目录授权不会新增工具，`tools/list` 始终保持 37 个工具。
 
 当 `GIT_COMMAND_POLICY=soft_owner` 时，owner 在已授权目录内调用普通 Git 命令
 （例如 `git add`、`git commit`、`git merge`、普通 `git push` 与 `git status`）会直接
@@ -155,6 +155,20 @@ manage-feishu-mcp-approvals.bat -ClearDirectories
 长操作（构建、测试、打包）返回 task ID，客户端可在同一会话中查询进度、读取日志或请求取消。需要审批的操作（项目创建、环境变更、设备写入）返回 `input_required`，客户端必须用相同参数重试。不支持 elicitation 的客户端始终被拒绝。
 
 不要在飞书对话或配置截图中粘贴密钥、PIN、签名密钥或凭据密码。凭据通过 `manage-development-credentials.bat` 在本机管理，工具调用仅使用凭据别名。详细使用方法见 [本地开发环境使用指南](local-development-environment.md)。
+
+### 5.6. 工作区上下文与工具路由（owner 专用）
+
+`workspace_context` 是 owner 专用工具，用于选择一个受信任的工作区并固化"下一步该用哪个工具"的机器可读路由，避免智能体反复扫描磁盘或在多个 shell 之间试错。它不授予目录、不承载命令、不含绝对根路径；套餐、审批与目录授权的权威性不变。
+
+推荐的调用顺序（智能体应按此执行，不要换工具换 shell 重试同一工作）：
+
+1. 调用 `workspace_context.bootstrap`；若返回候选列表，选择一个返回的 `workspaceId` 后再次调用。若返回单个未过期上下文则直接继续。
+2. 用 `read_file` 读取 `workspace.instructionFiles` 列出的每个声明指令文件。
+3. 用 `workspace_context.mark_instructions_read` 确认已读取这些文件（阶段推进到 `instructions_ready`）。
+4. 按返回的 `route.recommended` 前进：Android 构建/测试/安装走 `android_development` 后台任务工具，固定 Node 校验走 `run_local_workflow`；普通源码检索走 `read_file` / `search_content` 并在所选工作区范围内进行。
+5. 遇到错误时按 `error.nextAction` 行动。工作区上下文缺失返回 `WORKSPACE_SELECTION_REQUIRED`（含根路径无关的候选），目录未授权返回 `WORKSPACE_NOT_AUTHORIZED`，目录清单变化返回 `WORKSPACE_CONTEXT_STALE`。不要扫描磁盘、猜测项目规则或通过通用 shell 重试结构化工作。
+
+上下文为 owner 作用域、24 小时无活动后过期、不传达任何目录授权；本版本对已有调用方为可选新增，现有工具的调用方式保持不变。
 
 ### 6. 在 Aily 中添加并测试 MCP
 

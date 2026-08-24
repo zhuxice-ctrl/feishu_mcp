@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import { mkdtemp, rm, writeFile } from "node:fs/promises";
+import { readFileSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import test from "node:test";
@@ -175,4 +176,13 @@ test("clear removes the owner context idempotently", async () => {
   } finally {
     await rm(root, { recursive: true, force: true });
   }
+});
+
+test("Aily guide prescribes bootstrap and forbids shell trial-and-error", () => {
+  const guide = readFileSync(
+    path.resolve(import.meta.dirname, "..", "docs", "aily-integration-guide.md"),
+    "utf8",
+  );
+  assert.match(guide, /workspace_context[\s\S]*android_development/);
+  assert.doesNotMatch(guide, /scan F:\\|gradlew .*execute_command/i);
 });
