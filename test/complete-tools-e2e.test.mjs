@@ -19,8 +19,9 @@ const expectedTools = [
   "inspect_development_environment", "plan_environment_changes", "apply_environment_plan",
   "android_development",
   "windows_development", "node_development",
-  "manage_development_project", "list_local_workspaces", "run_local_workflow",
+"manage_development_project", "list_local_workspaces", "run_local_workflow",
   "staging_android_verify",
+  "workspace_context",
 ];
 
 async function freePort() {

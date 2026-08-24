@@ -37,6 +37,7 @@ import {
   PORT,
   SERVER_NAME,
   SERVER_VERSION,
+  WORKSPACE_CONTEXT_STORE_PATH,
 } from "./config.js";
 import { registerAuthTool } from "./auth/authTool.js";
 import { summary as authSummary } from "./auth/pinAuth.js";
@@ -59,6 +60,7 @@ import path from "node:path";
 import { DevelopmentTaskCoordinator } from "./development/tasks/coordinator.js";
 import { DevelopmentTaskScheduler } from "./development/tasks/scheduler.js";
 import { DevelopmentTaskStore } from "./development/tasks/store.js";
+import { developmentOwnerKey } from "./development/tasks/ownerKey.js";
 import { registerAskUserTool } from "./tools/askUser.js";
 import { registerCommandTool } from "./tools/command.js";
 import { concurrencySummary } from "./tools/concurrency.js";
@@ -74,6 +76,8 @@ import { registerWindowsDevelopmentTool } from "./tools/windowsDevelopment.js";
 import { registerDevelopmentProjectTool } from "./tools/developmentProjects.js";
 import { registerLocalWorkflowTools } from "./tools/localWorkflows.js";
 import { registerStagingAndroidVerifyTool } from "./tools/stagingAndroidVerify.js";
+import { registerWorkspaceContextTool } from "./tools/workspaceContext.js";
+import { WorkspaceContextStore } from "./development/workspaces/context.js";
 import { ProfileRegistry } from "./android-workflow/profileRegistry.js";
 import { zeroxcoreProfile } from "./android-workflow/profiles/zeroxcore.js";
 import { AndroidProjectProvider } from "./development/android/projectProvider.js";
@@ -107,10 +111,11 @@ const TOOL_NAMES = [
   "node_development",
   "manage_development_project",
   "manage_binary_artifact",
-  "list_local_workspaces",
+"list_local_workspaces",
   "run_local_workflow",
   "list_development_tasks",
   "staging_android_verify",
+  "workspace_context",
 ] as const;
 
 const SERVER_INSTRUCTIONS =
@@ -162,6 +167,12 @@ projectRegistry.register(
   }),
 );
 const androidCredentialStore = new LocalCredentialStore(APPROVAL_DATA_DIR);
+
+// ---------------------------------------------------------------------------
+// Workspace context subsystem — owner-scoped selections with deterministic routes
+// ---------------------------------------------------------------------------
+
+const workspaceContextStore = new WorkspaceContextStore(WORKSPACE_CONTEXT_STORE_PATH);
 
 // ---------------------------------------------------------------------------
 // Windows development subsystem — project providers + shared credential store
@@ -269,10 +280,16 @@ function createMcpServer(): McpServer {
   registerNodeDevelopmentTool(server);
   registerDevelopmentProjectTool(server, { registry: projectRegistry });
   registerLocalWorkflowTools(server, developmentTaskCoordinator);
-  registerStagingAndroidVerifyTool(server, {
+registerStagingAndroidVerifyTool(server, {
     registry: androidWorkflowRegistry,
     stateStoreDir: APPROVAL_DATA_DIR,
     evidenceDir: path.join(APPROVAL_DATA_DIR, "staging-evidence"),
+  });
+  registerWorkspaceContextTool(server, {
+    store: workspaceContextStore,
+    ownerKey: developmentOwnerKey,
+    hasAccess: (userId, workspaceRoot) =>
+      directoryGrantStore.hasAccess(userId, workspaceRoot),
   });
 
   return server;

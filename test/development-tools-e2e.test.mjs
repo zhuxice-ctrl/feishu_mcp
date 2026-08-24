@@ -28,14 +28,15 @@ const EXPECTED_TOOLS = [
   "inspect_development_environment", "plan_environment_changes", "apply_environment_plan",
   "android_development",
   "windows_development", "node_development",
-  "manage_development_project", "list_local_workspaces", "run_local_workflow", "staging_android_verify",
+"manage_development_project", "list_local_workspaces", "run_local_workflow", "staging_android_verify",
+  "workspace_context",
 ];
 
 function body(result) {
   return JSON.parse(result.content[0].text);
 }
 
-test("development tools E2E: 36-tool inventory and owner isolation", async () => {
+test("development tools E2E: 37-tool inventory and owner isolation", async () => {
   const root = await mkdtemp(path.join(os.tmpdir(), "dev-e2e-"));
   const approvalDir = path.join(root, "approvals");
   const taskRoot = path.join(approvalDir, "tasks");
@@ -66,7 +67,7 @@ test("development tools E2E: 36-tool inventory and owner isolation", async () =>
     });
     const listed = (await fixture.rpc("tools/list")).tools.map((t) => t.name);
     assert.deepEqual(listed, EXPECTED_TOOLS);
-    assert.equal(listed.length, 36);
+    assert.equal(listed.length, 37);
 
     // Non-owner callers are rejected with OWNER_REQUIRED for every new tool.
     for (const [name, args] of NEW_TOOL_CALLS) {
@@ -84,7 +85,7 @@ test("development tools E2E: 36-tool inventory and owner isolation", async () =>
 
     // Health exposes aggregate data without secrets, paths, or task IDs.
     const health = await (await fetch(`${fixture.baseUrl}/health`)).json();
-    assert.equal(health.toolCount, 36);
+    assert.equal(health.toolCount, 37);
     const serialized = JSON.stringify(health);
     assert.doesNotMatch(serialized, /planId|environmentDigest|catalogDigest|brokerKey|ownerSid|pipePath|realPath|fileIdentity/i);
     assert.doesNotMatch(serialized, /taskId|ownerKey/i);
