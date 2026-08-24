@@ -29,7 +29,10 @@ export type ToolErrorCode =
   | "BINARY_ARTIFACT_SOURCE_DENIED" | "BINARY_ARTIFACT_STORE_FAILED"
   | "BINARY_ARTIFACT_MATERIALIZE_FAILED"
   | "DEVELOPMENT_PROJECT_UNKNOWN" | "DEVELOPMENT_DESTINATION_DENIED"
-  | "DEVELOPMENT_CREATE_FAILED" | "INTERNAL_ERROR";
+  | "DEVELOPMENT_CREATE_FAILED" | "INTERNAL_ERROR"
+  | "WORKSPACE_SELECTION_REQUIRED" | "WORKSPACE_CONTEXT_NOT_FOUND"
+  | "WORKSPACE_CONTEXT_STALE" | "WORKSPACE_NOT_AUTHORIZED"
+  | "INSTRUCTION_FILE_INVALID" | "ROUTE_REQUIRED" | "TASK_ALREADY_ACTIVE";
 
 export function toolJson(value: unknown) {
   return {
@@ -38,12 +41,36 @@ export function toolJson(value: unknown) {
   };
 }
 
+/** Root-free, owner-scoped candidates offered on a selection error. */
+export interface ActionCandidate {
+  workspaceId: string;
+  label: string;
+}
+
+export interface NextAction {
+  tool: string;
+  action?: string;
+  reason: string;
+}
+
 export function toolError(
   code: ToolErrorCode,
   message: string,
   retryable = false,
   details: Record<string, unknown> = {},
+  nextAction?: NextAction,
+  candidates?: ActionCandidate[],
 ) {
-  const body = { ...details, ok: false, code, message, retryable };
+  const body: Record<string, unknown> = {
+    ...details,
+    ok: false,
+    code,
+    message,
+    retryable,
+  };
+  if (nextAction) body.nextAction = nextAction;
+  if (candidates && candidates.length > 0) {
+    body.candidates = candidates.slice(0, 16);
+  }
   return { ...toolJson(body), isError: true };
 }
