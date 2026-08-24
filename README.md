@@ -42,6 +42,9 @@ AUTH_MODE=pin
 AUTH_PIN=<your-own-strong-pin>
 AUTH_USER_HEADER=x-aily-user
 
+# 公网可达的自有主机名（Cloudflare 命名隧道前置的域名，见下文）
+PUBLIC_HOST=mcp.example.com
+
 # 命令默认仍需确认
 OWNER_COMMAND_POLICY=approval
 ```
@@ -49,15 +52,18 @@ OWNER_COMMAND_POLICY=approval
 `AUTH_MODE=none` 仅适合完全由你自己控制的个人入口；即使使用它，也应保留
 `MCP_AUTH_TOKEN`。
 
-### 3. 启动本地 MCP
+### 3. 启动本地 MCP 与公网连接器
 
-Windows 推荐双击仓库根目录的：
+本地 MCP 与公网传输彼此解耦。Windows 推荐双击仓库根目录的：
 
 ```text
 start-feishu-mcp.bat
 ```
 
-启动器会构建服务、检查本地健康状态并启动或检查 ngrok 通道。你也可以手动运行：
+启动器只负责本地服务：它会构建服务、检查本地健康状态并启动 `node dist/index.js`，
+不会替你再启动任何隧道进程。它从 `.env` 读取 `PUBLIC_HOST` 并打印预期公网地址；
+公网连接器是否健康由下面第 4 步的 cloudflared Windows 服务或
+`scripts\test-cloudflare-tunnel.ps1` 检查。你也可以手动运行：
 
 ```powershell
 npm run build
@@ -70,29 +76,50 @@ npm start
 Invoke-RestMethod http://127.0.0.1:3000/health
 ```
 
-正常时应返回 `status: ok`，并报告 37 个工具。若你使用 Clash Fake-IP，启动器对公网
-`/health` 的回访失败只会警告；本地服务和隧道仍可正常工作。
+正常时应返回 `status: ok`，并报告 37 个工具。若你使用 Clash Fake-IP，对公网
+`/health` 的回访失败只说明反向探测受限；本地服务和连接器仍可正常工作。
 
-### 4. 手动配置自己的 ngrok
+### 4. 公网传输（默认 Cloudflare 命名隧道，回滚备用 ngrok）
 
-在你自己的 ngrok 账号中完成以下操作：安装 ngrok、保存自己的 authtoken，并为本地
-`127.0.0.1:3000` 建立 HTTPS 隧道。使用临时域名时，每次重启隧道都可能变化；使用保留
-域名时，请按你的 ngrok 账号能力配置。
+**主路径：Cloudflare 命名隧道 + 自有主机名。** 在 Cloudflare 控制台完成以下一次性配置
+（不要在仓库或截图里放凭据、tunnel UUID 或证书 JSON）：
 
-隧道建立后，记下自己的 HTTPS 地址，并确认：
+1. 安装 cloudflared，并在你的终端完成 `cloudflared tunnel login`。
+2. 创建命名隧道：`cloudflared tunnel create feishu-mcp`（记下打印的 UUID）。
+3. 绑定主机名：`cloudflared tunnel route dns feishu-mcp mcp.example.com`（该子域需在
+   Cloudflare DNS 中被代理）。
+4. 在 `%USERPROFILE%\.cloudflared\config.yml` 写外部连接配置，`ingress` 指向
+   `http://127.0.0.1:3000`（以 `.env` 的 `PORT` 为准），并为证书 JSON 和 config.yml
+   收紧 NTFS ACL。
+5. 安装为 Windows 服务：`cloudflared service install`，再 `Start-Service cloudflared`。
 
-```text
-https://<your-ngrok-domain>/health
+把 `PUBLIC_HOST` 设置为这个自有主机名并重启本地启动器。随后运行有界健康验证（区分
+本地与公网失败，退出码非零即失败）：
+
+```powershell
+.\scripts\test-cloudflare-tunnel.ps1 -PublicHost mcp.example.com -Port 3000
 ```
 
-可访问。不要把这条地址当作凭据，也不要把它复制给其他使用者。
+服务状态命令：
+
+```powershell
+Get-Service cloudflared  # 期望 Running
+Start-Service cloudflared
+Stop-Service cloudflared
+```
+
+**回滚备用：ngrok。** 观察期内如公网中断超过 5 分钟且原因未明，可按
+[CLOUDFLARE_TUNNEL_MIGRATION.md](docs/CLOUDFLARE_TUNNEL_MIGRATION.md) 一键回滚：
+先停止 cloudflared 服务，再在 `.env` 恢复 `NGROK_DOMAIN` 与 `NGROK_AUTHTOKEN`，
+运行 `.\scripts\start-ngrok.ps1`，并把 Aily endpoint 改回旧 ngrok 地址。不要把
+`mcp.example.com` 当作凭据，也不要把它复制给其他使用者。
 
 ### 5. 在 Aily 添加 MCP
 
 在 Aily 中添加企业自定义 MCP，Endpoint 类型选 **Streamable HTTP**：
 
 ```text
-MCP endpoint: https://<your-ngrok-domain>/mcp
+MCP endpoint: https://<your-PUBLIC_HOST>/mcp
 Authorization: Bearer <your-own-MCP_AUTH_TOKEN>
 x-aily-user: <your-own-OWNER_USER_ID>
 ```

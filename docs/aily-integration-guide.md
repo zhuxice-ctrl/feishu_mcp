@@ -6,21 +6,27 @@
 
 - [ ] MCP 服务已构建完成（`npm run build`），`/health` 返回正常
 - [ ] 已选择工具授权模式；默认 `pin` 模式已设置 `AUTH_PIN`（至少 8 个字符）
-- [ ] ngrok 已安装并配置了固定域名（见 README 中的 ngrok 设置步骤）
+- [ ] 公网传输已就绪：默认 Cloudflare 命名隧道 + 自有主机名（`.env` 的 `PUBLIC_HOST`），或回滚期临时使用 ngrok（见 README 与 `docs/CLOUDFLARE_TUNNEL_MIGRATION.md`）
 - [ ] 拥有飞书 Aily 管理后台权限
 
 ## 接入步骤
 
-### 1. 验证公网连通性
+### 1. 验证链路连通性
 
-确保 ngrok 隧道已启动，公网地址可访问：
+选择公网 Host 后，先确认本地与公网健康检查（脚本区分本地/公网失败，退出码非零即失败）：
+
+```powershell
+.\scripts\test-cloudflare-tunnel.ps1 -PublicHost mcp.example.com
+```
+
+或手动验证：
 
 ```bash
 # 测试健康检查端点
-curl https://your-domain.ngrok-free.app/health
+curl https://mcp.example.com/health
 
 # 测试 MCP 端点（需要 Token）
-curl -X POST https://your-domain.ngrok-free.app/mcp \
+curl -X POST https://mcp.example.com/mcp \
   -H "Content-Type: application/json" \
   -H "Accept: application/json, text/event-stream" \
   -H "Authorization: Bearer YOUR_TOKEN" \
@@ -47,7 +53,7 @@ curl -X POST https://your-domain.ngrok-free.app/mcp \
 
 | 字段 | 值 |
 |------|------|
-| 请求地址 | `https://your-domain.ngrok-free.app/mcp` |
+| 请求地址 | `https://你的PUBLIC_HOST/mcp`（默认 `https://mcp.example.com/mcp`） |
 | Endpoint 类型 | **Streamable HTTP** |
 
 ### 4. 配置传输层 Bearer Token
@@ -65,11 +71,11 @@ curl -X POST https://your-domain.ngrok-free.app/mcp \
 > 并发现完整工具清单。参数值填写 `Bearer <your-own-MCP_AUTH_TOKEN>`；绝不要把真实
 > Token 放在展示名称、可选描述、截图或普通对话中。
 
-Bearer Token 只保护 HTTP/ngrok 入口；工具调用还受 `AUTH_MODE` 控制：
+Bearer Token 只保护公网入口（Cloudflare 命名隧道或回滚期的 ngrok）；工具调用还受 `AUTH_MODE` 控制：
 
 - `pin`（默认）：平台需在每个请求中提供稳定的 `x-aily-user`，然后调用 `auth` 工具并传入服务端配置的 PIN。
 - `none`：关闭工具级授权，仅使用 Bearer Token，适合个人单用户部署。
-- `header`：信任身份头，仅可放在可信网关后。网关必须删除客户端自带的身份头并重新注入；不要直接通过 ngrok 暴露 header 模式。
+- `header`：信任身份头，仅可放在可信网关后。网关必须删除客户端自带的身份头并重新注入；不要直接把受限入口暴露给公网。不可审计的共享接入视为不受支持。
 
 PIN 不会输出到 stdout、stderr 或日志。请通过安全渠道把它交给需要认证的操作者，不要写入普通对话或公开配置。
 
