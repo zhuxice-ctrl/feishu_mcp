@@ -12,7 +12,6 @@ const launcherScript = path.join(projectDir, "scripts", "start-feishu-mcp.ps1");
 async function fixture(overrides = {}) {
   const root = await mkdtemp(path.join(os.tmpdir(), "feishu-launcher-"));
   const envFile = path.join(root, ".env");
-  const fakeNgrok = path.join(root, "ngrok.exe");
   const values = {
     PORT: "3000",
     HOST: "127.0.0.1",
@@ -29,7 +28,7 @@ async function fixture(overrides = {}) {
     MAX_CONCURRENT_COMMANDS: "2",
     MAX_CONCURRENT_SEARCHES: "3",
     MAX_CONCURRENT_FETCHES: "4",
-    NGROK_DOMAIN: "reptilian-prenatal-spinster.ngrok-free.dev",
+    PUBLIC_HOST: "mcp.example.com",
     ...overrides,
   };
   await writeFile(
@@ -39,11 +38,10 @@ async function fixture(overrides = {}) {
       .join("\n"),
     "utf8"
   );
-  await writeFile(fakeNgrok, "", "utf8");
-  return { root, envFile, fakeNgrok };
+  return { root, envFile };
 }
 
-function checkOnly(envFile, fakeNgrok) {
+function checkOnly(envFile) {
   return spawnSync(
     powershell,
     [
@@ -55,13 +53,12 @@ function checkOnly(envFile, fakeNgrok) {
       "-CheckOnly",
       "-EnvFile",
       envFile,
-      "-NgrokPath",
-      fakeNgrok,
     ],
     {
       cwd: projectDir,
       env: {
         ...process.env,
+        PUBLIC_HOST: "",
         NGROK_DOMAIN: "",
         AUTH_PIN: "",
         MCP_AUTH_TOKEN: "",
@@ -77,7 +74,7 @@ test(
   async () => {
     const item = await fixture();
     try {
-      const result = checkOnly(item.envFile, item.fakeNgrok);
+      const result = checkOnly(item.envFile);
       assert.equal(result.status, 0, result.stderr);
       assert.doesNotMatch(
         result.stdout + result.stderr,
@@ -94,7 +91,7 @@ test(
           port: output.port,
           host: output.host,
           authMode: output.authMode,
-          domain: output.ngrokDomain,
+          publicHost: output.publicHost,
           toolCount: output.toolCount,
           concurrency: output.concurrency,
           permanentApprovalCount: output.permanentApprovalCount,
@@ -107,7 +104,7 @@ test(
           port: 3000,
           host: "127.0.0.1",
           authMode: "pin",
-          domain: "reptilian-prenatal-spinster.ngrok-free.dev",
+          publicHost: "mcp.example.com",
           toolCount: 37,
           concurrency: { search: 3, fetch: 4, global: 6, command: 2 },
           permanentApprovalCount: 0,
@@ -130,7 +127,7 @@ test(
   async () => {
     const item = await fixture({ OWNER_USER_ID: "" });
     try {
-      const result = checkOnly(item.envFile, item.fakeNgrok);
+      const result = checkOnly(item.envFile);
       assert.notEqual(result.status, 0);
       assert.match(result.stderr, /OWNER_USER_ID.*required/i);
     } finally {
@@ -145,7 +142,7 @@ test(
   async () => {
     const item = await fixture({ ALLOWED_DIRS: "", OWNER_DEFAULT_DIRS: "" });
     try {
-      const result = checkOnly(item.envFile, item.fakeNgrok);
+      const result = checkOnly(item.envFile);
       assert.notEqual(result.status, 0);
       assert.match(result.stderr, /ALLOWED_DIRS or OWNER_DEFAULT_DIRS/i);
     } finally {
@@ -155,18 +152,33 @@ test(
 );
 
 test(
-  "launcher rejects a missing fixed domain without leaking secrets",
+  "launcher rejects a missing public host without leaking secrets",
   { skip: process.platform !== "win32" },
   async () => {
-    const item = await fixture({ NGROK_DOMAIN: "" });
+    const item = await fixture({ PUBLIC_HOST: "" });
     try {
-      const result = checkOnly(item.envFile, item.fakeNgrok);
+      const result = checkOnly(item.envFile);
       assert.notEqual(result.status, 0);
-      assert.match(result.stderr, /NGROK_DOMAIN/);
+      assert.match(result.stderr, /PUBLIC_HOST/);
       assert.doesNotMatch(
         result.stdout + result.stderr,
         /transport-secret-value|pin-secret-value|approval-secret-value/
       );
+    } finally {
+      await rm(item.root, { recursive: true, force: true });
+    }
+  }
+);
+
+test(
+  "launcher rejects a PUBLIC_HOST containing non-hostname characters",
+  { skip: process.platform !== "win32" },
+  async () => {
+    const item = await fixture({ PUBLIC_HOST: "https://mcp.example.com/path" });
+    try {
+      const result = checkOnly(item.envFile);
+      assert.notEqual(result.status, 0);
+      assert.match(result.stderr, /PUBLIC_HOST must contain only a hostname/i);
     } finally {
       await rm(item.root, { recursive: true, force: true });
     }
@@ -179,7 +191,7 @@ test(
   async () => {
     const item = await fixture({ MAX_CONCURRENT_TOOLS: "65" });
     try {
-      const result = checkOnly(item.envFile, item.fakeNgrok);
+      const result = checkOnly(item.envFile);
       assert.notEqual(result.status, 0);
       assert.match(result.stderr, /MAX_CONCURRENT_TOOLS.*1 and 64/i);
       assert.doesNotMatch(
@@ -202,30 +214,21 @@ test(
     );
     assert.match(content, /scripts\\start-feishu-mcp\.ps1/i);
     assert.match(content, /ExecutionPolicy\s+Bypass/i);
-    assert.doesNotMatch(content, /MCP_AUTH_TOKEN|AUTH_PIN/);
+    assert.doesNotMatch(content, /MCP_AUTH_TOKEN|AUTH_PIN|ngrok|cloudflared/i);
   }
 );
 
-test(
-  "PowerShell launcher waits for the configured ngrok 3 endpoint URL",
-  { skip: process.platform !== "win32" },
-  async () => {
-    const content = await readFile(launcherScript, "utf8");
-  assert.match(content, /function\s+Wait-NgrokTunnel/i);
-  assert.match(content, /--url=https:\/\/\$domain/);
-  assert.doesNotMatch(content, /--domain=\$domain/);
-  assert.match(content, /ngrok-skip-browser-warning/);
-  assert.match(content, /Public health probe unavailable; keeping the established ngrok tunnel running/i);
-  assert.match(content, /try\s*\{[\s\S]{0,600}Wait-Json "\$expectedUrl\/health" 45 \$ngrok \$publicHeaders[\s\S]{0,600}\}\s*catch/i);
-    assert.match(content, /\[Console\]::KeyAvailable/);
-    assert.match(content, /Press Q or Enter to stop/);
-  }
-);
-
-test("launcher resolves its bundled ngrok from the project directory", async () => {
+test("launcher is local-service-only and decoupled from any tunnel process", async () => {
   const content = await readFile(launcherScript, "utf8");
-  assert.match(content, /Join-Path\s+\$projectDir\s+"tools\\ngrok\\ngrok\.exe"/i);
-  assert.doesNotMatch(content, /Split-Path\s+-Parent\s+\$projectDir\)[\s\S]{0,80}ngrok\\ngrok\.exe/i);
+  // Preflight now requires the transport-neutral PUBLIC_HOST.
+  assert.match(content, /Require-Value\s+"PUBLIC_HOST"/);
+  assert.match(content, /PUBLIC_HOST must contain only a hostname/);
+  // No coupled tunnel ownership remains.
+  assert.doesNotMatch(content, /Resolve-Ngrok|Wait-NgrokTunnel/);
+  assert.doesNotMatch(content, /ngrok\.exe|NGROK_AUTHTOKEN/);
+  assert.doesNotMatch(content, /127\.0\.0\.1:4040|--url=https:\/\/\$domain|--domain=\$domain/);
+  // Public connector health is delegated to the Cloudflare test script.
+  assert.match(content, /test-cloudflare-tunnel\.ps1/);
 });
 
 test("launcher performs a read-only broker state check and reports 37 tools", async () => {
@@ -239,11 +242,12 @@ test("launcher performs a read-only broker state check and reports 37 tools", as
   assert.match(body, /feishu-mcp-admin-\$suffix/i);
   assert.doesNotMatch(body, /feishu-mcp-admin-broker/i);
   assert.doesNotMatch(body, /Start-Service|Stop-Service|Install|Start-Process/i);
-// CheckOnly output reports the exact 37-tool inventory and broker state.
+  // CheckOnly output reports the exact 37-tool inventory and broker state.
   assert.match(content, /toolCount\s*=\s*37/);
   assert.match(content, /brokerState\s*=\s*Get-BrokerState/);
   // The broker key path may be read for readiness, but is never added to output.
   const checkOutput = content.match(/if\s*\(\$CheckOnly\)[\s\S]*?ConvertTo-Json\s+-Compress/i);
   assert.ok(checkOutput, "CheckOnly output block must exist");
   assert.doesNotMatch(checkOutput[0], /keyPath|brokerKey|DEV_ENV_BROKER/i);
+  assert.match(checkOutput[0], /publicHost\s*=\s*\$publicHost/);
 });
