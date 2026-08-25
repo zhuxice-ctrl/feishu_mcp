@@ -23,52 +23,52 @@ function Wait-LocalHealth([int]$Seconds = 45) {
         }
         Start-Sleep -Seconds 1
     }
-    throw "本地 MCP 未在 $Seconds 秒内通过健康检查。"
+    throw "Local MCP did not pass health check within $Seconds seconds."
 }
 
 if (-not (Test-Path -LiteralPath $launcher -PathType Leaf)) {
-    throw "找不到本地 MCP 启动器：$launcher"
+    throw "Local MCP launcher was not found: $launcher"
 }
 if (-not $cloudflared) {
-    throw "找不到 cloudflared.exe，请先安装 Cloudflare Tunnel 客户端。"
+    throw "cloudflared.exe was not found. Install the Cloudflare Tunnel client first."
 }
 if (-not (Test-Path -LiteralPath $configPath -PathType Leaf)) {
-    throw "找不到 Cloudflare 配置：$configPath"
+    throw "Cloudflare config was not found: $configPath"
 }
 
 $local = Get-NetTCPConnection -LocalPort $Port -State Listen -ErrorAction SilentlyContinue
 if (-not $local) {
-    Write-Host "启动本地 MCP 服务..." -ForegroundColor Cyan
+    Write-Host "Starting local MCP service..." -ForegroundColor Cyan
     Start-Process -FilePath "powershell.exe" -ArgumentList @(
         "-NoLogo", "-NoProfile", "-ExecutionPolicy", "Bypass",
         "-File", $launcher
     ) -WorkingDirectory $projectDir
 } else {
-    Write-Host "检测到本地端口 $Port 已监听，跳过重复启动。" -ForegroundColor Yellow
+    Write-Host "Local port $Port is already listening; skipping duplicate start." -ForegroundColor Yellow
 }
 
 $health = Wait-LocalHealth
-Write-Host "本地 MCP 健康检查通过（37 个工具）。" -ForegroundColor Green
+Write-Host "Local MCP health check passed (37 tools)." -ForegroundColor Green
 
 $service = Get-Service -Name "cloudflared" -ErrorAction SilentlyContinue
 $tunnelProcess = Get-CimInstance Win32_Process -Filter "Name = 'cloudflared.exe'" -ErrorAction SilentlyContinue |
     Where-Object { $_.CommandLine -like "*$configPath*" }
 
 if ($service -and $service.Status -eq "Running") {
-    Write-Host "cloudflared Windows 服务已运行，跳过重复启动。" -ForegroundColor Green
+    Write-Host "cloudflared Windows service is already running; skipping duplicate start." -ForegroundColor Green
 } elseif ($tunnelProcess) {
-    Write-Host "检测到 Cloudflare Tunnel 已运行，跳过重复启动。" -ForegroundColor Green
+    Write-Host "Cloudflare Tunnel is already running; skipping duplicate start." -ForegroundColor Green
 } else {
-    Write-Host "启动 Cloudflare Tunnel..." -ForegroundColor Cyan
+    Write-Host "Starting Cloudflare Tunnel..." -ForegroundColor Cyan
     Start-Process -FilePath $cloudflared -ArgumentList @(
         "tunnel", "--config", $configPath, "run", "feishu-mcp"
     ) -WorkingDirectory $projectDir
 }
 
 Write-Host "" 
-Write-Host "cf_mcp 已准备完成。" -ForegroundColor Green
-Write-Host "本地：  http://127.0.0.1:$Port/health"
-Write-Host "公网：  https://$PublicHost/mcp"
-Write-Host "停止方式：关闭本地 MCP 窗口；如 Tunnel 非 Windows 服务，请关闭 cloudflared 窗口。" -ForegroundColor Yellow
-Write-Host "按 Enter 关闭此启动提示窗口。"
+Write-Host "cf_mcp is ready." -ForegroundColor Green
+Write-Host "Local:  http://127.0.0.1:$Port/health"
+Write-Host "Public: https://$PublicHost/mcp"
+Write-Host "To stop: close the local MCP window; if Tunnel is not a Windows service, close the cloudflared window." -ForegroundColor Yellow
+Write-Host "Press Enter to close this launcher window."
 [void](Read-Host)
