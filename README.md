@@ -79,7 +79,22 @@ Invoke-RestMethod http://127.0.0.1:3000/health
 正常时应返回 `status: ok`，并报告 37 个工具。若你使用 Clash Fake-IP，对公网
 `/health` 的回访失败只说明反向探测受限；本地服务和连接器仍可正常工作。
 
-### 4. 公网传输（默认 Cloudflare 命名隧道，回滚备用 ngrok）
+### 4. 先选择公网传输
+
+在配置隧道前，先确定两件事：你使用 **Cloudflare** 还是 **ngrok**，以及是否拥有一个可
+专用于此 MCP 的独立域名。
+
+| 选择 | 是否有独立 MCP 域名 | 建议 |
+| --- | --- | --- |
+| Cloudflare | 有 | 使用 Cloudflare 命名隧道，并分配 `mcp.<你的域名>` 等专用子域名。这是主路径。 |
+| Cloudflare | 没有 | 不要默认把现有业务域名暴露给本 MCP；建议先注册专用域名，或暂时使用 ngrok。 |
+| ngrok | 不限 | 使用自己的 ngrok 账号和 HTTPS 地址；适合临时接入、没有独立域名时使用，或作为 Cloudflare 的回滚方案。 |
+
+**同一时间只能启用一个同用途的 Aily MCP 条目。** 两个条目同时提供同一批工具会使
+工具路由产生歧义。切换时请遵循：先新建目标条目，验证 `ping` 与工具发现成功，最后再
+关闭旧条目。
+
+### 5. 公网传输（默认 Cloudflare 命名隧道，回滚备用 ngrok）
 
 **主路径：Cloudflare 命名隧道 + 自有主机名。** 在 Cloudflare 控制台完成以下一次性配置
 （不要在仓库或截图里放凭据、tunnel UUID 或证书 JSON）：
@@ -114,12 +129,13 @@ Stop-Service cloudflared
 运行 `.\scripts\start-ngrok.ps1`，并把 Aily endpoint 改回旧 ngrok 地址。不要把
 `mcp.example.com` 当作凭据，也不要把它复制给其他使用者。
 
-### 5. 在 Aily 添加 MCP
+### 6. 在 Aily 添加 MCP
 
-在 Aily 中添加企业自定义 MCP，Endpoint 类型选 **Streamable HTTP**：
+在 Aily 中添加企业自定义 MCP，Endpoint 类型选 **Streamable HTTP**。使用 Cloudflare
+时将 `<你的公网主机名>` 替换为 `PUBLIC_HOST`；使用 ngrok 时替换为自己的 ngrok 域名：
 
 ```text
-MCP endpoint: https://<your-PUBLIC_HOST>/mcp
+MCP endpoint: https://<你的公网主机名>/mcp
 Authorization: Bearer <your-own-MCP_AUTH_TOKEN>
 x-aily-user: <your-own-OWNER_USER_ID>
 ```
@@ -129,8 +145,9 @@ MCP，`Authorization` 应使用**固定值**，其参数值为 `Bearer <your-own
 这样 Aily 才能在注册阶段发现完整工具清单。不要把真实 Token 放在展示名称、描述、图片
 或普通对话中；`x-aily-user` 应固定为你的 owner 身份。
 
-保存或更新 MCP 后，重新打开 Aily 对话并调用 `ping` 或让它枚举工具。出现 401 时，先
-核对 Token 是否与本机 `.env` 一致，以及是否包含 `Bearer ` 前缀。
+保存新 MCP 后，先重新打开 Aily 对话并调用 `ping` 或让它枚举工具；确认成功后，再关闭
+旧的同用途 MCP 条目。出现 401 时，先核对 Token 是否与本机 `.env` 一致，以及是否包含
+`Bearer ` 前缀。
 
 ## Android 与 Windows 本地开发环境
 

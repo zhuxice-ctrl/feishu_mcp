@@ -1,6 +1,6 @@
 ---
 name: personal-mcp-onboarding
-description: Teach an individual developer to independently install and use this local MCP on their own Windows computer. Use when asked about personal-device setup, manual ngrok registration or tunnel configuration, Aily MCP connection values, separate-device security, or Android and Windows development prerequisites. Inspect relevant local state first, then provide manual guidance only; never create accounts, enter secrets, install software, or change machine configuration without a separate explicit request.
+description: Teach an individual developer to independently install and use this local MCP on their own Windows computer. Use when asked about personal-device setup, Cloudflare or ngrok tunnel selection and configuration, Aily MCP connection values, separate-device security, or Android and Windows development prerequisites. Inspect relevant local state first, then provide manual guidance only; never create accounts, enter secrets, install software, or change machine configuration without a separate explicit request.
 ---
 
 # Personal MCP Onboarding
@@ -16,11 +16,14 @@ Guide one developer through running this repository on their own Windows compute
 
 ## Workflow
 
-1. Identify the target: base Node project, Android project, Windows native project, or a combination.
-2. Inspect only prerequisites relevant to that target. Prefer the repository's environment-inspection capability when available; otherwise use read-only checks. Mark each item **ready**, **missing**, **misconfigured**, or **not checked**.
-3. Give manual steps in this order: clone the repository, make a local `.env`, install missing prerequisites, launch the local MCP, configure ngrok, configure Aily, then verify health and tool discovery.
-4. Put all machine-changing commands under **Optional manual action**. Do not run them yourself until the user explicitly requests it.
-5. Finish with a compact verification checklist and the next safe action.
+1. Ask these two questions before detection or setup guidance: **Which public transport do you want to use: Cloudflare or ngrok?** and **Do you have an independent domain that can be dedicated to this MCP?** Do not infer either answer from a project name, an existing URL, or a screenshot.
+2. Route the response from those answers: Cloudflare with a dedicated domain uses a named tunnel and a dedicated hostname; Cloudflare without one recommends ngrok or obtaining a dedicated MCP domain before continuing; ngrok uses the user's own ngrok account and endpoint regardless of domain ownership.
+3. Identify the target: base Node project, Android project, Windows native project, or a combination.
+4. Inspect only prerequisites relevant to the target and chosen transport. Prefer the repository's environment-inspection capability when available; otherwise use read-only checks. Mark each item **ready**, **missing**, **misconfigured**, or **not checked**.
+5. Give manual steps in this order: clone the repository, make a local `.env`, install missing prerequisites, launch the local MCP, configure the chosen transport, configure Aily, then verify health and tool discovery.
+6. Tell the user to create a new Aily MCP entry, verify `ping` and tool discovery, then disable the prior same-purpose entry. Never recommend two active same-purpose MCP entries because duplicate tool inventories make routing ambiguous.
+7. Put all machine-changing commands under **Optional manual action**. Do not run them yourself until the user explicitly requests it.
+8. Finish with a compact verification checklist and the next safe action.
 
 ## Detection checklist
 
@@ -32,7 +35,8 @@ Check only what is needed and report versions or paths only when they are not se
 - Git;
 - repository dependencies and build state when the repository is present;
 - local MCP health endpoint and port 3000 only after the user has started it;
-- ngrok executable and an active tunnel only after the user configured one.
+- cloudflared executable and named-tunnel service only when the user chose Cloudflare with a dedicated domain;
+- ngrok executable and an active tunnel only when the user chose ngrok.
 
 For a missing item, provide the official product name, the expected result, and a post-install verification command. Do not automate downloads or account registration.
 
@@ -54,6 +58,15 @@ Explain the required workload and verification command, but do not invoke an ins
 
 Tell the user to copy `.env.example` to a local `.env` and generate their own long random MCP transport token. Their allowed directories must be only their own project roots. Do not show a real `.env` or claim default values that have not been checked in the installed version.
 
+### Cloudflare
+
+Only when the user chose Cloudflare and confirmed a dedicated MCP domain, tell
+them to use their own Cloudflare account and a named tunnel. The local tunnel
+configuration must point only to the local MCP port; the public hostname should
+be a dedicated hostname such as `mcp.<the-user's-domain>`. Explain that login
+credentials, certificate files, tunnel JSON, and tunnel IDs are local secrets
+and must never be committed, pasted into Aily, or shared between devices.
+
 ### ngrok
 
 Tell the user to create their own ngrok account, install ngrok, add their own authtoken locally, and expose the locally running MCP port. They must copy the resulting personal HTTPS endpoint and append the repository's MCP path. Explain that a free ngrok domain can change after a restart, so the Aily MCP endpoint must be updated when it changes.
@@ -63,7 +76,7 @@ Tell the user to create their own ngrok account, install ngrok, add their own au
 Give only these placeholders:
 
 ```text
-MCP endpoint: https://<the-user's-ngrok-domain>/mcp
+MCP endpoint: https://<the-user's-public-hostname>/mcp
 Authorization: Bearer <the-user's-own-MCP_AUTH_TOKEN>
 x-aily-user: <the-user's-own-OWNER_USER_ID>
 ```
@@ -89,9 +102,9 @@ Use these sections when relevant:
 
 ## Teaching examples
 
-### Node project connected through ngrok
+### Node project connected through a chosen transport
 
-Start by reporting whether Node, npm, pnpm, Git, the repository, the local health endpoint, and ngrok are ready. If the local server is not running, tell the user to start it manually with the repository-provided launcher. Then guide them to configure their own tunnel, copy their own endpoint into Aily, set the owner-only fixed Authorization header to `Bearer <the-user's-own-MCP_AUTH_TOKEN>`, and verify that Aily can enumerate the MCP tools. Do not provide an actual endpoint or token.
+First ask the transport and dedicated-domain questions. Start by reporting whether Node, npm, pnpm, Git, the repository, the local health endpoint, and the selected connector are ready. If the local server is not running, tell the user to start it manually with the repository-provided launcher. Then guide them to configure their selected transport, copy their own endpoint into a new Aily entry, set the owner-only fixed Authorization header to `Bearer <the-user's-own-MCP_AUTH_TOKEN>`, verify that Aily can enumerate the MCP tools, and only then disable the old same-purpose entry. Do not provide an actual endpoint or token.
 
 When an Aily agent needs PNPM verification, guide it to call `node_development` with an authorized
 project `workdir` and exactly one of `pnpm_version`, `test_run`, `build`, or `typecheck`. Explain
