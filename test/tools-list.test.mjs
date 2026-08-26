@@ -11,7 +11,7 @@ const expected = [
   "ping", "read_file", "write_file", "edit_file", "create_directory",
   "list_directory", "move_file", "search_files", "get_file_info",
   "list_allowed_directories", "auth", "execute_command", "search_content",
-  "git_status", "git_diff", "git_workflow", "compare_files", "apply_patch", "web_fetch", "manage_binary_artifact",
+  "git_status", "git_diff", "git_workflow", "java_development", "compare_files", "apply_patch", "web_fetch", "manage_binary_artifact",
   "todo_write", "todo_read", "ask_user",
   "get_development_task", "list_development_tasks", "read_development_task_logs", "cancel_development_task",
   "inspect_development_environment", "plan_environment_changes", "apply_environment_plan",
@@ -51,7 +51,7 @@ async function stop(child) {
   if (child.exitCode === null) child.kill("SIGKILL");
 }
 
-test("production MCP advertises exactly the 38-tool inventory", async () => {
+test("production MCP advertises exactly the 39-tool inventory", async () => {
   const root = await mkdtemp(path.join(os.tmpdir(), "feishu-tools-list-"));
   const port = await freePort();
   const child = spawn(process.execPath, ["dist/index.js"], {
@@ -87,7 +87,7 @@ test("production MCP advertises exactly the 38-tool inventory", async () => {
     const payload = parseMcp(await response.text());
     assert.equal(response.status, 200);
     assert.deepEqual(payload.result.tools.map((tool) => tool.name), expected);
-    assert.equal(new Set(payload.result.tools.map((tool) => tool.name)).size, 38);
+    assert.equal(new Set(payload.result.tools.map((tool) => tool.name)).size, 39);
     assert.ok(payload.result.tools.some((tool) => tool.name === "git_workflow"));
     const nodeTool = payload.result.tools.find((tool) => tool.name === "node_development");
     assert.ok(nodeTool);
@@ -103,3 +103,4 @@ test("production MCP advertises exactly the 38-tool inventory", async () => {
     await rm(root, { recursive: true, force: true });
   }
 });
+

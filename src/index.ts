@@ -91,6 +91,7 @@ import { registerDiffTool } from "./tools/diff.js";
 import { registerFilesystemTools } from "./tools/filesystem.js";
 import { registerGitTools } from "./tools/git.js";
 import { registerGitWorkflowTool } from "./tools/gitWorkflow.js";
+import { registerJavaDevelopmentTool } from "./tools/javaDevelopment.js";
 import { registerPatchTool } from "./tools/patch.js";
 import { runTool } from "./tools/registry.js";
 import { registerTodoTools } from "./tools/todo.js";
@@ -118,6 +119,7 @@ const TOOL_NAMES = [
   "staging_android_verify",
   "workspace_context",
   "git_workflow",
+  "java_development",
 ] as const;
 
 const SERVER_INSTRUCTIONS =
@@ -257,6 +259,7 @@ function createMcpServer(): McpServer {
   registerContentSearchTool(server);
   registerGitTools(server);
   registerGitWorkflowTool(server);
+  registerJavaDevelopmentTool(server);
   registerDiffTool(server);
   registerPatchTool(server);
   registerWebFetchTool(server);
