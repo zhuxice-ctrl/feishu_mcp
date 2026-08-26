@@ -19,13 +19,15 @@ variables, or script names outside declared allowlists.
 ### `git_workflow`
 
 Actions are `status`, `diff`, `add_files`, `commit`, `push`, `branch_list`,
-`checkout_branch`, `fetch`, and `pull`.
+`checkout_branch`, `fetch`, `pull`, and `worktree_add`.
 
 - `status`, `diff`, and `branch_list` are read-only.
 - `add_files` accepts a bounded list of project-relative regular-file paths.
 - `commit` accepts a UTF-8 message field and uses a temporary UTF-8 no-BOM
   message file; it never passes the message through a shell command line.
 - `push`, `fetch`, and `pull` accept only validated remote and branch names.
+- `worktree_add` accepts a repository-relative target directory and a validated
+  branch or ref, then runs the fixed Git `worktree add` form.
 - Git commands use `shell: false`; forced Git configuration prevents implicit
   helpers and interactive prompts.
 
@@ -95,7 +97,7 @@ No application-specific project value is embedded in these shared modules.
 
 1. Each tool rejects unknown actions, shell text, untrusted paths, stale or
    wrong-owner context IDs, and contexts with unread declared instructions.
-2. Every accepted action produces a closed executable/argument plan with
+2. Every accepted action, including `worktree_add`, produces a closed executable/argument plan with
    `shell: false`.
 3. Read-only Git operations work within the selected context; mutations and
    all build/install/network actions request exact approval.

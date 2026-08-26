@@ -168,7 +168,7 @@ MCP，`Authorization` 应使用**固定值**，其参数值为 `Bearer <your-own
 检查这个 Windows 原生项目需要的 MSVC、Windows SDK 和 CMake 环境。
 ```
 
-## 能力概览：37 个工具
+## 能力概览：38 个工具
 
 工具清单由服务在 `tools/list` 中实际返回；Aily 的文字总结可能合并或漏列工具，
 应以该响应和 `/health` 为准。
@@ -178,6 +178,7 @@ MCP，`Authorization` 应使用**固定值**，其参数值为 `Bearer <your-own
 | 连通与授权 | `ping`、`auth`、`list_allowed_directories` |
 | 文件与目录 | `read_file`、`write_file`、`edit_file`、`create_directory`、`list_directory`、`move_file`、`search_files`、`search_content`、`get_file_info`、`compare_files`、`apply_patch` |
 | 命令与 Git | `execute_command`、`git_status`、`git_diff` |
+| 结构化 Git | `git_workflow`（当前支持 `worktree_add`） |
 | 网络与任务 | `web_fetch`、`todo_write`、`todo_read`、`ask_user` |
 | 开发环境 | `get_development_task`、`list_development_tasks`、`read_development_task_logs`、`cancel_development_task`、`inspect_development_environment`、`plan_environment_changes`、`apply_environment_plan`、`android_development`、`windows_development`、`node_development`、`manage_development_project` |
 | 本地工作流 | `list_local_workspaces`（列出受保护目录中的工作空间和配方）、`run_local_workflow`（异步执行已登记的受控验证配方） |

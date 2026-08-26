@@ -90,6 +90,7 @@ import { LocalCredentialStore } from "./development/credentials/dpapiStore.js";
 import { registerDiffTool } from "./tools/diff.js";
 import { registerFilesystemTools } from "./tools/filesystem.js";
 import { registerGitTools } from "./tools/git.js";
+import { registerGitWorkflowTool } from "./tools/gitWorkflow.js";
 import { registerPatchTool } from "./tools/patch.js";
 import { runTool } from "./tools/registry.js";
 import { registerTodoTools } from "./tools/todo.js";
@@ -116,6 +117,7 @@ const TOOL_NAMES = [
   "list_development_tasks",
   "staging_android_verify",
   "workspace_context",
+  "git_workflow",
 ] as const;
 
 const SERVER_INSTRUCTIONS =
@@ -254,6 +256,7 @@ function createMcpServer(): McpServer {
   registerCommandTool(server);
   registerContentSearchTool(server);
   registerGitTools(server);
+  registerGitWorkflowTool(server);
   registerDiffTool(server);
   registerPatchTool(server);
   registerWebFetchTool(server);

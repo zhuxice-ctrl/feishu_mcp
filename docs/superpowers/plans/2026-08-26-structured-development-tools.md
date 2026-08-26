@@ -120,10 +120,12 @@ Expected: FAIL because the Git contract module does not exist.
 
 Define `GitWorkflowInput` as a strict discriminated union with actions
 `status`, `diff`, `branch_list`, `add_files`, `commit`, `push`, `fetch`,
-`pull`, and `checkout_branch`. Every variant includes `workspaceId`,
+`pull`, `checkout_branch`, and `worktree_add`. Every variant includes `workspaceId`,
 `contextId`, and `workdir`; only `add_files`, `commit`, and remote operations
-add their fixed fields. Reject absolute paths, traversal, shell metacharacters,
-leading options, and more than 64 staged files. Build plans using:
+add their fixed fields. `worktree_add` accepts `directory` and `ref`; reject
+absolute paths, traversal, shell metacharacters, leading options, and an
+existing directory. Build its plan as `git worktree add <directory> <ref>`.
+Build all plans using:
 
 ```ts
 const GIT_PREFIX = ['-c', 'core.fsmonitor=false', '-c', 'core.untrackedCache=false', '-c', 'credential.interactive=false'];
@@ -177,7 +179,8 @@ Expected: FAIL because `git_workflow` is not registered.
 
 Call `authorizeOwnerToolCall`, then the shared preflight. Execute `status`,
 `diff`, and `branch_list` synchronously via `runProcess` with `shell: false`.
-For `add_files`, `commit`, `push`, `fetch`, `pull`, and `checkout_branch`, call
+For `add_files`, `commit`, `push`, `fetch`, `pull`, `checkout_branch`, and
+`worktree_add`, call
 `requestApproval` with the parsed input digest and enqueue a closed launch
 spec on the existing `DevelopmentTaskCoordinator`. Remove the temporary commit
 message file once the worker has consumed it, including cancellation/error
