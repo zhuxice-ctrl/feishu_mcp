@@ -19,7 +19,7 @@ import { runProcess } from "./processRunner.js";
 import { runTool } from "./registry.js";
 import { toolError, toolJson } from "./results.js";
 
-export type NodeDevelopmentAction = "pnpm_version" | "test_run" | "build" | "typecheck";
+export type NodeDevelopmentAction = "pnpm_version" | "test_run" | "build" | "typecheck" | "npm_ci" | "npm_test" | "npm_build" | "npm_lint" | "npm_typecheck";
 
 export interface NodeDevelopmentArgs {
   action: NodeDevelopmentAction;
@@ -28,13 +28,18 @@ export interface NodeDevelopmentArgs {
 }
 
 export const NODE_ACTIONS: Readonly<Record<NodeDevelopmentAction, {
-  executable: "pnpm";
+  executable: "pnpm" | "npm";
   args: readonly string[];
 }>> = {
   pnpm_version: { executable: "pnpm", args: ["--version"] },
   test_run: { executable: "pnpm", args: ["test:run"] },
   build: { executable: "pnpm", args: ["build"] },
   typecheck: { executable: "pnpm", args: ["typecheck"] },
+  npm_ci: { executable: "npm", args: ["ci"] },
+  npm_test: { executable: "npm", args: ["test"] },
+  npm_build: { executable: "npm", args: ["run", "build"] },
+  npm_lint: { executable: "npm", args: ["run", "lint"] },
+  npm_typecheck: { executable: "npm", args: ["run", "typecheck"] },
 };
 
 export function resolveNodeAction(action: NodeDevelopmentAction) {
@@ -52,7 +57,7 @@ export function resolveNodeInvocation(action: NodeDevelopmentAction): {
     executable: process.env.ComSpec || "cmd.exe",
     // Windows cannot directly spawn the pnpm.cmd shim with shell disabled.
     // The complete command string is assembled from the closed action map.
-    args: ["/d", "/s", "/c", `pnpm.cmd ${resolved.args.join(" ")}`],
+    args: ["/d", "/s", "/c", `${resolved.executable}.cmd ${resolved.args.join(" ")}`],
   };
 }
 
@@ -148,7 +153,7 @@ export function registerNodeDevelopmentTool(server: McpServer): void {
         "Supported actions are pnpm_version, test_run, build, and typecheck; " +
         "arbitrary commands and arguments are not accepted.",
       inputSchema: {
-        action: z.enum(["pnpm_version", "test_run", "build", "typecheck"]),
+        action: z.enum(["pnpm_version", "test_run", "build", "typecheck", "npm_ci", "npm_test", "npm_build", "npm_lint", "npm_typecheck"]),
         workdir: z.string().min(1),
         timeout: z.number().int().positive().optional(),
       },
