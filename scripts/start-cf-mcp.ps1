@@ -15,7 +15,7 @@ function Wait-LocalHealth([int]$Seconds = 45) {
     while ((Get-Date) -lt $deadline) {
         try {
             $health = Invoke-RestMethod -Uri "http://127.0.0.1:$Port/health" -TimeoutSec 3
-            if ($health.status -eq "ok" -and @($health.tools).Count -eq 37) {
+            if ($health.status -eq "ok" -and @($health.tools).Count -eq 39) {
                 return $health
             }
         } catch {
@@ -48,7 +48,7 @@ if (-not $local) {
 }
 
 $health = Wait-LocalHealth
-Write-Host "Local MCP health check passed (37 tools)." -ForegroundColor Green
+Write-Host "Local MCP health check passed (39 tools)." -ForegroundColor Green
 
 $service = Get-Service -Name "cloudflared" -ErrorAction SilentlyContinue
 $tunnelProcess = Get-CimInstance Win32_Process -Filter "Name = 'cloudflared.exe'" -ErrorAction SilentlyContinue |

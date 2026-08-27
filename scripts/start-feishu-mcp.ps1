@@ -335,7 +335,7 @@ function Invoke-Launcher {
             host = $hostValue
             authMode = $authMode
             publicHost = $publicHost
-            toolCount = 37
+            toolCount = 39
             brokerState = Get-BrokerState
             concurrency = @{
                 global = $maxConcurrentTools
@@ -384,10 +384,10 @@ function Invoke-Launcher {
 
         $localHealthUrl = "http://127.0.0.1:$port/health"
         $localHealth = Wait-Json $localHealthUrl 30 $server
-        if ($localHealth.version -ne "1.0.0" -or @($localHealth.tools).Count -ne 37) {
-            throw "Local health response did not report version 1.0.0 and 37 tools"
+        if ($localHealth.version -ne "1.0.0" -or @($localHealth.tools).Count -ne 39) {
+            throw "Local health response did not report version 1.0.0 and 39 tools"
         }
-        Write-Host "Local health passed (37 tools, auth mode $($localHealth.authMode))." -ForegroundColor Green
+        Write-Host "Local health passed (39 tools, auth mode $($localHealth.authMode))." -ForegroundColor Green
 
         $mcpUrl = "https://$publicHost/mcp"
         try {
