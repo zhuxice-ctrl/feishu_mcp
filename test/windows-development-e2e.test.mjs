@@ -82,7 +82,7 @@ test("windows_development is registered and callable over HTTP", async () => {
     const listPayload = parseMcp(await listResp.text());
     const toolNames = listPayload.result.tools.map((t) => t.name);
     assert.ok(toolNames.includes("windows_development"), "windows_development must be registered");
-    assert.equal(new Set(toolNames).size, 37, "exactly 37 tools");
+    assert.equal(new Set(toolNames).size, 39, "exactly 39 tools");
   } finally {
     await stop(child);
     await rm(root, { recursive: true, force: true });
