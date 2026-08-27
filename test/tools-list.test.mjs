@@ -96,7 +96,7 @@ test("production MCP advertises exactly the 39-tool inventory", async () => {
     ]);
     assert.deepEqual(nodeTool.inputSchema.required, ["action", "workdir"]);
     assert.deepEqual(nodeTool.inputSchema.properties.action.enum, [
-      "pnpm_version", "test_run", "build", "typecheck",
+      "pnpm_version", "test_run", "build", "typecheck", "npm_ci", "npm_test", "npm_build", "npm_lint", "npm_typecheck",
     ]);
   } finally {
     await stop(child);
