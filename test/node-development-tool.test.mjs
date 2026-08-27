@@ -33,9 +33,10 @@ test.after(async () => {
   await rm(approvalRoot, { recursive: true, force: true });
 });
 
-test("exports exactly the four approved PNPM actions", () => {
+test("exports the approved PNPM and fixed npm actions", () => {
   assert.deepEqual(Object.keys(NODE_ACTIONS), [
     "pnpm_version", "test_run", "build", "typecheck",
+    "npm_ci", "npm_test", "npm_build", "npm_lint", "npm_typecheck",
   ]);
   assert.deepEqual(resolveNodeAction("pnpm_version"), {
     executable: "pnpm",

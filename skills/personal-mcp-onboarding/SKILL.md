@@ -111,6 +111,15 @@ project `workdir` and exactly one of `pnpm_version`, `test_run`, `build`, or `ty
 that this is the supported structured route when Aily does not attach the generic
 `execute_command` tool; it never accepts arbitrary Shell commands or arguments.
 
+For npm projects, use the same authorized workdir with only the fixed actions
+`npm_ci`, `npm_test`, `npm_build`, `npm_lint`, or `npm_typecheck`; the server checks the
+corresponding `package.json` script before running. For Java projects use `java_development`
+with `maven_test`, `maven_package`, `maven_clean_test`, `gradle_test`, `gradle_build`, or
+`gradle_assemble_debug`. Git changes use `git_workflow`; `worktree_add` accepts only a
+project-relative directory and ref. Always complete `workspace_context` bootstrap/select,
+read declared instructions, and `mark_instructions_read` before these tools. Do not replace
+structured actions with `execute_command`.
+
 ### Android machine without SDK command-line tools or adb
 
 Report Android Studio and JDK status, then mark SDK command-line tools and platform tools as missing. Tell the user to open Android Studio's SDK Manager, install the required command-line and platform tools for their project, set the SDK root if necessary, reopen the terminal, and verify with `adb version`. Only after that, continue with the base MCP and Aily connection steps.

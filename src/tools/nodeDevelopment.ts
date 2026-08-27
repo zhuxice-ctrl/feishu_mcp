@@ -105,6 +105,15 @@ export async function nodeDevelopment(
   if (!fs.existsSync(workdir) || !fs.statSync(workdir).isDirectory()) {
     return toolError("INVALID_ARGUMENT", "The working directory does not exist or is not a directory.");
   }
+  if (args.action.startsWith("npm_")) {
+    const script = ({ npm_test: "test", npm_build: "build", npm_lint: "lint", npm_typecheck: "typecheck" } as Record<string, string>)[args.action];
+    if (script) {
+      try {
+        const packageJson = JSON.parse(fs.readFileSync(`${workdir}/package.json`, "utf8")) as { scripts?: Record<string, unknown> };
+        if (typeof packageJson.scripts?.[script] !== "string") return toolError("NPM_SCRIPT_MISSING", `package.json does not define script: ${script}`);
+      } catch { return toolError("NPM_SCRIPT_MISSING", "package.json is missing or invalid."); }
+    }
+  }
   const timeoutMs = Math.min(args.timeout ?? COMMAND_TIMEOUT_MS, COMMAND_MAX_TIMEOUT_MS);
   const subjectKey = actionSubject(args.action, workdir, timeoutMs);
   const approval = await requestApproval(ctx, {

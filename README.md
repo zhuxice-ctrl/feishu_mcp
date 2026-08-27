@@ -168,7 +168,7 @@ MCP，`Authorization` 应使用**固定值**，其参数值为 `Bearer <your-own
 检查这个 Windows 原生项目需要的 MSVC、Windows SDK 和 CMake 环境。
 ```
 
-## 能力概览：38 个工具
+## 能力概览：39 个工具
 
 工具清单由服务在 `tools/list` 中实际返回；Aily 的文字总结可能合并或漏列工具，
 应以该响应和 `/health` 为准。
@@ -178,9 +178,9 @@ MCP，`Authorization` 应使用**固定值**，其参数值为 `Bearer <your-own
 | 连通与授权 | `ping`、`auth`、`list_allowed_directories` |
 | 文件与目录 | `read_file`、`write_file`、`edit_file`、`create_directory`、`list_directory`、`move_file`、`search_files`、`search_content`、`get_file_info`、`compare_files`、`apply_patch` |
 | 命令与 Git | `execute_command`、`git_status`、`git_diff` |
-| 结构化 Git | `git_workflow`（当前支持 `worktree_add`） |
+| 结构化 Git | `git_workflow`（固定 Git 工作流 action） |
 | 网络与任务 | `web_fetch`、`todo_write`、`todo_read`、`ask_user` |
-| 开发环境 | `get_development_task`、`list_development_tasks`、`read_development_task_logs`、`cancel_development_task`、`inspect_development_environment`、`plan_environment_changes`、`apply_environment_plan`、`android_development`、`windows_development`、`node_development`、`manage_development_project` |
+| 开发环境 | `get_development_task`、`list_development_tasks`、`read_development_task_logs`、`cancel_development_task`、`inspect_development_environment`、`plan_environment_changes`、`apply_environment_plan`、`android_development`、`windows_development`、`node_development`、`java_development`、`manage_development_project` |
 | 本地工作流 | `list_local_workspaces`（列出受保护目录中的工作空间和配方）、`run_local_workflow`（异步执行已登记的受控验证配方） |
 | 工作区路由 | `workspace_context`（owner 专用：选择/恢复受信任工作区，返回确定性的 `route.recommended`：Android 走 `android_development`、固定 Node 校验走 `run_local_workflow`，并提供 `error.nextAction`） |
 | 二进制制品 | `manage_binary_artifact` |
@@ -191,6 +191,13 @@ MCP，`Authorization` 应使用**固定值**，其参数值为 `Bearer <your-own
 而不是提交到 Git。
 
 ## 构建与测试命令
+
+结构化开发工具遵循 context-first 流程：
+`workspace_context bootstrap/select` → 阅读声明的指令文件 →
+`workspace_context mark_instructions_read` → 使用 `git_workflow`、
+`java_development` 或 `node_development`。Node 工具还提供固定的
+`npm_ci`、`npm_test`、`npm_build`、`npm_lint`、`npm_typecheck` action；
+调用方不得用任意 shell 命令替代这些结构化 action。
 
 `execute_command` 是本地 MCP 的通用命令工具；Aily 可能不会把任意 Shell 执行能力
 交给智能体。Node/PNPM 验证应优先使用结构化的 `node_development`：它要求已授权的
