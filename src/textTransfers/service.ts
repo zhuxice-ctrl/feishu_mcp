@@ -74,6 +74,10 @@ export class TextTransferService {
       (options.maxBytes ?? DEFAULT_TEXT_TRANSFER_MAX_BYTES) < 0) {
       throw new TextTransferError("TEXT_TRANSFER_STORE_FAILED", "Invalid text transfer size limit.");
     }
+    if (!Number.isSafeInteger(options.ttlMs ?? DEFAULT_TEXT_TRANSFER_TTL_MS) || (options.ttlMs ?? DEFAULT_TEXT_TRANSFER_TTL_MS) <= 0 ||
+      !Number.isSafeInteger(options.maxSessions ?? DEFAULT_TEXT_TRANSFER_MAX_SESSIONS) || (options.maxSessions ?? DEFAULT_TEXT_TRANSFER_MAX_SESSIONS) <= 0) {
+      throw new TextTransferError("TEXT_TRANSFER_STORE_FAILED", "Invalid text transfer session limits.");
+    }
     this.dataDir = path.resolve(options.dataDir);
     this.chunkBytes = options.chunkBytes ?? DEFAULT_TEXT_TRANSFER_CHUNK_BYTES;
     this.ttlMs = options.ttlMs ?? DEFAULT_TEXT_TRANSFER_TTL_MS;

@@ -13,7 +13,7 @@ import { toolError, toolJson } from "./results.js";
 
 const schema = z.discriminatedUnion("action", [
   z.object({ action: z.literal("begin"), path: z.string().min(1), expectedBytes: z.number().int().min(0), expectedSha256: z.string().regex(/^[a-f0-9]{64}$/i) }).strict(),
-  z.object({ action: z.literal("append"), sessionId: z.string().uuid(), chunkIndex: z.number().int().min(0), content: z.string().max(TEXT_TRANSFER_CHUNK_BYTES) }).strict(),
+  z.object({ action: z.literal("append"), sessionId: z.string().uuid(), chunkIndex: z.number().int().min(0), content: z.string().refine((value) => Buffer.byteLength(value, "utf8") <= TEXT_TRANSFER_CHUNK_BYTES, "Text chunk exceeds the UTF-8 byte limit.") }).strict(),
   z.object({ action: z.literal("inspect"), sessionId: z.string().uuid() }).strict(),
   z.object({ action: z.literal("commit"), sessionId: z.string().uuid() }).strict(),
 ]);
