@@ -27,7 +27,7 @@ const ALL_TOOLS = [
 "list_local_workspaces",
   "run_local_workflow", "staging_android_verify",
   "list_development_tasks",
-  "workspace_context",
+  "workspace_context", "manage_text_transfer",
 ];
 
 const NEW_TOOLS = [
@@ -44,11 +44,11 @@ const NEW_TOOLS = [
 // ---------------------------------------------------------------------------
 // 1. All 37 tool names appear in README
 // ---------------------------------------------------------------------------
-test("README contains all 37 tool names", () => {
+test("README contains all documented tool names", () => {
   for (const name of ALL_TOOLS) {
     assert.ok(README.includes(name), `README missing tool name: ${name}`);
   }
-  assert.equal(ALL_TOOLS.length, 37, "expected exactly 37 tools");
+  assert.equal(ALL_TOOLS.length, 38, "expected documented tool inventory");
 });
 
 // ---------------------------------------------------------------------------
@@ -184,11 +184,14 @@ test("all scripts referenced in docs actually exist", () => {
 // ---------------------------------------------------------------------------
 // 9. Tool inventory number is 37 in README
 // ---------------------------------------------------------------------------
-test("README states 37 tools", () => {
+test("README states 40 tools and documents resumable text transfer", () => {
   assert.ok(
-    /37\s*(个|tools?|工具)/i.test(README),
-    "README should state 37 tools",
+    /40\s*(个|tools?|工具)/i.test(README),
+    "README should state 40 tools",
   );
+  assert.match(README, /manage_text_transfer/);
+  assert.match(README, /48\s*KiB/);
+  assert.match(README, /edit_file/);
   // Old count should not appear
   assert.ok(
     !/21\s*(个|tools?|工具)/.test(README),

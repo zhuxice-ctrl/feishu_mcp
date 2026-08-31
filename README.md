@@ -168,7 +168,7 @@ MCP，`Authorization` 应使用**固定值**，其参数值为 `Bearer <your-own
 检查这个 Windows 原生项目需要的 MSVC、Windows SDK 和 CMake 环境。
 ```
 
-## 能力概览：39 个工具
+## 能力概览：40 个工具
 
 工具清单由服务在 `tools/list` 中实际返回；Aily 的文字总结可能合并或漏列工具，
 应以该响应和 `/health` 为准。
@@ -184,9 +184,11 @@ MCP，`Authorization` 应使用**固定值**，其参数值为 `Bearer <your-own
 | 本地工作流 | `list_local_workspaces`（列出受保护目录中的工作空间和配方）、`run_local_workflow`（异步执行已登记的受控验证配方） |
 | 工作区路由 | `workspace_context`（owner 专用：选择/恢复受信任工作区，返回确定性的 `route.recommended`：Android 走 `android_development`、固定 Node 校验走 `run_local_workflow`，并提供 `error.nextAction`） |
 | 二进制制品 | `manage_binary_artifact` |
+| 大文本传输 | `manage_text_transfer` |
 | Android 验证 | `staging_android_verify`（按应用 Profile 执行受控的 SSH/ADB staging 验证） |
 
 `manage_binary_artifact` 用于验证、分块接收、存储和原子落盘 PNG、ZIP 等二进制制品；
+`manage_text_transfer` 用于超过单次 MCP 请求限制的 UTF-8 源码：先 `begin`（目标路径、字节数、SHA-256），再按返回的 48 KiB 上限调用 `append`，可用 `inspect` 查询断点，最后 `commit` 完成校验后的原子替换。小文件继续使用 `edit_file`；该工具只传输文本，绝不执行内容。
 它不提供任意二进制执行或解压能力。二进制构建产物通常应放在制品存储或 Release，
 而不是提交到 Git。
 
