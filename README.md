@@ -76,7 +76,7 @@ npm start
 Invoke-RestMethod http://127.0.0.1:3000/health
 ```
 
-正常时应返回 `status: ok`，并报告 37 个工具。若你使用 Clash Fake-IP，对公网
+正常时应返回 `status: ok`，并报告 40 个工具。若你使用 Clash Fake-IP，对公网
 `/health` 的回访失败只说明反向探测受限；本地服务和连接器仍可正常工作。
 
 ### 4. 先选择公网传输
@@ -254,7 +254,7 @@ OWNER_COMMAND_POLICY=direct
 
 ### Aily 的文字回答只列出一部分工具
 
-服务的 `/health` 与 `tools/list` 当前应返回 37 个工具。Aily 可能因平台安全策略只把
+服务的 `/health` 与 `tools/list` 当前应返回 40 个工具。Aily 可能因平台安全策略只把
 其中一部分交给智能体；如果没有 `execute_command`，请使用 `node_development` 完成四个
 受限的 PNPM 操作，而不要要求智能体改用任意 Shell。
 

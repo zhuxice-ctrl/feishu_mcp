@@ -14,7 +14,7 @@ const expectedTools = [
   "list_directory", "move_file", "search_files", "get_file_info",
   "list_allowed_directories", "auth", "execute_command", "search_content",
   "git_status", "git_diff", "git_workflow", "java_development", "compare_files", "apply_patch", "web_fetch",
-  "manage_binary_artifact", "todo_write", "todo_read", "ask_user",
+  "manage_binary_artifact", "manage_text_transfer", "todo_write", "todo_read", "ask_user",
   "get_development_task", "list_development_tasks", "read_development_task_logs", "cancel_development_task",
   "inspect_development_environment", "plan_environment_changes", "apply_environment_plan",
   "android_development",
