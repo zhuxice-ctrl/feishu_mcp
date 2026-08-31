@@ -2,6 +2,7 @@ export const TEXT_TRANSFER_VERSION = 1 as const;
 export const DEFAULT_TEXT_TRANSFER_CHUNK_BYTES = 48 * 1024;
 export const DEFAULT_TEXT_TRANSFER_TTL_MS = 60 * 60 * 1000;
 export const DEFAULT_TEXT_TRANSFER_MAX_SESSIONS = 16;
+export const DEFAULT_TEXT_TRANSFER_MAX_BYTES = 5 * 1024 * 1024;
 
 export type TextTransferErrorCode =
   | "TEXT_TRANSFER_NOT_FOUND"

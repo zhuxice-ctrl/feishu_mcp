@@ -3,6 +3,7 @@ import fs from "node:fs";
 import path from "node:path";
 import {
   DEFAULT_TEXT_TRANSFER_CHUNK_BYTES,
+  DEFAULT_TEXT_TRANSFER_MAX_BYTES,
   DEFAULT_TEXT_TRANSFER_MAX_SESSIONS,
   DEFAULT_TEXT_TRANSFER_TTL_MS,
   TEXT_TRANSFER_VERSION,
@@ -69,14 +70,14 @@ export class TextTransferService {
       (options.chunkBytes ?? DEFAULT_TEXT_TRANSFER_CHUNK_BYTES) <= 0) {
       throw new TextTransferError("TEXT_TRANSFER_STORE_FAILED", "Invalid text transfer chunk limit.");
     }
-    if (!Number.isSafeInteger(options.maxBytes ?? Number.MAX_SAFE_INTEGER) ||
-      (options.maxBytes ?? Number.MAX_SAFE_INTEGER) < 0) {
+    if (!Number.isSafeInteger(options.maxBytes ?? DEFAULT_TEXT_TRANSFER_MAX_BYTES) ||
+      (options.maxBytes ?? DEFAULT_TEXT_TRANSFER_MAX_BYTES) < 0) {
       throw new TextTransferError("TEXT_TRANSFER_STORE_FAILED", "Invalid text transfer size limit.");
     }
     this.dataDir = path.resolve(options.dataDir);
     this.chunkBytes = options.chunkBytes ?? DEFAULT_TEXT_TRANSFER_CHUNK_BYTES;
     this.ttlMs = options.ttlMs ?? DEFAULT_TEXT_TRANSFER_TTL_MS;
-    this.maxBytes = options.maxBytes ?? Number.MAX_SAFE_INTEGER;
+    this.maxBytes = options.maxBytes ?? DEFAULT_TEXT_TRANSFER_MAX_BYTES;
     this.maxSessions = options.maxSessions ?? DEFAULT_TEXT_TRANSFER_MAX_SESSIONS;
     this.now = options.now ?? Date.now;
   }
@@ -135,10 +136,12 @@ export class TextTransferService {
     if (session.writtenBytes + bytes.length > session.expectedBytes) {
       throw new TextTransferError("TEXT_TRANSFER_EXCEEDS_EXPECTED_SIZE", "Text transfer exceeds its declared size.");
     }
+    this.writeReceipt(session.id, chunkIndex, bytes);
     this.appendBytes(session.id, bytes);
     session.nextChunkIndex += 1;
     session.writtenBytes += bytes.length;
     this.writeSession(session);
+    this.removeReceipt(session.id, chunkIndex);
     return { nextChunkIndex: session.nextChunkIndex, writtenBytes: session.writtenBytes };
   }
 
@@ -199,7 +202,7 @@ export class TextTransferService {
     let removed = 0;
     for (const id of this.stagingSessionIds()) {
       const session = this.readSession(id);
-      if (!session || Date.parse(session.expiresAt) <= this.now()) {
+      if (!session || (!session.verifiedAt && Date.parse(session.expiresAt) <= this.now())) {
         this.removeStaging(id);
         removed += 1;
       }
@@ -212,7 +215,8 @@ export class TextTransferService {
     if (!session || session.ownerId !== ownerId) {
       throw new TextTransferError("TEXT_TRANSFER_NOT_FOUND", "Text transfer session was not found.");
     }
-    if (Date.parse(session.expiresAt) <= this.now()) {
+    this.reconcilePendingReceipt(session);
+    if (!session.verifiedAt && Date.parse(session.expiresAt) <= this.now()) {
       this.removeStaging(session.id);
       throw new TextTransferError("TEXT_TRANSFER_EXPIRED", "Text transfer session has expired.");
     }
@@ -244,6 +248,73 @@ export class TextTransferService {
     } catch {
       throw new TextTransferError("TEXT_TRANSFER_STORE_FAILED", "Could not append text transfer chunk.");
     }
+  }
+
+  /**
+   * A receipt is made durable before its payload is appended.  On a crash
+   * between append and metadata persistence, requireActive repairs the
+   * monotonic session counters from that receipt instead of accepting a
+   * duplicate chunk at the same index.
+   */
+  private writeReceipt(sessionId: string, chunkIndex: number, bytes: Buffer): void {
+    const receipt = JSON.stringify({ index: chunkIndex, size: bytes.length, sha256: crypto.createHash("sha256").update(bytes).digest("hex") });
+    const destination = this.receiptPath(sessionId, chunkIndex);
+    try {
+      fs.mkdirSync(this.receiptsDirectory(sessionId), { recursive: true, mode: 0o700 });
+      const fd = fs.openSync(destination, "wx", 0o600);
+      try { fs.writeFileSync(fd, `${receipt}\n`, "utf8"); fs.fsyncSync(fd); } finally { fs.closeSync(fd); }
+    } catch {
+      throw new TextTransferError("TEXT_TRANSFER_STORE_FAILED", "Could not persist text transfer receipt.");
+    }
+  }
+
+  private reconcilePendingReceipt(session: TextTransferSession): void {
+    const pending = this.readReceipt(session.id, session.nextChunkIndex);
+    if (!pending) return;
+    const actualSize = this.contentSize(session.id);
+    if (actualSize === session.writtenBytes) {
+      this.removeReceipt(session.id, session.nextChunkIndex);
+      return;
+    }
+    if (actualSize !== session.writtenBytes + pending.size || !this.contentTailMatches(session.id, pending.size, pending.sha256)) {
+      this.removeStaging(session.id);
+      throw new TextTransferError("TEXT_TRANSFER_STORE_FAILED", "Text transfer staging could not be recovered safely.");
+    }
+    session.nextChunkIndex += 1;
+    session.writtenBytes += pending.size;
+    this.writeSession(session);
+    this.removeReceipt(session.id, pending.index);
+  }
+
+  private readReceipt(sessionId: string, chunkIndex: number): { index: number; size: number; sha256: string } | null {
+    try {
+      const value = JSON.parse(fs.readFileSync(this.receiptPath(sessionId, chunkIndex), "utf8")) as { index: unknown; size: unknown; sha256: unknown };
+      if (typeof value.index !== "number" || !Number.isSafeInteger(value.index) || value.index !== chunkIndex ||
+        typeof value.size !== "number" || !Number.isSafeInteger(value.size) || value.size < 0 ||
+        typeof value.sha256 !== "string" || !isSha256(value.sha256)) return null;
+      return { index: value.index, size: value.size, sha256: value.sha256.toLowerCase() };
+    } catch { return null; }
+  }
+
+  private contentSize(sessionId: string): number {
+    try { return fs.lstatSync(this.contentPath(sessionId)).size; }
+    catch { throw new TextTransferError("TEXT_TRANSFER_STORE_FAILED", "Could not inspect text transfer staging."); }
+  }
+
+  private contentTailMatches(sessionId: string, bytes: number, expectedSha256: string): boolean {
+    try {
+      const size = this.contentSize(sessionId);
+      const fd = fs.openSync(this.contentPath(sessionId), "r");
+      try {
+        const tail = Buffer.allocUnsafe(bytes);
+        fs.readSync(fd, tail, 0, bytes, size - bytes);
+        return crypto.createHash("sha256").update(tail).digest("hex") === expectedSha256;
+      } finally { fs.closeSync(fd); }
+    } catch { return false; }
+  }
+
+  private removeReceipt(sessionId: string, chunkIndex: number): void {
+    try { fs.rmSync(this.receiptPath(sessionId, chunkIndex), { force: true }); } catch { /* terminal cleanup */ }
   }
 
   private readSession(sessionId: string): TextTransferSession | null {
@@ -312,7 +383,10 @@ export class TextTransferService {
   }
 
   private activeSessionCount(): number {
-    return this.stagingSessionIds().length;
+    return this.stagingSessionIds().filter((id) => {
+      const session = this.readSession(id);
+      return session !== null && session.verifiedAt === null;
+    }).length;
   }
 
   private stagingSessionIds(): string[] {
@@ -344,5 +418,13 @@ export class TextTransferService {
 
   private sessionPath(sessionId: string): string {
     return path.join(this.stagingDirectory(sessionId), "session.json");
+  }
+
+  private receiptsDirectory(sessionId: string): string {
+    return path.join(this.stagingDirectory(sessionId), "receipts");
+  }
+
+  private receiptPath(sessionId: string, chunkIndex: number): string {
+    return path.join(this.receiptsDirectory(sessionId), `${chunkIndex}.json`);
   }
 }
