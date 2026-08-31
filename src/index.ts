@@ -37,6 +37,11 @@ import {
   PORT,
   SERVER_NAME,
   SERVER_VERSION,
+  TEXT_TRANSFER_CHUNK_BYTES,
+  TEXT_TRANSFER_DATA_DIR,
+  TEXT_TRANSFER_MAX_BYTES,
+  TEXT_TRANSFER_MAX_SESSIONS,
+  TEXT_TRANSFER_TTL_MS,
   WORKSPACE_CONTEXT_STORE_PATH,
 } from "./config.js";
 import { registerAuthTool } from "./auth/authTool.js";
@@ -99,6 +104,8 @@ import { registerWebFetchTool } from "./tools/webFetch.js";
 import { registerBinaryArtifactTool } from "./tools/binaryArtifacts.js";
 import { BinaryArtifactStore } from "./artifacts/store.js";
 import { ArtifactUploadService } from "./artifacts/uploads.js";
+import { TextTransferService } from "./textTransfers/service.js";
+import { registerTextTransferTool } from "./tools/textTransfer.js";
 
 const TOOL_NAMES = [
   "ping", "read_file", "write_file", "edit_file", "create_directory",
@@ -114,6 +121,7 @@ const TOOL_NAMES = [
   "node_development",
   "manage_development_project",
   "manage_binary_artifact",
+  "manage_text_transfer",
   "list_local_workspaces",
   "run_local_workflow",
   "list_development_tasks",
@@ -156,6 +164,13 @@ const developmentTaskCoordinator = new DevelopmentTaskCoordinator(
 const developmentEnvironment = createDevelopmentEnvironmentSubsystem();
 const binaryArtifactStore = new BinaryArtifactStore();
 const binaryArtifactUploads = new ArtifactUploadService(binaryArtifactStore);
+const textTransferService = new TextTransferService({
+  dataDir: TEXT_TRANSFER_DATA_DIR,
+  chunkBytes: TEXT_TRANSFER_CHUNK_BYTES,
+  ttlMs: TEXT_TRANSFER_TTL_MS,
+  maxBytes: TEXT_TRANSFER_MAX_BYTES,
+  maxSessions: TEXT_TRANSFER_MAX_SESSIONS,
+});
 
 // ---------------------------------------------------------------------------
 // Android development subsystem — project provider + credential store
@@ -263,6 +278,7 @@ function createMcpServer(): McpServer {
   registerPatchTool(server);
   registerWebFetchTool(server);
   registerBinaryArtifactTool(server, { store: binaryArtifactStore, uploads: binaryArtifactUploads });
+  registerTextTransferTool(server, textTransferService);
   registerTodoTools(server);
   registerAskUserTool(server);
   registerDevelopmentTaskTools(server, developmentTaskCoordinator);

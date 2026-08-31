@@ -21,6 +21,11 @@ export interface TextTransferSession {
   version: typeof TEXT_TRANSFER_VERSION;
   id: string;
   ownerId: string;
+  /**
+   * Resolved destination retained only in the protected session metadata.
+   * It is deliberately omitted from every caller-visible transfer response.
+   */
+  target?: string;
   expectedBytes: number;
   expectedSha256: string;
   nextChunkIndex: number;
@@ -32,6 +37,8 @@ export interface TextTransferSession {
 export interface TextTransferBeginRequest {
   expectedBytes: number;
   expectedSha256: string;
+  /** Internal tool-to-service field; never accept this directly from MCP. */
+  target?: string;
 }
 
 export interface TextTransferBeginResult {

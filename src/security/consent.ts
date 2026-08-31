@@ -57,6 +57,7 @@ export const PATH_ARGS: Record<string, string[]> = {
   git_diff: ["path"],
   compare_files: ["path_a", "path_b"],
   apply_patch: ["path"],
+  manage_text_transfer: ["path"],
 };
 
 const CONTENT_TOOLS = new Set([
@@ -66,6 +67,7 @@ const CONTENT_TOOLS = new Set([
   "search_content",
   "compare_files",
   "apply_patch",
+  "manage_text_transfer",
 ]);
 
 export function inspectPath(

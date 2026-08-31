@@ -158,6 +158,31 @@ if (binaryArtifactDataRelative.startsWith("..") || path.isAbsolute(binaryArtifac
 }
 
 // ---------------------------------------------------------------------------
+// Resumable text transfer limits and protected staging
+// ---------------------------------------------------------------------------
+
+/** Text chunks stay below common upstream MCP request-body limits. */
+export const TEXT_TRANSFER_CHUNK_BYTES = envBoundedPositiveInt(
+  "TEXT_TRANSFER_CHUNK_BYTES", 48 * 1024, 64 * 1024,
+);
+export const TEXT_TRANSFER_MAX_BYTES = envBoundedPositiveInt(
+  "TEXT_TRANSFER_MAX_BYTES", 5 * 1024 * 1024, MAX_RESPONSE_BYTES,
+);
+export const TEXT_TRANSFER_TTL_MS = envBoundedPositiveInt(
+  "TEXT_TRANSFER_TTL_MS", 60 * 60_000, 24 * 60 * 60_000,
+);
+export const TEXT_TRANSFER_MAX_SESSIONS = envBoundedPositiveInt(
+  "TEXT_TRANSFER_MAX_SESSIONS", 16, 64,
+);
+export const TEXT_TRANSFER_DATA_DIR = path.resolve(
+  process.env.TEXT_TRANSFER_DATA_DIR || path.join(APPROVAL_DATA_DIR, "text-transfers"),
+);
+const textTransferDataRelative = path.relative(path.resolve(APPROVAL_DATA_DIR), TEXT_TRANSFER_DATA_DIR);
+if (textTransferDataRelative.startsWith("..") || path.isAbsolute(textTransferDataRelative)) {
+  throw new Error("TEXT_TRANSFER_DATA_DIR must be inside APPROVAL_DATA_DIR");
+}
+
+// ---------------------------------------------------------------------------
 // Development task execution limits (Phase 1 — owner-only background tasks)
 // ---------------------------------------------------------------------------
 

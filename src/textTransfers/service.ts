@@ -96,6 +96,7 @@ export class TextTransferService {
       version: TEXT_TRANSFER_VERSION,
       id,
       ownerId,
+      ...(request.target ? { target: request.target } : {}),
       expectedBytes: request.expectedBytes,
       expectedSha256: request.expectedSha256.toLowerCase(),
       nextChunkIndex: 0,
@@ -251,6 +252,18 @@ export class TextTransferService {
   }
 
   /**
+   * Return the protected destination for a session to the MCP composition
+   * layer. It never appears in an inspection or a normal tool response.
+   */
+  target(ownerId: string, sessionId: string): string {
+    const session = this.requireActive(ownerId, sessionId);
+    if (!session.target) {
+      throw new TextTransferError("TEXT_TRANSFER_NOT_FOUND", "Text transfer session was not found.");
+    }
+    return session.target;
+  }
+
+  /**
    * A receipt is made durable before its payload is appended.  On a crash
    * between append and metadata persistence, requireActive repairs the
    * monotonic session counters from that receipt instead of accepting a
@@ -322,6 +335,7 @@ export class TextTransferService {
     try {
       const session = JSON.parse(fs.readFileSync(this.sessionPath(sessionId), "utf8")) as TextTransferSession;
       if (session.version !== TEXT_TRANSFER_VERSION || session.id !== sessionId || !session.ownerId ||
+        (session.target !== undefined && typeof session.target !== "string") ||
         !Number.isSafeInteger(session.expectedBytes) || session.expectedBytes < 0 ||
         !isSha256(session.expectedSha256) || !Number.isSafeInteger(session.nextChunkIndex) ||
         session.nextChunkIndex < 0 || !Number.isSafeInteger(session.writtenBytes) ||

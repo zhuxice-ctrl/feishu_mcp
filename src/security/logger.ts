@@ -37,7 +37,8 @@ export type OperationType =
   | "delete_file"
   | "list_directory"
   | "search_files"
-  | "get_file_info";
+  | "get_file_info"
+  | "manage_text_transfer";
 
 export interface LogEntry {
   timestamp: string;
