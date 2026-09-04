@@ -129,6 +129,23 @@ Stop-Service cloudflared
 运行 `.\scripts\start-ngrok.ps1`，并把 Aily endpoint 改回旧 ngrok 地址。不要把
 `mcp.example.com` 当作凭据，也不要把它复制给其他使用者。
 
+### 测试环境（与正式环境隔离）
+
+正式服务只使用 `.env`、`127.0.0.1:3000` 和 `mcp.zxc66.asia`。测试服务使用另一份
+`.env.test`、`127.0.0.1:3001` 和 `mcp-test.zxc66.asia`，其审批数据、任务、日志、
+工作区目录及 Cloudflare 凭据都必须独立。测试脚本不会读取、修改、重启或停止正式 MCP。
+
+```powershell
+# 1. 复制 .env.test.example 为 .env.test，并只填写测试值
+.\scripts\start-test-mcp.ps1
+
+# 2. 如需公网测试，再使用独立的测试 Cloudflare 配置
+.\scripts\start-test-cloudflared.ps1 -ConfigPath C:\test-cloudflared\config.yml
+```
+
+完成测试后停止测试进程即可。合并或发布代码是另一项独立操作；生产仍保持 `.env` 和
+3000 端口，除非你明确启动正式服务。
+
 ### 6. 在 Aily 添加 MCP
 
 在 Aily 中添加企业自定义 MCP，Endpoint 类型选 **Streamable HTTP**。使用 Cloudflare

@@ -199,6 +199,15 @@ test("README states 40 tools and documents resumable text transfer", () => {
   );
 });
 
+test("README documents an isolated test MCP environment", () => {
+  assert.match(README, /\.env\.test/);
+  assert.match(README, /3001/);
+  assert.match(README, /mcp-test\.zxc66\.asia/);
+  assert.match(README, /start-test-mcp\.ps1/);
+  assert.match(README, /start-test-cloudflared\.ps1/);
+  assert.match(README, /不会读取、修改、重启或停止正式 MCP/);
+});
+
 // ---------------------------------------------------------------------------
 // 10. Aily integration guide mentions development tools are owner-only
 // ---------------------------------------------------------------------------
