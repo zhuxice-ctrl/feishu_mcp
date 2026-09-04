@@ -9,6 +9,7 @@
 
 import { z } from "zod";
 import path from "node:path";
+import { devServerSchema, type CanonicalDevServer, type DevServer } from "../servers/contracts.js";
 
 /** Terminal-safe step kinds for first-phase workflows. */
 export const WORKFLOW_STEP_KINDS = [
@@ -33,6 +34,7 @@ export const WORKSPACE_CAPABILITIES = [
   "node_workflow",
   "android_development",
   "development_tasks",
+  "local_dev_server",
 ] as const;
 
 export type WorkspaceCapability = (typeof WORKSPACE_CAPABILITIES)[number];
@@ -85,6 +87,8 @@ export const workspaceSchema = z.strictObject({
   /** Canonical output directories for artifact summaries. */
   artifactDirs: z.array(z.string().min(1).max(4096)).min(0).max(16),
   recipes: z.array(recipeSchema).min(1).max(8),
+  /** Operator-declared server templates; optional for existing catalogs. */
+  services: z.array(devServerSchema).max(16).default([]),
   /** Declarative routing hints; optional for old catalog entries. */
   hints: workspaceHintsSchema,
 });
@@ -100,6 +104,7 @@ export type Recipe = z.infer<typeof recipeSchema>;
 export type WorkflowStep = z.infer<typeof workflowStepSchema>;
 export type TestSelection = z.infer<typeof testSelectionSchema>;
 export type WorkspaceHints = z.infer<typeof workspaceHintsSchema>;
+export type { DevServer, CanonicalDevServer };
 
 /** Public view of a workspace — no absolute root is exposed. */
 export interface PublicWorkspace {
@@ -111,6 +116,7 @@ export interface PublicWorkspace {
     label: string;
     steps: Array<{ id: string; kind: WorkflowStepKind; enabled: boolean }>;
   }>;
+  services: import("../servers/contracts.js").PublicDevServer[];
 }
 
 /** Public view of the entire catalog — IDs and labels only, no roots. */

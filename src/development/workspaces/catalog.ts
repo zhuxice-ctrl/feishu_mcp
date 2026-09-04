@@ -19,6 +19,7 @@ import {
   type Workspace,
   type Recipe,
 } from "./types.js";
+import { publicDevServer, type CanonicalDevServer } from "../servers/contracts.js";
 
 export class WorkspaceCatalogError extends Error {}
 
@@ -84,7 +85,15 @@ function canonicalizeWorkspace(ws: Workspace): Workspace {
     }
     return candidate;
   });
-  return { ...ws, root: realRoot, artifactDirs };
+  const services: CanonicalDevServer[] = ws.services.map((service) => {
+    const candidate = path.resolve(realRoot, service.workingDirectory);
+    if (!isInside(realRoot, candidate)) {
+      throw new WorkspaceCatalogError("server working directory escapes the workspace root");
+    }
+    const canonicalDirectory = assertRealInside("server working directory", candidate, realRoot);
+    return { ...service, workingDirectory: canonicalDirectory } as CanonicalDevServer;
+  });
+  return { ...ws, root: realRoot, artifactDirs, services };
 }
 
 /** Compute a SHA-256 digest over the canonical JSON of a value. */
@@ -117,6 +126,7 @@ function publicWorkspace(ws: Workspace): PublicWorkspace {
         enabled: step.enabled,
       })),
     })),
+    services: ws.services.map(publicDevServer),
   };
 }
 
@@ -179,6 +189,13 @@ export function loadLocalWorkspaceCatalog(catalogPath: string): {
         throw new WorkspaceCatalogError(`duplicate recipe id in workspace ${ws.id}: ${recipe.id}`);
       }
       recipeIds.add(recipe.id);
+    }
+    const serviceIds = new Set<string>();
+    for (const service of ws.services) {
+      if (serviceIds.has(service.id)) {
+        throw new WorkspaceCatalogError(`duplicate service id in workspace ${ws.id}: ${service.id}`);
+      }
+      serviceIds.add(service.id);
     }
     // Canonicalize root and artifact directories.
   }
