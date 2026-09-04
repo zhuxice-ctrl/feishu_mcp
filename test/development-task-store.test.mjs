@@ -180,6 +180,15 @@ test("launch spec rejects malformed credential ids and unsafe secret environment
   }
 });
 
+test("server launch specs are separate, strict and never accept caller process fields", () => {
+  const store = new DevelopmentTaskStore(path.join(root, "server-spec"));
+  const created = create(store, { kind: "server" });
+  const server = { serviceId: "web", runtime: "node", scope: "local", port: 5173, localUrl: "http://127.0.0.1:5173", healthPath: "/" };
+  store.saveServerSpec(created.id, { executable: process.execPath, args: ["-v"], cwd: root, env: {}, timeoutMs: 1_000, successExitCodes: [0], startupTimeoutMs: 1_000, server });
+  assert.equal(store.loadServerSpec(created.id)?.server.serviceId, "web");
+  assert.throws(() => store.saveServerSpec(created.id, { executable: process.execPath, args: [], cwd: root, env: {}, timeoutMs: 1_000, successExitCodes: [0], startupTimeoutMs: 1_000, server: { ...server, pid: 123 } }), /server/i);
+});
+
 test("launch spec round-trips one closed PNG stdout sink", () => {
   const store = new DevelopmentTaskStore(path.join(root, "binary-sink-valid"));
   const created = create(store);

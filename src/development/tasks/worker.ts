@@ -35,7 +35,9 @@ import type {
   DevelopmentWorkflowStep,
   DevelopmentTaskStepResult,
   DevelopmentStepState,
+  DevelopmentServerLaunchSpec,
 } from "./types.js";
+import { waitForServerReady } from "../servers/network.js";
 import { terminateProcessTree, type ProcessTreeTermination } from "./processTree.js";
 import {
   assertAuthorizedArtifactTarget,
@@ -129,6 +131,10 @@ export async function runWorker(options: WorkerRunOptions = {}): Promise<void> {
   const record = store.get(taskId);
   if (record?.kind === "workflow") {
     await runWorkflowWorker(store, taskId, taskDir, options);
+    return;
+  }
+  if (record?.kind === "server") {
+    await runServerWorker(store, taskId, taskDir, options);
     return;
   }
 
@@ -376,6 +382,129 @@ export async function runWorker(options: WorkerRunOptions = {}): Promise<void> {
     finalize(null);
   });
   await completion;
+}
+
+// ===========================================================================
+// Persistent local-server worker
+// ===========================================================================
+
+async function runServerWorker(
+  store: DevelopmentTaskStore,
+  taskId: string,
+  taskDir: string,
+  options: WorkerRunOptions,
+): Promise<void> {
+  let spec: DevelopmentServerLaunchSpec;
+  try {
+    const loaded = store.loadServerSpec(taskId);
+    if (!loaded) throw new Error("server spec missing");
+    spec = loaded;
+  } catch (error) {
+    fail(store, taskId, `server launch load failed: ${(error as Error).message}`);
+    return;
+  }
+  const initial = store.get(taskId);
+  if (!initial || !initial.server || (initial.state !== "queued" && initial.state !== "running")) return;
+  const nonce = (options.token ?? process.env[WORKER_TOKEN_ENV] ?? "").slice(0, 16);
+  const now = new Date().toISOString();
+  try {
+    store.update(taskId, initial.state, {
+      ...(initial.state === "queued" ? { state: "running" as const } : {}),
+      stage: "server:starting",
+      ...(initial.startedAt === undefined ? { startedAt: now } : {}),
+      worker: { pid: process.pid, nonce, heartbeatAt: now },
+      server: { ...initial.server, state: "starting" },
+    });
+  } catch { return; }
+
+  const stdoutFd = fs.openSync(stdoutLogPath(taskDir), "a", 0o600);
+  const stderrFd = fs.openSync(stderrLogPath(taskDir), "a", 0o600);
+  const redactorOut = new StreamingTaskRedactor(Object.values(spec.env));
+  const redactorErr = new StreamingTaskRedactor(Object.values(spec.env));
+  const heartbeat = () => writeHeartbeat(taskDir, { pid: process.pid, nonce, heartbeatAt: new Date().toISOString() });
+  heartbeat();
+  const heartbeatTimer = setInterval(heartbeat, DEV_TASK_HEARTBEAT_MS);
+  let child: ChildProcess;
+  try {
+    child = spawn(spec.executable, spec.args, {
+      cwd: spec.cwd,
+      env: { ...safeRuntimeEnvironment(), ...spec.env },
+      shell: false,
+      windowsHide: true,
+      detached: true,
+      stdio: ["ignore", "pipe", "pipe"],
+    });
+  } catch {
+    clearInterval(heartbeatTimer);
+    try { fs.closeSync(stdoutFd); fs.closeSync(stderrFd); } catch {}
+    fail(store, taskId, "server process unavailable", "PROCESS_FAILED");
+    return;
+  }
+  child.stdout?.on("data", (chunk: Buffer) => { const text = redactorOut.push(chunk.toString("utf8")); if (text) try { fs.writeSync(stdoutFd, text); } catch {} });
+  child.stderr?.on("data", (chunk: Buffer) => { const text = redactorErr.push(chunk.toString("utf8")); if (text) try { fs.writeSync(stderrFd, text); } catch {} });
+
+  let cancelled = false;
+  let expired = false;
+  let termination: ProcessTreeTermination | undefined;
+  const stop = () => {
+    if (!termination && child.pid) termination = terminateProcessTree(child.pid, { graceMs: DEV_TASK_CANCEL_GRACE_MS });
+  };
+  const cancelTimer = setInterval(() => {
+    if (isCancelRequested(taskDir)) {
+      cancelled = true;
+      const session = store.get(taskId)?.server;
+      if (session) {
+        try { store.update(taskId, "running", { state: "cancel_requested", stage: "server:stopping", server: { ...session, state: "stopping" } }); } catch {}
+      }
+      stop();
+    }
+  }, Math.max(250, Math.floor(DEV_TASK_HEARTBEAT_MS / 2)));
+  const lifetime = setTimeout(() => { expired = true; stop(); }, Math.min(spec.timeoutMs, DEV_TASK_MAX_RUNTIME_MS));
+
+  let exited = false;
+  let exitCode: number | null = null;
+  const exitedPromise = new Promise<void>((resolve) => {
+    child.once("exit", (code, signal) => { exited = true; exitCode = code ?? (signal ? null : 0); resolve(); });
+    child.once("error", () => { exited = true; exitCode = null; resolve(); });
+  });
+  let ready = false;
+  try {
+    await Promise.race([
+      waitForServerReady(spec.server.port, spec.server.healthPath ?? "/", spec.startupTimeoutMs),
+      exitedPromise.then(() => Promise.reject(new Error("server exited before readiness"))),
+    ]);
+    ready = true;
+    const current = store.get(taskId);
+    if (current?.state === "running" && current.server) {
+      store.update(taskId, "running", { stage: "server:running", server: { ...current.server, state: "running", readyAt: new Date().toISOString() } });
+    }
+  } catch (error) {
+    try { fs.writeSync(stderrFd, `[server] readiness failed: ${(error as Error).message}\n`); } catch {}
+    stop();
+  }
+  if (!exited) await exitedPromise;
+  clearInterval(heartbeatTimer);
+  clearInterval(cancelTimer);
+  clearTimeout(lifetime);
+  termination?.cancel();
+  const outTail = redactorOut.flush(); if (outTail) try { fs.writeSync(stdoutFd, outTail); } catch {}
+  const errTail = redactorErr.flush(); if (errTail) try { fs.writeSync(stderrFd, errTail); } catch {}
+  try { fs.closeSync(stdoutFd); } catch {}
+  try { fs.closeSync(stderrFd); } catch {}
+
+  const current = store.get(taskId);
+  if (!current?.server) return;
+  const terminalServer = cancelled ? "stopped" : expired ? "expired" : ready ? "failed" : "failed";
+  const terminalTask = cancelled ? "cancelled" : expired ? "succeeded" : "failed";
+  try {
+    store.update(taskId, cancelled ? "cancel_requested" : "running", {
+      state: terminalTask,
+      stage: `server:${terminalServer}`,
+      endedAt: new Date().toISOString(),
+      server: { ...current.server, state: terminalServer },
+      exit: { code: exitCode, errorCode: cancelled ? "TASK_CANCELLED" : expired ? "SERVER_EXPIRED" : "SERVER_FAILED" },
+    });
+  } catch {}
 }
 
 // ===========================================================================

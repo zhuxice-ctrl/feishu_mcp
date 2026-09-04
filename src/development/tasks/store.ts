@@ -27,7 +27,10 @@ import type {
   DevelopmentWorkflowLaunchSpec,
   DevelopmentWorkflowStep,
   DevelopmentStepState,
+  DevelopmentServerLaunchSpec,
+  DevelopmentServerSession,
 } from "./types.js";
+import type { DevServerRuntime, DevServerScope, DevServerState } from "../servers/contracts.js";
 import { isSensitiveEnvEntry } from "./redaction.js";
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -39,7 +42,10 @@ const VALID_STATES: readonly DevelopmentTaskState[] = [
   "cancel_requested", "cancelled", "interrupted",
 ];
 const VALID_CLASSES = new Set(["default", "build", "privileged"]);
-const VALID_KINDS = new Set<DevelopmentTaskKind>(["command", "workflow"]);
+const VALID_KINDS = new Set<DevelopmentTaskKind>(["command", "workflow", "server"]);
+const VALID_SERVER_RUNTIMES = new Set<DevServerRuntime>(["node", "python", "android", "generic"]);
+const VALID_SERVER_SCOPES = new Set<DevServerScope>(["local", "lan"]);
+const VALID_SERVER_STATES = new Set<DevServerState>(["starting", "running", "stopping", "stopped", "failed", "expired"]);
 const VALID_STEP_STATES: readonly DevelopmentStepState[] = [
   "pending", "running", "succeeded", "failed", "skipped", "cancelled",
 ];
@@ -300,6 +306,44 @@ function validateWorkflowSpec(value: unknown): DevelopmentWorkflowLaunchSpec {
   };
 }
 
+function validateServerSession(value: unknown, allowRuntimeState: boolean): DevelopmentServerSession {
+  if (!isRecord(value)) throw new DevelopmentTaskStoreError("invalid server session");
+  const allowed = new Set(["serviceId", "runtime", "scope", "port", "state", "localUrl", "lanUrls", "healthPath", "readyAt"]);
+  if (Object.keys(value).some((key) => !allowed.has(key))) throw new DevelopmentTaskStoreError("invalid server session");
+  if (typeof value.serviceId !== "string" || !STEP_ID_RE.test(value.serviceId) ||
+    typeof value.runtime !== "string" || !VALID_SERVER_RUNTIMES.has(value.runtime as DevServerRuntime) ||
+    typeof value.scope !== "string" || !VALID_SERVER_SCOPES.has(value.scope as DevServerScope) ||
+    !Number.isSafeInteger(value.port) || (value.port as number) < 1 || (value.port as number) > 65_535 ||
+    typeof value.state !== "string" || !VALID_SERVER_STATES.has(value.state as DevServerState) ||
+    typeof value.localUrl !== "string" || value.localUrl !== `http://127.0.0.1:${value.port}` ||
+    !Array.isArray(value.lanUrls) || value.lanUrls.length > 16 || value.lanUrls.some((url) => typeof url !== "string" || !/^http:\/\/(?!127\.)(?:\d{1,3}\.){3}\d{1,3}:\d+$/.test(url)) ||
+    (value.healthPath !== undefined && (typeof value.healthPath !== "string" || !value.healthPath.startsWith("/") || /:\/\/|[?#\0\r\n]/.test(value.healthPath))) ||
+    (value.readyAt !== undefined && typeof value.readyAt !== "string")
+  ) throw new DevelopmentTaskStoreError("invalid server session");
+  if (!allowRuntimeState && value.state !== "starting") throw new DevelopmentTaskStoreError("invalid server launch state");
+  return {
+    serviceId: value.serviceId, runtime: value.runtime as DevServerRuntime, scope: value.scope as DevServerScope,
+    port: value.port as number, state: value.state as DevServerState, localUrl: value.localUrl,
+    lanUrls: [...value.lanUrls] as string[],
+    ...(value.healthPath === undefined ? {} : { healthPath: value.healthPath as string }),
+    ...(value.readyAt === undefined ? {} : { readyAt: value.readyAt as string }),
+  };
+}
+
+function validateServerSpec(value: unknown): DevelopmentServerLaunchSpec {
+  const base = validateLaunchSpec(value);
+  if (!isRecord(value) || Object.keys(value).some((key) => ![
+    "executable", "args", "cwd", "env", "secretEnvRefs", "stdin", "timeoutMs", "successExitCodes", "artifactRoots", "binaryStdoutSinks", "directArtifacts", "windowsSigningCleanup", "server", "startupTimeoutMs",
+  ].includes(key))) throw new DevelopmentTaskStoreError("invalid server spec");
+  if (!Number.isSafeInteger(value.startupTimeoutMs) || (value.startupTimeoutMs as number) <= 0 || (value.startupTimeoutMs as number) > 600_000) {
+    throw new DevelopmentTaskStoreError("invalid server startupTimeoutMs");
+  }
+  const source = value.server;
+  if (!isRecord(source)) throw new DevelopmentTaskStoreError("invalid server spec");
+  const session = validateServerSession({ ...source, state: "starting", lanUrls: [] }, false);
+  return { ...base, server: { serviceId: session.serviceId, runtime: session.runtime, scope: session.scope, port: session.port, localUrl: session.localUrl, ...(session.healthPath === undefined ? {} : { healthPath: session.healthPath }) }, startupTimeoutMs: value.startupTimeoutMs as number };
+}
+
 function validateStepResults(value: unknown): DevelopmentTaskStepResult[] {
   if (!Array.isArray(value) || value.length > MAX_WORKFLOW_STEPS) {
     throw new DevelopmentTaskStoreError("invalid step results");
@@ -412,6 +456,8 @@ export class DevelopmentTaskStore {
     return path.join(this.taskDir(id), "workflow.json");
   }
 
+  serverPath(id: string): string { return path.join(this.taskDir(id), "server.json"); }
+
   create(input: DevelopmentTaskCreateInput): DevelopmentTaskRecord {
     if (!input.ownerKey) throw new DevelopmentTaskStoreError("ownerKey is required");
     if (!input.tool) throw new DevelopmentTaskStoreError("tool is required");
@@ -484,6 +530,7 @@ export class DevelopmentTaskStore {
     if (patch.directorySummaries !== undefined) {
       next.directorySummaries = validateDirectorySummaries(patch.directorySummaries);
     }
+    if (patch.server !== undefined) next.server = validateServerSession(patch.server, true);
     next.updatedAt = nowIso();
     this.persistMetadata(next);
     return next;
@@ -557,6 +604,24 @@ export class DevelopmentTaskStore {
     );
   }
 
+  saveServerSpec(id: string, spec: DevelopmentServerLaunchSpec): void {
+    validateTaskId(id);
+    const record = this.get(id);
+    if (!record || record.kind !== "server") throw new DevelopmentTaskStoreError("server task not found");
+    const validated = validateServerSpec(spec);
+    for (const [name, value] of Object.entries(validated.env)) {
+      if (isSensitiveEnvEntry(name, value)) {
+        throw new DevelopmentTaskStoreError(`refusing to persist sensitive env entry: ${name}`);
+      }
+    }
+    this.atomicWrite(this.serverPath(id), validated);
+  }
+
+  loadServerSpec(id: string): DevelopmentServerLaunchSpec | undefined {
+    validateTaskId(id);
+    return this.loadValidated<DevelopmentServerLaunchSpec>(this.serverPath(id), MAX_LAUNCH_BYTES, validateServerSpec);
+  }
+
   /**
    * Load either launch spec type based on the task's kind field.
    * Returns undefined when neither file exists.
@@ -566,6 +631,7 @@ export class DevelopmentTaskStore {
     const record = this.get(id);
     if (!record) return undefined;
     if (record.kind === "workflow") return this.loadWorkflowSpec(id);
+    if (record.kind === "server") return this.loadServerSpec(id);
     return this.loadLaunchSpec(id);
   }
 
@@ -685,6 +751,9 @@ export class DevelopmentTaskStore {
     }
     if (record.directorySummaries !== undefined) {
       try { validateDirectorySummaries(record.directorySummaries); } catch { quarantine(id, file); return undefined; }
+    }
+    if (record.server !== undefined) {
+      try { validateServerSession(record.server, true); } catch { quarantine(id, file); return undefined; }
     }
     return record as DevelopmentTaskRecord;
   }

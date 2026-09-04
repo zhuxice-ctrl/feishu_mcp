@@ -36,6 +36,7 @@ import type {
   DevelopmentTaskCreateInput,
   DevelopmentTaskRecord,
   DevelopmentWorkflowLaunchSpec,
+  DevelopmentServerLaunchSpec,
 } from "./types.js";
 import {
   developmentOwnerKey,
@@ -48,7 +49,10 @@ import {
 } from "./workerProtocol.js";
 import { safeRuntimeEnvironment } from "./runtimeEnvironment.js";
 
-const STALE_HEARTBEAT_MS = DEV_TASK_HEARTBEAT_MS * 3;
+// Windows can briefly pause a detached Node worker under load; retain the
+// configured multiplier but never interrupt a freshly healthy worker in less
+// than five seconds.
+const STALE_HEARTBEAT_MS = Math.max(DEV_TASK_HEARTBEAT_MS * 3, 5_000);
 const OWNER_KEY_RE = /^[0-9a-f]{64}$/;
 
 export interface DevelopmentCoordinatorOptions {
@@ -70,6 +74,10 @@ export interface DevelopmentEnqueueInput extends DevelopmentTaskCreateInput {
 
 export interface DevelopmentEnqueueWorkflowInput extends DevelopmentTaskCreateInput {
   workflow: DevelopmentWorkflowLaunchSpec;
+}
+export interface DevelopmentEnqueueServerInput extends DevelopmentTaskCreateInput {
+  server: DevelopmentServerLaunchSpec;
+  lanUrls: string[];
 }
 
 function defaultWorkerScript(): string {
@@ -142,6 +150,22 @@ export class DevelopmentTaskCoordinator {
       }
     });
     return record;
+  }
+
+  enqueueServer(input: DevelopmentEnqueueServerInput): DevelopmentTaskRecord {
+    if (!OWNER_KEY_RE.test(input.ownerKey)) throw new Error("invalid development task owner key");
+    const record = this.store.create({ ...input, kind: "server" });
+    this.store.saveServerSpec(record.id, input.server);
+    const initial = this.store.update(record.id, "queued", {
+      server: { ...input.server.server, state: "starting", lanUrls: [...input.lanUrls] },
+    });
+    this.dispatch(initial.id, initial.class, initial.resources).catch(() => {
+      const current = this.store.get(initial.id);
+      if (current && (current.state === "queued" || current.state === "running")) {
+        try { this.store.update(initial.id, current.state, { state: "interrupted", endedAt: new Date().toISOString(), server: { ...(current.server ?? { ...input.server.server, lanUrls: input.lanUrls }), state: "failed" } }); } catch {}
+      }
+    });
+    return initial;
   }
 
   cancel(
@@ -341,6 +365,7 @@ export class DevelopmentTaskCoordinator {
             this.store.update(record.id, record.state, {
               state: "interrupted",
               endedAt: new Date().toISOString(),
+              ...(record.server ? { server: { ...record.server, state: "failed" as const } } : {}),
               exit: { code: null, errorCode: "TASK_INTERRUPTED", message: "stale heartbeat on recovery" },
             });
           } catch {}

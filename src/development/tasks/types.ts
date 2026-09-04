@@ -17,7 +17,7 @@ export type DevelopmentTaskState =
 
 export type DevelopmentTaskClass = "default" | "build" | "privileged";
 
-export type DevelopmentTaskKind = "command" | "workflow";
+export type DevelopmentTaskKind = "command" | "workflow" | "server";
 
 /** Terminal-safe per-step state for serial workflow execution. */
 export type DevelopmentStepState =
@@ -120,6 +120,31 @@ export interface DevelopmentWorkflowLaunchSpec {
   artifactDirs?: string[];
 }
 
+// ---------------------------------------------------------------------------
+// Persistent local-server sessions
+// ---------------------------------------------------------------------------
+
+import type { DevServerRuntime, DevServerScope, DevServerState } from "../servers/contracts.js";
+
+/** Safe server details persisted on the task record and eligible for public views. */
+export interface DevelopmentServerSession {
+  serviceId: string;
+  runtime: DevServerRuntime;
+  scope: DevServerScope;
+  port: number;
+  state: DevServerState;
+  localUrl: string;
+  lanUrls: string[];
+  healthPath?: string;
+  readyAt?: string;
+}
+
+/** Internal, validated launch contract kept in server.json, never exposed by MCP. */
+export interface DevelopmentServerLaunchSpec extends DevelopmentLaunchSpec {
+  server: Omit<DevelopmentServerSession, "state" | "lanUrls" | "readyAt">;
+  startupTimeoutMs: number;
+}
+
 /** Per-step result persisted in the task record. */
 export interface DevelopmentTaskStepResult {
   id: string;
@@ -175,6 +200,8 @@ export interface DevelopmentTaskRecord {
   steps?: DevelopmentTaskStepResult[];
   /** Directory artifact summaries published after successful workflows. */
   directorySummaries?: DevelopmentDirectorySummary[];
+  /** Present only for persistent local server tasks. */
+  server?: DevelopmentServerSession;
 }
 
 /** Input accepted by the store when creating a new task record. */
@@ -199,4 +226,5 @@ export interface DevelopmentTaskUpdatePatch {
   artifacts?: DevelopmentArtifact[];
   steps?: DevelopmentTaskStepResult[];
   directorySummaries?: DevelopmentDirectorySummary[];
+  server?: DevelopmentServerSession;
 }
