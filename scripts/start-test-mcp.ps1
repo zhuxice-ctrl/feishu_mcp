@@ -44,6 +44,7 @@ Import-TestEnv $EnvFile
 $port = Require-TestValue "PORT"
 $hostValue = Require-TestValue "HOST"
 $publicHost = Require-TestValue "PUBLIC_HOST"
+$testToken = Require-TestValue "MCP_AUTH_TOKEN"
 $dataRoot = [System.IO.Path]::GetFullPath((Require-TestValue "TEST_DATA_ROOT"))
 if ($port -ne "3001") { throw "Test MCP PORT must be 3001" }
 if ($hostValue -ne "127.0.0.1") { throw "Test MCP HOST must be 127.0.0.1" }
@@ -70,7 +71,8 @@ try { & $npm.Source run build; if ($LASTEXITCODE -ne 0) { throw "npm run build f
 $server = Start-Process -FilePath $node.Source -ArgumentList @("dist/index.js") -WorkingDirectory $projectDir -WindowStyle Hidden -PassThru
 try {
     $deadline = (Get-Date).AddSeconds(30)
-    do { try { $health = Invoke-RestMethod -Uri "http://127.0.0.1:3001/health" -TimeoutSec 2 } catch {}; if ($health.status -eq "ok" -and @($health.tools).Count -eq 41) { break }; Start-Sleep -Milliseconds 300 } while ((Get-Date) -lt $deadline)
+    $headers = @{ Authorization = "Bearer $testToken" }
+    do { try { $health = Invoke-RestMethod -Uri "http://127.0.0.1:3001/health" -Headers $headers -TimeoutSec 2 } catch {}; if ($health.status -eq "ok" -and @($health.tools).Count -eq 41) { break }; Start-Sleep -Milliseconds 300 } while ((Get-Date) -lt $deadline)
     if (-not $health) { throw "Test MCP health check failed" }
     Write-Host "Test MCP is ready at http://127.0.0.1:3001 (production is untouched)."
     if ($Detach) {
