@@ -156,9 +156,11 @@ manage-feishu-mcp-approvals.bat -ClearDirectories
 
 ### 5.5. 开发环境工具（owner 专用）
 
-9 个开发环境工具（`get_development_task`、`read_development_task_logs`、`cancel_development_task`、`inspect_development_environment`、`plan_environment_changes`、`apply_environment_plan`、`android_development`、`windows_development`、`manage_development_project`）仅对配置的 owner 可见。非 owner 调用返回 `OWNER_REQUIRED`，不会降级为普通工具。
+10 个开发环境工具（`get_development_task`、`read_development_task_logs`、`cancel_development_task`、`inspect_development_environment`、`plan_environment_changes`、`apply_environment_plan`、`android_development`、`windows_development`、`manage_development_project`、`local_dev_server`）仅对配置的 owner 可见。非 owner 调用返回 `OWNER_REQUIRED`，不会降级为普通工具。
 
 长操作（构建、测试、打包）返回 task ID，客户端可在同一会话中查询进度、读取日志或请求取消。需要审批的操作（项目创建、环境变更、设备写入）返回 `input_required`，客户端必须用相同参数重试。不支持 elicitation 的客户端始终被拒绝。
+
+`local_dev_server` 用于已在受保护 workspace catalog 中声明的开发服务。它只接收服务 ID、端口和 `local`/`lan` 范围，不接受任何 shell 或命令参数；不会自动发布到 Cloudflare。
 
 不要在飞书对话或配置截图中粘贴密钥、PIN、签名密钥或凭据密码。凭据通过 `manage-development-credentials.bat` 在本机管理，工具调用仅使用凭据别名。详细使用方法见 [本地开发环境使用指南](local-development-environment.md)。
 

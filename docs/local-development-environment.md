@@ -45,6 +45,13 @@ uninstall-feishu-mcp-admin-broker.bat
 | `android_development` | Android 构建/测试/设备/签名操作 | 混合 |
 | `windows_development` | Windows .NET/原生/Electron 操作 | 混合 |
 | `manage_development_project` | 项目模板列表/检查/创建 | 混合 |
+| `local_dev_server` | 启动、查询或停止受保护目录中已声明的本机/LAN 开发服务 | 异步·写 |
+
+## 本地开发服务（owner 专用）
+
+`local_dev_server` 只接受受保护 workspace catalog 中已登记的 `workspaceId`、`serviceId`、端口和网络范围；不能提交命令、可执行文件、工作目录、参数或环境变量。`local` 只监听 `127.0.0.1`；只有 catalog 明确允许时，`lan` 才监听 `0.0.0.0` 供同一局域网设备验证。健康检查仍从本机回环地址发起。
+
+服务返回任务 ID，可使用该工具的 `status`、`logs`、`stop` action 观察或停止。服务不会被自动发布到 Cloudflare；如需公网测试，应使用独立的 `.env.test`、3001 测试端口和 `mcp-test.zxc66.asia` 测试 Tunnel。
 
 ## 自然语言示例
 

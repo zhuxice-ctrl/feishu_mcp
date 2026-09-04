@@ -76,7 +76,7 @@ npm start
 Invoke-RestMethod http://127.0.0.1:3000/health
 ```
 
-正常时应返回 `status: ok`，并报告 40 个工具。若你使用 Clash Fake-IP，对公网
+正常时应返回 `status: ok`，并报告 41 个工具。若你使用 Clash Fake-IP，对公网
 `/health` 的回访失败只说明反向探测受限；本地服务和连接器仍可正常工作。
 
 ### 4. 先选择公网传输
@@ -185,7 +185,7 @@ MCP，`Authorization` 应使用**固定值**，其参数值为 `Bearer <your-own
 检查这个 Windows 原生项目需要的 MSVC、Windows SDK 和 CMake 环境。
 ```
 
-## 能力概览：40 个工具
+## 能力概览：41 个工具
 
 工具清单由服务在 `tools/list` 中实际返回；Aily 的文字总结可能合并或漏列工具，
 应以该响应和 `/health` 为准。
@@ -199,6 +199,7 @@ MCP，`Authorization` 应使用**固定值**，其参数值为 `Bearer <your-own
 | 网络与任务 | `web_fetch`、`todo_write`、`todo_read`、`ask_user` |
 | 开发环境 | `get_development_task`、`list_development_tasks`、`read_development_task_logs`、`cancel_development_task`、`inspect_development_environment`、`plan_environment_changes`、`apply_environment_plan`、`android_development`、`windows_development`、`node_development`、`java_development`、`manage_development_project` |
 | 本地工作流 | `list_local_workspaces`（列出受保护目录中的工作空间和配方）、`run_local_workflow`（异步执行已登记的受控验证配方） |
+| 本地开发服务 | `local_dev_server`（仅 owner；启动、查询日志或停止 catalog 声明的本机/LAN 开发服务；不接受任意命令，也不会自动通过 Cloudflare 公开） |
 | 工作区路由 | `workspace_context`（owner 专用：选择/恢复受信任工作区，返回确定性的 `route.recommended`：Android 走 `android_development`、固定 Node 校验走 `run_local_workflow`，并提供 `error.nextAction`） |
 | 二进制制品 | `manage_binary_artifact` |
 | 大文本传输 | `manage_text_transfer` |
@@ -271,7 +272,7 @@ OWNER_COMMAND_POLICY=direct
 
 ### Aily 的文字回答只列出一部分工具
 
-服务的 `/health` 与 `tools/list` 当前应返回 40 个工具。Aily 可能因平台安全策略只把
+服务的 `/health` 与 `tools/list` 当前应返回 41 个工具。Aily 可能因平台安全策略只把
 其中一部分交给智能体；如果没有 `execute_command`，请使用 `node_development` 完成四个
 受限的 PNPM 操作，而不要要求智能体改用任意 Shell。
 

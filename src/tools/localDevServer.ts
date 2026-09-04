@@ -1,7 +1,7 @@
 /** Owner-only API for safe, catalog-declared local development servers. */
 import { z } from "zod";
 import type { McpServer } from "@modelcontextprotocol/server";
-import { LOCAL_WORKSPACE_CATALOG_PATH, OWNER_USER_ID, DEV_SERVER_PORT_MIN, DEV_SERVER_PORT_MAX, DEV_SERVER_MAX_RUNTIME_MS, DEV_SERVER_STARTUP_TIMEOUT_MS } from "../config.js";
+import { LOCAL_WORKSPACE_CATALOG_PATH, OWNER_USER_ID, DEV_SERVER_PORT_MIN, DEV_SERVER_PORT_MAX, DEV_SERVER_MAX_RUNTIME_MS, DEV_SERVER_STARTUP_TIMEOUT_MS, DEV_SERVER_MAX_SESSIONS } from "../config.js";
 import { getRequestUserId } from "../security/requestContext.js";
 import { directoryGrantStore } from "../security/directoryGrantStore.js";
 import { authorizeOwnerToolCall } from "../security/toolAccess.js";
@@ -15,14 +15,14 @@ import { getDevelopmentTask, listDevelopmentTasks, readDevelopmentTaskLogs } fro
 import { runTool } from "./registry.js";
 import { toolError, toolJson } from "./results.js";
 
-const actionSchema = z.discriminatedUnion("action", [
+export const localDevServerInputSchema = z.discriminatedUnion("action", [
   z.object({ action: z.literal("start"), workspaceId: z.string().regex(/^[a-z0-9_-]{1,64}$/), serviceId: z.string().regex(/^[a-z0-9_-]{1,64}$/), port: z.number().int().min(1).max(65_535), scope: z.enum(["local", "lan"]) }).strict(),
   z.object({ action: z.literal("status"), taskId: z.string().uuid() }).strict(),
   z.object({ action: z.literal("list") }).strict(),
   z.object({ action: z.literal("logs"), taskId: z.string().uuid(), stream: z.enum(["stdout", "stderr", "both"]).optional(), cursorStdout: z.number().int().min(0).optional(), cursorStderr: z.number().int().min(0).optional() }).strict(),
   z.object({ action: z.literal("stop"), taskId: z.string().uuid() }).strict(),
 ]);
-export type LocalDevServerArgs = z.infer<typeof actionSchema>;
+export type LocalDevServerArgs = z.infer<typeof localDevServerInputSchema>;
 export interface LocalDevServerDeps { coordinator: DevelopmentTaskCoordinator; catalogPath?: string; userId?: () => string | null; }
 const currentUser = (deps: LocalDevServerDeps) => deps.userId?.() ?? getRequestUserId();
 
@@ -43,6 +43,12 @@ export async function localDevServer(args: LocalDevServerArgs, deps: LocalDevSer
   if (!workspace || !service) return toolError("INVALID_ARGUMENT", "Unknown workspace or local server service.");
   if (!directoryGrantStore.hasAccess(userId, workspace.root)) return toolError("OUTSIDE_ALLOWED_DIRS", "The selected workspace is not currently authorized.");
   if (!service.scopes.includes(args.scope)) return toolError("INVALID_ARGUMENT", "The selected service does not permit that network scope.");
+  const activeSessions = deps.coordinator.store.list().filter((record) =>
+    record.kind === "server" && ["queued", "running", "cancel_requested"].includes(record.state)
+  ).length;
+  if (activeSessions >= DEV_SERVER_MAX_SESSIONS) {
+    return toolError("TASK_QUEUE_FULL", "The local development server session limit has been reached.");
+  }
   try {
     assertPermittedPort(args.port, service.portRange, { min: DEV_SERVER_PORT_MIN, max: DEV_SERVER_PORT_MAX });
     await assertPortAvailable(args.port);
@@ -63,6 +69,6 @@ export async function localDevServer(args: LocalDevServerArgs, deps: LocalDevSer
 }
 
 export function registerLocalDevServerTool(server: McpServer, coordinator: DevelopmentTaskCoordinator): void {
-  server.registerTool("local_dev_server", { description: "Start, observe, read logs for, or stop an owner-approved catalog-declared local or LAN development server. It never accepts commands and never publishes a development server through Cloudflare.", inputSchema: actionSchema }, async (args) =>
+  server.registerTool("local_dev_server", { description: "Start, observe, read logs for, or stop an owner-approved catalog-declared local or LAN development server. It never accepts commands and never publishes a development server through Cloudflare.", inputSchema: localDevServerInputSchema }, async (args) =>
     authorizeOwnerToolCall("local_dev_server", args) ?? runTool({ name: "local_dev_server", concurrency: "command", subject: { kind: "development", key: "local-server", display: "local development server" } }, () => localDevServer(args, { coordinator })));
 }

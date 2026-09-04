@@ -23,6 +23,16 @@ function readConfig(env) {
   return result;
 }
 
+function readServerConfig(env) {
+  const script =
+    "import('./dist/config.js').then(c=>console.log(JSON.stringify({sessions:c.DEV_SERVER_MAX_SESSIONS,startup:c.DEV_SERVER_STARTUP_TIMEOUT_MS,runtime:c.DEV_SERVER_MAX_RUNTIME_MS,min:c.DEV_SERVER_PORT_MIN,max:c.DEV_SERVER_PORT_MAX})))";
+  return spawnSync(process.execPath, ["--input-type=module", "-e", script], {
+    cwd: projectDir,
+    encoding: "utf8",
+    env: { ...process.env, ...env },
+  });
+}
+
 test("development configuration exposes bounded defaults inside the approval data dir", async () => {
   const root = await mkdtemp(path.join(os.tmpdir(), "feishu-dev-config-"));
   try {
@@ -91,4 +101,20 @@ test("configuration rejects a task data directory outside APPROVAL_DATA_DIR", as
     await rm(root, { recursive: true, force: true });
     await rm(outside, { recursive: true, force: true });
   }
+});
+
+test("local server configuration has isolated bounded defaults and rejects invalid ranges", async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), "feishu-server-config-"));
+  try {
+    const defaults = readServerConfig({ APPROVAL_DATA_DIR: root, DEV_TASK_DATA_DIR: "" });
+    assert.equal(defaults.status, 0, defaults.stderr);
+    assert.deepEqual(JSON.parse(defaults.stdout), {
+      sessions: 4, startup: 60_000, runtime: 8 * 60 * 60_000, min: 1024, max: 9_999,
+    });
+    const invalid = (extra) => readServerConfig({ APPROVAL_DATA_DIR: root, DEV_TASK_DATA_DIR: "", ...extra });
+    assert.notEqual(invalid({ DEV_SERVER_MAX_SESSIONS: "17" }).status, 0);
+    assert.notEqual(invalid({ DEV_SERVER_STARTUP_TIMEOUT_MS: "600001" }).status, 0);
+    assert.notEqual(invalid({ DEV_SERVER_MAX_RUNTIME_MS: String(24 * 60 * 60_000 + 1) }).status, 0);
+    assert.notEqual(invalid({ DEV_SERVER_PORT_MIN: "9000", DEV_SERVER_PORT_MAX: "8000" }).status, 0);
+  } finally { await rm(root, { recursive: true, force: true }); }
 });
