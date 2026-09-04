@@ -1,7 +1,7 @@
 /** Owner-only API for safe, catalog-declared local development servers. */
 import { z } from "zod";
 import type { McpServer } from "@modelcontextprotocol/server";
-import { LOCAL_WORKSPACE_CATALOG_PATH, OWNER_USER_ID } from "../config.js";
+import { LOCAL_WORKSPACE_CATALOG_PATH, OWNER_USER_ID, DEV_SERVER_PORT_MIN, DEV_SERVER_PORT_MAX, DEV_SERVER_MAX_RUNTIME_MS, DEV_SERVER_STARTUP_TIMEOUT_MS } from "../config.js";
 import { getRequestUserId } from "../security/requestContext.js";
 import { directoryGrantStore } from "../security/directoryGrantStore.js";
 import { authorizeOwnerToolCall } from "../security/toolAccess.js";
@@ -44,14 +44,14 @@ export async function localDevServer(args: LocalDevServerArgs, deps: LocalDevSer
   if (!directoryGrantStore.hasAccess(userId, workspace.root)) return toolError("OUTSIDE_ALLOWED_DIRS", "The selected workspace is not currently authorized.");
   if (!service.scopes.includes(args.scope)) return toolError("INVALID_ARGUMENT", "The selected service does not permit that network scope.");
   try {
-    assertPermittedPort(args.port, service.portRange, { min: 1024, max: 9_999 });
+    assertPermittedPort(args.port, service.portRange, { min: DEV_SERVER_PORT_MIN, max: DEV_SERVER_PORT_MAX });
     await assertPortAvailable(args.port);
     const plan = buildServerLaunchPlan(service, { port: args.port, scope: args.scope });
     const urls = publicServerUrls(args.port, args.scope);
     const record = deps.coordinator.enqueueServer({
       ownerKey: developmentOwnerKey(userId), tool: "local_dev_server", action: "start", class: "default",
       resources: [`workspace:${workspace.id}`, `port:${args.port}`],
-      server: { ...plan, timeoutMs: 8 * 60 * 60_000, successExitCodes: [0], startupTimeoutMs: 60_000,
+      server: { ...plan, timeoutMs: DEV_SERVER_MAX_RUNTIME_MS, successExitCodes: [0], startupTimeoutMs: DEV_SERVER_STARTUP_TIMEOUT_MS,
         server: { serviceId: service.id, runtime: service.runtime, scope: args.scope, port: args.port, localUrl: urls.localUrl, ...(plan.healthPath === undefined ? {} : { healthPath: plan.healthPath }) } },
       lanUrls: urls.lanUrls,
     });

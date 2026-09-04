@@ -65,7 +65,7 @@ test(
       const output = JSON.parse(result.stdout);
       assert.equal(output.status, "ready");
       assert.equal(output.publicHost, "mcp.example.com");
-      assert.equal(output.toolCount, 40);
+      assert.equal(output.toolCount, 41);
       // No ngrok engine requirement anywhere.
       assert.doesNotMatch(result.stdout + result.stderr, /ngrok/i);
       assert.doesNotMatch(result.stdout + result.stderr, /NGROK_AUTHTOKEN/i);

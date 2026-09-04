@@ -91,7 +91,7 @@ export const TOOL_QUEUE_TIMEOUT_MS = envBoundedPositiveInt(
   "TOOL_QUEUE_TIMEOUT_MS", 30_000, MAX_TIMEOUT_MS
 );
 export const COMMAND_TIMEOUT_MS = envBoundedPositiveInt(
-  "COMMAND_TIMEOUT_MS", 30_000, MAX_TIMEOUT_MS
+  "COMMAND_TIMEOUT_MS", 1_800_000, MAX_TIMEOUT_MS
 );
 export const COMMAND_MAX_TIMEOUT_MS = envBoundedPositiveInt(
   "COMMAND_MAX_TIMEOUT_MS", 300_000, MAX_TIMEOUT_MS
@@ -210,6 +210,16 @@ const taskDataRelative = path.relative(path.resolve(APPROVAL_DATA_DIR), DEV_TASK
 if (taskDataRelative.startsWith("..") || path.isAbsolute(taskDataRelative)) {
   throw new Error("DEV_TASK_DATA_DIR must be inside APPROVAL_DATA_DIR");
 }
+
+// Persistent local development server sessions. These limits are deliberately
+// distinct from one-shot task limits so a few long-lived preview servers
+// cannot starve builds or the production MCP transport.
+export const DEV_SERVER_MAX_SESSIONS = envBoundedPositiveInt("DEV_SERVER_MAX_SESSIONS", 4, 16);
+export const DEV_SERVER_STARTUP_TIMEOUT_MS = envBoundedPositiveInt("DEV_SERVER_STARTUP_TIMEOUT_MS", 60_000, 600_000);
+export const DEV_SERVER_MAX_RUNTIME_MS = envBoundedPositiveInt("DEV_SERVER_MAX_RUNTIME_MS", 8 * 60 * 60_000, 24 * 60 * 60_000);
+export const DEV_SERVER_PORT_MIN = envBoundedPositiveInt("DEV_SERVER_PORT_MIN", 1024, 65_535);
+export const DEV_SERVER_PORT_MAX = envBoundedPositiveInt("DEV_SERVER_PORT_MAX", 9_999, 65_535);
+if (DEV_SERVER_PORT_MIN > DEV_SERVER_PORT_MAX) throw new Error("DEV_SERVER_PORT_MIN must not exceed DEV_SERVER_PORT_MAX");
 
 // ---------------------------------------------------------------------------
 // Local workspace catalog (Phase 1 — trusted workspace/recipe configuration)
