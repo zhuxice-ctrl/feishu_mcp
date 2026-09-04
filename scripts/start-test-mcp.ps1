@@ -1,6 +1,7 @@
 [CmdletBinding()]
 param(
     [switch]$CheckOnly,
+    [switch]$Detach,
     [string]$EnvFile = ""
 )
 
@@ -72,7 +73,13 @@ try {
     do { try { $health = Invoke-RestMethod -Uri "http://127.0.0.1:3001/health" -TimeoutSec 2 } catch {}; if ($health.status -eq "ok" -and @($health.tools).Count -eq 41) { break }; Start-Sleep -Milliseconds 300 } while ((Get-Date) -lt $deadline)
     if (-not $health) { throw "Test MCP health check failed" }
     Write-Host "Test MCP is ready at http://127.0.0.1:3001 (production is untouched)."
+    if ($Detach) {
+        # Used by non-interactive local automation. The recorded PID belongs
+        # only to this verified test child; no port discovery is used to stop it.
+        Set-Content -LiteralPath (Join-Path $dataRoot "test-mcp.pid") -Value $server.Id -Encoding ASCII
+        return
+    }
     while (-not $server.HasExited) { Start-Sleep -Seconds 1; $server.Refresh() }
 } finally {
-    if ($server -and -not $server.HasExited) { Stop-Process -Id $server.Id -Force }
+    if (-not $Detach -and $server -and -not $server.HasExited) { Stop-Process -Id $server.Id -Force }
 }
