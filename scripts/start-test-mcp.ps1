@@ -8,6 +8,7 @@ param(
 $ErrorActionPreference = "Stop"
 $projectDir = Split-Path -Parent (Split-Path -Parent $MyInvocation.MyCommand.Path)
 if (-not $EnvFile) { $EnvFile = Join-Path $projectDir ".env.test" }
+$script:TestEnvironment = @{}
 
 function Import-TestEnv([string]$Path) {
     if (-not (Test-Path -LiteralPath $Path -PathType Leaf)) { throw "Test environment file not found" }
@@ -24,6 +25,7 @@ function Import-TestEnv([string]$Path) {
         # drive: Start-Process inherits the latter on Windows PowerShell 5.1.
         [Environment]::SetEnvironmentVariable($name, $value, "Process")
         Set-Item -Path ("Env:" + $name) -Value $value
+        $script:TestEnvironment[$name] = $value
     }
 }
 
@@ -68,12 +70,33 @@ $listener = Get-NetTCPConnection -LocalPort 3001 -State Listen -ErrorAction Sile
 if ($listener) { throw "Test MCP port 3001 is already in use" }
 Push-Location $projectDir
 try { & $npm.Source run build; if ($LASTEXITCODE -ne 0) { throw "npm run build failed" } } finally { Pop-Location }
-$server = Start-Process -FilePath $node.Source -ArgumentList @("dist/index.js") -WorkingDirectory $projectDir -WindowStyle Hidden -PassThru
+# Start Node with an explicit environment block. Windows PowerShell's
+# Start-Process can otherwise lose values assigned by a dot-env parser and
+# make Node silently fall back to production defaults such as port 3000.
+$startInfo = New-Object System.Diagnostics.ProcessStartInfo
+$startInfo.FileName = $node.Source
+$startInfo.Arguments = "dist/index.js"
+$startInfo.WorkingDirectory = $projectDir
+$startInfo.UseShellExecute = $false
+$startInfo.CreateNoWindow = $true
+$startInfo.RedirectStandardOutput = $true
+$startInfo.RedirectStandardError = $true
+foreach ($pair in $script:TestEnvironment.GetEnumerator()) {
+    $startInfo.EnvironmentVariables[$pair.Key] = $pair.Value
+}
+$server = [System.Diagnostics.Process]::Start($startInfo)
 try {
     $deadline = (Get-Date).AddSeconds(30)
     $headers = @{ Authorization = "Bearer $testToken" }
     do { try { $health = Invoke-RestMethod -Uri "http://127.0.0.1:3001/health" -Headers $headers -TimeoutSec 2 } catch {}; if ($health.status -eq "ok" -and @($health.tools).Count -eq 41) { break }; Start-Sleep -Milliseconds 300 } while ((Get-Date) -lt $deadline)
-    if (-not $health) { throw "Test MCP health check failed" }
+    if (-not $health) {
+        if (-not $server.HasExited) { $server.Kill() }
+        $stdout = $server.StandardOutput.ReadToEnd()
+        $stderr = $server.StandardError.ReadToEnd()
+        $startupLog = Join-Path $dataRoot "test-mcp-startup.err.log"
+        Set-Content -LiteralPath $startupLog -Value ($stdout + $stderr) -Encoding UTF8
+        throw "Test MCP health check failed; see test-mcp-startup.err.log in TEST_DATA_ROOT"
+    }
     Write-Host "Test MCP is ready at http://127.0.0.1:3001 (production is untouched)."
     if ($Detach) {
         # Used by non-interactive local automation. The recorded PID belongs

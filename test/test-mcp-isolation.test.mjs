@@ -21,8 +21,8 @@ async function testEnv(root, overrides = {}) {
   const values = {
     PORT: "3001", HOST: "127.0.0.1", PUBLIC_HOST: "mcp-test.zxc66.asia", MCP_ENDPOINT: "/mcp",
     MCP_AUTH_TOKEN: "test-token-only", AUTH_MODE: "none", TEST_DATA_ROOT: data,
-    APPROVAL_DATA_DIR: path.join(data, "approval-data"), DEV_TASK_DATA_DIR: path.join(data, "tasks"),
-    LOCAL_WORKSPACE_CATALOG_PATH: path.join(data, "local-workspaces.json"), LOG_DIR: path.join(data, "logs"), ...overrides,
+    APPROVAL_DATA_DIR: path.join(data, "approval-data"), DEV_TASK_DATA_DIR: path.join(data, "approval-data", "tasks"),
+    LOCAL_WORKSPACE_CATALOG_PATH: path.join(data, "approval-data", "local-workspaces.json"), LOG_DIR: path.join(data, "logs"), ...overrides,
   };
   await writeFile(file, Object.entries(values).map(([key, value]) => `${key}=${value}`).join("\n"), "utf8");
   return file;
