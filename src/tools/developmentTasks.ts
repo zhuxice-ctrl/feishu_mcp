@@ -158,6 +158,13 @@ function publicTask(
       directorySummaryView(summary, userId, deps)
     );
   }
+  if (record.server !== undefined) {
+    task.server = {
+      serviceId: record.server.serviceId, runtime: record.server.runtime, scope: record.server.scope,
+      port: record.server.port, state: record.server.state, localUrl: record.server.localUrl,
+      lanUrls: record.server.lanUrls, ...(record.server.readyAt ? { readyAt: record.server.readyAt } : {}),
+    };
+  }
   return task;
 }
 

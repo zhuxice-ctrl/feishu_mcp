@@ -80,6 +80,7 @@ import { registerNodeDevelopmentTool } from "./tools/nodeDevelopment.js";
 import { registerWindowsDevelopmentTool } from "./tools/windowsDevelopment.js";
 import { registerDevelopmentProjectTool } from "./tools/developmentProjects.js";
 import { registerLocalWorkflowTools } from "./tools/localWorkflows.js";
+import { registerLocalDevServerTool } from "./tools/localDevServer.js";
 import { registerStagingAndroidVerifyTool } from "./tools/stagingAndroidVerify.js";
 import { registerWorkspaceContextTool } from "./tools/workspaceContext.js";
 import { WorkspaceContextStore } from "./development/workspaces/context.js";
@@ -127,6 +128,7 @@ const TOOL_NAMES = [
   "list_development_tasks",
   "staging_android_verify",
   "workspace_context",
+  "local_dev_server",
 ] as const;
 
 const SERVER_INSTRUCTIONS =
@@ -301,6 +303,7 @@ function createMcpServer(): McpServer {
   registerNodeDevelopmentTool(server);
   registerDevelopmentProjectTool(server, { registry: projectRegistry });
   registerLocalWorkflowTools(server, developmentTaskCoordinator);
+  registerLocalDevServerTool(server, developmentTaskCoordinator);
 registerStagingAndroidVerifyTool(server, {
     registry: androidWorkflowRegistry,
     stateStoreDir: APPROVAL_DATA_DIR,
