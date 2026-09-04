@@ -18,7 +18,11 @@ function Import-TestEnv([string]$Path) {
         if ($separator -le 0) { continue }
         $name = $trimmed.Substring(0, $separator).Trim()
         if ($name -notmatch '^[A-Za-z_][A-Za-z0-9_]*$') { throw "Invalid test environment variable name" }
-        [Environment]::SetEnvironmentVariable($name, $trimmed.Substring($separator + 1).Trim(), "Process")
+        $value = $trimmed.Substring($separator + 1).Trim()
+        # Populate both the .NET process view and PowerShell's environment
+        # drive: Start-Process inherits the latter on Windows PowerShell 5.1.
+        [Environment]::SetEnvironmentVariable($name, $value, "Process")
+        Set-Item -Path ("Env:" + $name) -Value $value
     }
 }
 
