@@ -252,6 +252,27 @@ test("launcher is local-service-only and decoupled from any tunnel process", asy
   assert.match(content, /test-cloudflare-tunnel\.ps1/);
 });
 
+test("cf launcher delegates connector ownership to the manual supervisor", async () => {
+  const content = await readFile(
+    path.join(projectDir, "scripts", "start-cf-mcp.ps1"),
+    "utf8",
+  );
+  assert.match(content, /tunnel-supervisor\.ps1/i);
+  assert.match(content, /"-Action", "Start"/);
+  assert.doesNotMatch(content, /New-Service|sc\.exe\s+create|cloudflared\s+service\s+install/i);
+  assert.doesNotMatch(content, /"run", "feishu-mcp"/);
+});
+
+test("cf stop entrypoint delegates to the supervisor", async () => {
+  const content = await readFile(
+    path.join(projectDir, "scripts", "stop-cf-mcp.ps1"),
+    "utf8",
+  );
+  assert.match(content, /tunnel-supervisor\.ps1/i);
+  assert.match(content, /-Action Stop/);
+  assert.doesNotMatch(content, /Stop-Process\s+-Name\s+cloudflared/i);
+});
+
 test("launcher performs a read-only broker state check and reports 41 tools", async () => {
   const content = await readFile(launcherScript, "utf8");
   // Broker check is read-only — never installs, starts, stops, or elevates.

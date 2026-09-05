@@ -30,7 +30,9 @@ async function freePort() {
 test("connector script never prints secrets and validates its fields", () => {
   const content = readFileSync(script, "utf8");
   assert.match(content, /ValidatePattern\('\^\[A-Za-z0-9\.\-\]\+\$'\)/);
-  assert.match(content, /Get-Service -Name cloudflared/);
+  assert.match(content, /cloudflared_tunnel_ha_connections/);
+  assert.match(content, /cloudflared\s+tunnel\s+info/);
+  assert.match(content, /CONNECTOR_HEALTHY/);
   assert.match(content, /OK_CONNECTOR_CHECK/);
   // No environment expansion, no reading .env/credential/config files.
   assert.doesNotMatch(content, /\$\{env:/);
@@ -45,7 +47,7 @@ test("connector script never prints secrets and validates its fields", () => {
       );
     }
   }
-  assert.doesNotMatch(content, /Invoke-Command|Start-Process|Set-Content|Out-File/i);
+  assert.doesNotMatch(content, /Invoke-Command|Start-Process|Stop-Process|Start-Service|Stop-Service|Set-Content|Out-File/i);
 });
 
 test("connector script rejects a non-hostname PublicHost", () => {

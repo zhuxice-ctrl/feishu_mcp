@@ -62,7 +62,7 @@ start-feishu-mcp.bat
 
 启动器只负责本地服务：它会构建服务、检查本地健康状态并启动 `node dist/index.js`，
 不会替你再启动任何隧道进程。它从 `.env` 读取 `PUBLIC_HOST` 并打印预期公网地址；
-公网连接器是否健康由下面第 4 步的 cloudflared Windows 服务或
+公网连接器是否健康由下面第 4 步的手动 Tunnel supervisor 或
 `scripts\test-cloudflare-tunnel.ps1` 检查。你也可以手动运行：
 
 ```powershell
@@ -106,26 +106,28 @@ Invoke-RestMethod http://127.0.0.1:3000/health
 4. 在 `%USERPROFILE%\.cloudflared\config.yml` 写外部连接配置，`ingress` 指向
    `http://127.0.0.1:3000`（以 `.env` 的 `PORT` 为准），并为证书 JSON 和 config.yml
    收紧 NTFS ACL。
-5. 安装为 Windows 服务：`cloudflared service install`，再 `Start-Service cloudflared`。
+5. 保持手动启动：运行 `scripts\start-cf-mcp.ps1`，它会在当前会话启动 supervisor；
+   不安装 Windows 服务，也不创建开机启动项。
 
 把 `PUBLIC_HOST` 设置为这个自有主机名并重启本地启动器。随后运行有界健康验证（区分
 本地与公网失败，退出码非零即失败）：
 
 ```powershell
-.\scripts\test-cloudflare-tunnel.ps1 -PublicHost mcp.example.com -Port 3000
+.\scripts\test-cloudflare-tunnel.ps1 -PublicHost mcp.example.com -Port 3000 -MetricsPort 20241 -TunnelName feishu-mcp
 ```
 
-服务状态命令：
+手动会话状态与停止命令：
 
 ```powershell
-Get-Service cloudflared  # 期望 Running
-Start-Service cloudflared
-Stop-Service cloudflared
+.\scripts\tunnel-supervisor.ps1 -Action Status
+.\scripts\stop-cf-mcp.ps1
 ```
+
+完整恢复说明见 [`docs/MANUAL_CLOUDFLARE_TUNNEL_RECOVERY.md`](docs/MANUAL_CLOUDFLARE_TUNNEL_RECOVERY.md)。
 
 **回滚备用：ngrok。** 观察期内如公网中断超过 5 分钟且原因未明，可按
 [CLOUDFLARE_TUNNEL_MIGRATION.md](docs/CLOUDFLARE_TUNNEL_MIGRATION.md) 一键回滚：
-先停止 cloudflared 服务，再在 `.env` 恢复 `NGROK_DOMAIN` 与 `NGROK_AUTHTOKEN`，
+先运行 `scripts\stop-cf-mcp.ps1`，再在 `.env` 恢复 `NGROK_DOMAIN` 与 `NGROK_AUTHTOKEN`，
 运行 `.\scripts\start-ngrok.ps1`，并把 Aily endpoint 改回旧 ngrok 地址。不要把
 `mcp.example.com` 当作凭据，也不要把它复制给其他使用者。
 

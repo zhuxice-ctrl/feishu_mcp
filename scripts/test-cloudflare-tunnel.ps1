@@ -1,7 +1,9 @@
 [CmdletBinding()]
 param(
     [Parameter(Mandatory = $true)][ValidatePattern('^[A-Za-z0-9.-]+$')][string]$PublicHost,
-    [ValidateRange(1, 65535)][int]$Port = 3000
+    [ValidateRange(1, 65535)][int]$Port = 3000,
+    [ValidateRange(1, 65535)][int]$MetricsPort = 20241,
+    [ValidatePattern('^[A-Za-z0-9-]+$')][string]$TunnelName = "feishu-mcp"
 )
 
 $ErrorActionPreference = "Stop"
@@ -10,7 +12,7 @@ $ErrorActionPreference = "Stop"
 # Authorization, MCP_AUTH_TOKEN, .env contents, Cloudflare credentials,
 # process environments, or any tunnel secret.
 
-function Test-HealthJson([hashtable]$Health, [string]$Source) {
+function Test-HealthJson([object]$Health, [string]$Source) {
     if (-not $Health -or $Health.status -ne "ok") {
         throw "$Source health status is not ok"
     }
@@ -56,19 +58,34 @@ try {
     Write-Host "PUBLIC_HEALTH_INVALID: $($_.Exception.Message)"
     exit 5
 }
-Write-Host "public health ok (version $($public.version), $($public.toolCount) tools)"
+Write-Host "PUBLIC_HEALTHY: version $($public.version), $($public.toolCount) tools"
 
-# 3. Connector service state
-$service = Get-Service -Name cloudflared -ErrorAction SilentlyContinue
-if ($null -eq $service) {
-    Write-Host "CLOUDFLARED_SERVICE_MISSING: the cloudflared Windows service is not installed"
+# 3. Connector state: the manual launcher owns the process, so check its
+# metrics and named-tunnel registration without starting or stopping anything.
+$metrics = $null
+try {
+    $metrics = Invoke-WebRequest -Uri "http://127.0.0.1:$MetricsPort/metrics" -TimeoutSec 10 -UseBasicParsing
+} catch {
+    Write-Host "CONNECTOR_HEALTH_FAILURE: metrics endpoint unavailable"
     exit 6
 }
-if ($service.Status -ne "Running") {
-    Write-Host "CLOUDFLARED_SERVICE_STOPPED: service status is $($service.Status)"
+$haMatch = [regex]::Match($metrics.Content, '(?m)^cloudflared_tunnel_ha_connections\s+([0-9]+(?:\.[0-9]+)?)\s*$')
+if (-not $haMatch.Success -or [double]$haMatch.Groups[1].Value -lt 1) {
+    Write-Host "CONNECTOR_HEALTH_FAILURE: no active connector"
+    exit 6
+}
+
+$cloudflared = (Get-Command cloudflared.exe -ErrorAction SilentlyContinue).Source
+if (-not $cloudflared) {
+    Write-Host "CONNECTOR_HEALTH_FAILURE: cloudflared executable unavailable"
     exit 7
 }
-Write-Host "cloudflared service running (start type $($service.StartType))"
+$infoOutput = & $cloudflared tunnel info $TunnelName 2>&1 | Out-String
+if ($LASTEXITCODE -ne 0 -or $infoOutput -match 'does not have any active connection|no active connection|failed to') {
+    Write-Host "CONNECTOR_HEALTH_FAILURE: named tunnel has no active connection"
+    exit 7
+}
+Write-Host "CONNECTOR_HEALTHY: active connector detected"
 
 Write-Host "OK_CONNECTOR_CHECK"
 exit 0
