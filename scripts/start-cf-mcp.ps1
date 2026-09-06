@@ -9,6 +9,7 @@ $projectDir = Split-Path -Parent (Split-Path -Parent $MyInvocation.MyCommand.Pat
 $launcher = Join-Path $projectDir "scripts\start-feishu-mcp.ps1"
 $configPath = Join-Path $env:USERPROFILE ".cloudflared\config.yml"
 $supervisor = Join-Path $projectDir "scripts\tunnel-supervisor.ps1"
+$statePath = Join-Path $env:LOCALAPPDATA "FeishuMcp\tunnel\production-state.json"
 
 function Wait-LocalHealth([int]$Seconds = 45) {
     $deadline = (Get-Date).AddSeconds($Seconds)
@@ -34,6 +35,18 @@ if (-not (Test-Path -LiteralPath $configPath -PathType Leaf)) {
 }
 if (-not (Test-Path -LiteralPath $supervisor -PathType Leaf)) {
     throw "Tunnel supervisor was not found: $supervisor"
+}
+
+# Do not trust a state file whose supervisor PID no longer exists.
+if (Test-Path -LiteralPath $statePath -PathType Leaf) {
+    try {
+        $state = Get-Content -LiteralPath $statePath -Encoding UTF8 -Raw | ConvertFrom-Json
+        if ($state.supervisorPid -and -not (Get-Process -Id ([int]$state.supervisorPid) -ErrorAction SilentlyContinue)) {
+            Remove-Item -LiteralPath $statePath -Force
+        }
+    } catch {
+        Remove-Item -LiteralPath $statePath -Force -ErrorAction SilentlyContinue
+    }
 }
 
 $local = Get-NetTCPConnection -LocalPort $Port -State Listen -ErrorAction SilentlyContinue

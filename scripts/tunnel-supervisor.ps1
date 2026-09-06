@@ -63,6 +63,11 @@ function Test-ProcessAlive([int]$ProcessId) {
     return $null -ne (Get-Process -Id $ProcessId -ErrorAction SilentlyContinue)
 }
 
+function Test-SupervisorAlive([object]$State) {
+    if ($null -eq $State) { return $false }
+    return Test-ProcessAlive ([int]$State.supervisorPid)
+}
+
 function Get-ProductionCloudflared {
     $canonicalConfig = [System.IO.Path]::GetFullPath($configPath)
     $matches = Get-CimInstance Win32_Process -Filter "Name = 'cloudflared.exe'" -ErrorAction SilentlyContinue |
@@ -144,11 +149,13 @@ function Stop-ManualSession {
 
 if ($Action -eq "Status") {
     $state = Get-SafeState
+    $supervisorAlive = Test-SupervisorAlive $state
     $connectorHealthy = Test-ConnectorHealth
     $publicHealthy = Test-PublicHealth
     [pscustomobject]@{
-        status = if ($state) { [string]$state.status } else { "not_running" }
+        status = if (-not $state) { "not_running" } elseif (-not $supervisorAlive) { "stale_state" } else { [string]$state.status }
         tunnelName = $TunnelName
+        supervisorAlive = $supervisorAlive
         connectorHealthy = $connectorHealthy
         publicHealthy = $publicHealthy
         restartCount = if ($state) { [int]$state.restartCount } else { 0 }
@@ -163,9 +170,15 @@ if ($Action -eq "Stop") {
 
 Test-ProductionStatePath
 $priorState = Get-SafeState
-if ($priorState -and [int]$priorState.supervisorPid -ne $PID -and (Test-ProcessAlive ([int]$priorState.supervisorPid))) {
+if ($priorState -and (Test-SupervisorAlive $priorState) -and [int]$priorState.supervisorPid -ne $PID) {
     [pscustomobject]@{ status = "already_running"; tunnelName = $TunnelName } | ConvertTo-Json -Compress
     exit 0
+}
+
+# A previous supervisor may have been terminated externally. Its state is no
+# longer authoritative, so remove it before claiming this new manual session.
+if ($priorState -and -not (Test-SupervisorAlive $priorState)) {
+    Remove-Item -LiteralPath $statePath -Force -ErrorAction SilentlyContinue
 }
 
 $connectorPid = Get-ActiveConnectorPid

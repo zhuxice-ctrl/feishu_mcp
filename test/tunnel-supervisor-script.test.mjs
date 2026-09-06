@@ -13,6 +13,8 @@ test("manual supervisor has bounded connector-only recovery", () => {
   assert.match(source, /FailureThreshold/);
   assert.match(source, /MaxRestarts/);
   assert.match(source, /CommandLine -like/);
+  assert.match(source, /stale_state/);
+  assert.match(source, /Test-SupervisorAlive/);
   assert.doesNotMatch(source, /Start-Service|New-Service|sc\.exe\s+create/i);
 });
 
