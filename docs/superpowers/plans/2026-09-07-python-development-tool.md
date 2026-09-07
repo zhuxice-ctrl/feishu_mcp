@@ -10,6 +10,10 @@
 
 ---
 
+### Branching and execution boundary
+
+Implementation starts only after creating a dedicated test branch from the current `main` commit (for example `test/python-development-tool`). No production MCP process, tunnel, or `main` branch files are changed during implementation. All build and tool-inventory checks run on that test branch; promotion to `main` is a separate user-approved action after review.
+
 ### Task 1: Pure Python command contract
 
 **Files:**
@@ -68,4 +72,3 @@
 - [ ] **Step 2: Restart only the MCP process after the user confirms a maintenance window; do not alter tunnel configuration.**
 - [ ] **Step 3: Refresh the Aily tool discovery and verify `python_development` appears.
 - [ ] **Step 4: Run a safe smoke call using `python_version` in an authorized directory; do not run a project script until the user supplies the target project.
-
