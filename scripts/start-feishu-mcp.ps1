@@ -401,19 +401,9 @@ function Invoke-Launcher {
         Write-Host "feishu_mcp local service is ready." -ForegroundColor Green
         Write-Host "MCP:    $mcpUrl ($clipboardStatus)"
         Write-Host "connector health is checked by scripts\test-cloudflare-tunnel.ps1 or the cloudflared service status."
-        Write-Host "Press Q or Enter to stop the local service (Ctrl+C also cleans up)." -ForegroundColor Yellow
+        Write-Host "Press Ctrl+C to stop the local service." -ForegroundColor Yellow
 
         while ($true) {
-            try {
-                if ([Console]::KeyAvailable) {
-                    $key = [Console]::ReadKey($true)
-                    if ($key.Key -eq [ConsoleKey]::Q -or $key.Key -eq [ConsoleKey]::Enter) {
-                        break
-                    }
-                }
-            } catch {
-                # Non-interactive hosts cannot inspect console keys; process monitoring continues.
-            }
             $server.Refresh()
             if ($server.HasExited) {
                 throw "MCP server exited unexpectedly (exit $($server.ExitCode))"

@@ -252,15 +252,18 @@ test("launcher is local-service-only and decoupled from any tunnel process", asy
   assert.match(content, /test-cloudflare-tunnel\.ps1/);
 });
 
-test("cf launcher delegates connector ownership to the manual supervisor", async () => {
+test("cf launcher owns and supervises the production tunnel", async () => {
   const content = await readFile(
     path.join(projectDir, "scripts", "start-cf-mcp.ps1"),
     "utf8",
   );
-  assert.match(content, /tunnel-supervisor\.ps1/i);
-  assert.match(content, /"-Action", "Start"/);
+  assert.match(content, /Get-ProductionConnector/);
+  assert.match(content, /Test-ConnectorHealth/);
+  assert.match(content, /Test-PublicHealth/);
+  assert.match(content, /Stop-OwnedProcessTree/);
+  assert.match(content, /"run", \$TunnelName/);
   assert.doesNotMatch(content, /New-Service|sc\.exe\s+create|cloudflared\s+service\s+install/i);
-  assert.doesNotMatch(content, /"run", "feishu-mcp"/);
+  assert.doesNotMatch(content, /tunnel-supervisor\.ps1/i);
 });
 
 test("cf stop entrypoint delegates to the supervisor", async () => {

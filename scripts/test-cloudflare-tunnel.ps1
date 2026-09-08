@@ -58,34 +58,50 @@ try {
     Write-Host "PUBLIC_HEALTH_INVALID: $($_.Exception.Message)"
     exit 5
 }
-Write-Host "PUBLIC_HEALTHY: version $($public.version), $($public.toolCount) tools"
+Write-Host "public health ok (version $($public.version), $($public.toolCount) tools)"
 
-# 3. Connector state: the manual launcher owns the process, so check its
-# metrics and named-tunnel registration without starting or stopping anything.
-$metrics = $null
+
+# 3. Manual production connector state. The launcher deliberately does not
+# install a Windows service, so identify only the running production process.
+$configPath = [System.IO.Path]::GetFullPath((Join-Path $env:USERPROFILE ".cloudflared\config.yml"))
+$connector = Get-CimInstance Win32_Process -Filter "Name = 'cloudflared.exe'" -ErrorAction SilentlyContinue |
+    Where-Object {
+        $_.CommandLine -and
+        $_.CommandLine -like "*$configPath*" -and
+        $_.CommandLine -match ("\brun\s+" + [regex]::Escape("feishu-mcp") + "\b")
+    } |
+    Select-Object -First 1
+if ($null -eq $connector) {
+    Write-Host "PRODUCTION_CONNECTOR_MISSING: start cf_mcp.bat and keep its window open"
+    exit 6
+}
+Write-Host "production cloudflared connector running (PID $($connector.ProcessId))"
+
+# The process match above proves this is production, while metrics and the
+# named-tunnel query prove the connector has an active edge connection.
 try {
     $metrics = Invoke-WebRequest -Uri "http://127.0.0.1:$MetricsPort/metrics" -TimeoutSec 10 -UseBasicParsing
 } catch {
     Write-Host "CONNECTOR_HEALTH_FAILURE: metrics endpoint unavailable"
-    exit 6
+    exit 7
 }
 $haMatch = [regex]::Match($metrics.Content, '(?m)^cloudflared_tunnel_ha_connections\s+([0-9]+(?:\.[0-9]+)?)\s*$')
 if (-not $haMatch.Success -or [double]$haMatch.Groups[1].Value -lt 1) {
     Write-Host "CONNECTOR_HEALTH_FAILURE: no active connector"
-    exit 6
+    exit 7
 }
 
 $cloudflared = (Get-Command cloudflared.exe -ErrorAction SilentlyContinue).Source
 if (-not $cloudflared) {
     Write-Host "CONNECTOR_HEALTH_FAILURE: cloudflared executable unavailable"
-    exit 7
+    exit 8
 }
 $infoOutput = & $cloudflared tunnel info $TunnelName 2>&1 | Out-String
 if ($LASTEXITCODE -ne 0 -or $infoOutput -match 'does not have any active connection|no active connection|failed to') {
     Write-Host "CONNECTOR_HEALTH_FAILURE: named tunnel has no active connection"
-    exit 7
+    exit 8
 }
-Write-Host "CONNECTOR_HEALTHY: active connector detected"
+Write-Host "CONNECTOR_HEALTHY: active production connector detected"
 
 Write-Host "OK_CONNECTOR_CHECK"
 exit 0
