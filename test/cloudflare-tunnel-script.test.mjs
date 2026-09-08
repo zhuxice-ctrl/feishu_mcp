@@ -7,6 +7,7 @@ import test from "node:test";
 
 const projectDir = path.resolve(import.meta.dirname, "..");
 const script = path.join(projectDir, "scripts", "test-cloudflare-tunnel.ps1");
+const launcher = path.join(projectDir, "scripts", "start-cf-mcp.ps1");
 
 function run(args) {
   return spawnSync(
@@ -30,7 +31,10 @@ async function freePort() {
 test("connector script never prints secrets and validates its fields", () => {
   const content = readFileSync(script, "utf8");
   assert.match(content, /ValidatePattern\('\^\[A-Za-z0-9\.\-\]\+\$'\)/);
-  assert.match(content, /Get-Service -Name cloudflared/);
+  assert.match(content, /Get-CimInstance Win32_Process -Filter "Name = 'cloudflared\.exe'"/);
+  assert.match(content, /\\brun\\s\+/);
+  assert.match(content, /\[regex\]::Escape\("feishu-mcp"\)/);
+  assert.match(content, /function Test-HealthJson\(\[object\]\$Health/);
   assert.match(content, /OK_CONNECTOR_CHECK/);
   // No environment expansion, no reading .env/credential/config files.
   assert.doesNotMatch(content, /\$\{env:/);
@@ -46,6 +50,7 @@ test("connector script never prints secrets and validates its fields", () => {
     }
   }
   assert.doesNotMatch(content, /Invoke-Command|Start-Process|Set-Content|Out-File/i);
+  assert.doesNotMatch(content, /feishu-mcp-test|mcp-test|3001/);
 });
 
 test("connector script rejects a non-hostname PublicHost", () => {
@@ -58,4 +63,15 @@ test("connector script reports a bounded local failure exit code", async () => {
   const result = run(["-PublicHost", "mcp.example.com", "-Port", String(port)]);
   assert.equal(result.status, 2, result.stdout + result.stderr);
   assert.match(result.stdout, /LOCAL_HEALTH_FAILURE/);
+});
+
+test("production launcher isolates and supervises only its own tunnel", () => {
+  const content = readFileSync(launcher, "utf8");
+  assert.match(content, /\"feishu-mcp\"/);
+  assert.match(content, /\$MetricsPort = 20241/);
+  assert.match(content, /ConsoleCancelEventHandler/);
+  assert.match(content, /Stop-OwnedProcessTree/);
+  assert.match(content, /\\brun\\s\+/);
+  assert.match(content, /\[regex\]::Escape\(\$TunnelName\)/i);
+  assert.doesNotMatch(content, /feishu-mcp-test|mcp-test|3001/);
 });

@@ -10,7 +10,7 @@ $ErrorActionPreference = "Stop"
 # Authorization, MCP_AUTH_TOKEN, .env contents, Cloudflare credentials,
 # process environments, or any tunnel secret.
 
-function Test-HealthJson([hashtable]$Health, [string]$Source) {
+function Test-HealthJson([object]$Health, [string]$Source) {
     if (-not $Health -or $Health.status -ne "ok") {
         throw "$Source health status is not ok"
     }
@@ -58,17 +58,22 @@ try {
 }
 Write-Host "public health ok (version $($public.version), $($public.toolCount) tools)"
 
-# 3. Connector service state
-$service = Get-Service -Name cloudflared -ErrorAction SilentlyContinue
-if ($null -eq $service) {
-    Write-Host "CLOUDFLARED_SERVICE_MISSING: the cloudflared Windows service is not installed"
+
+# 3. Manual production connector state. The launcher deliberately does not
+# install a Windows service, so identify only the running production process.
+$configPath = [System.IO.Path]::GetFullPath((Join-Path $env:USERPROFILE ".cloudflared\config.yml"))
+$connector = Get-CimInstance Win32_Process -Filter "Name = 'cloudflared.exe'" -ErrorAction SilentlyContinue |
+    Where-Object {
+        $_.CommandLine -and
+        $_.CommandLine -like "*$configPath*" -and
+        $_.CommandLine -match ("\brun\s+" + [regex]::Escape("feishu-mcp") + "\b")
+    } |
+    Select-Object -First 1
+if ($null -eq $connector) {
+    Write-Host "PRODUCTION_CONNECTOR_MISSING: start cf_mcp.bat and keep its window open"
     exit 6
 }
-if ($service.Status -ne "Running") {
-    Write-Host "CLOUDFLARED_SERVICE_STOPPED: service status is $($service.Status)"
-    exit 7
-}
-Write-Host "cloudflared service running (start type $($service.StartType))"
+Write-Host "production cloudflared connector running (PID $($connector.ProcessId))"
 
 Write-Host "OK_CONNECTOR_CHECK"
 exit 0
