@@ -18,8 +18,8 @@ const expectedTools = [
   "get_development_task", "list_development_tasks", "read_development_task_logs", "cancel_development_task",
   "inspect_development_environment", "plan_environment_changes", "apply_environment_plan",
   "android_development",
-  "windows_development", "node_development",
-"manage_development_project", "list_local_workspaces", "run_local_workflow",
+  "windows_development", "node_development", "python_development",
+  "manage_development_project", "list_local_workspaces", "run_local_workflow",
   "local_dev_server", "staging_android_verify",
   "workspace_context",
 ];

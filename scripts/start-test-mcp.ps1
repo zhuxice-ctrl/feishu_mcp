@@ -56,7 +56,7 @@ foreach ($name in @("APPROVAL_DATA_DIR", "DEV_TASK_DATA_DIR", "LOCAL_WORKSPACE_C
     Assert-ChildPath $dataRoot $candidate $name
 }
 if ($CheckOnly) {
-    [pscustomobject]@{ status = "test-ready"; port = 3001; host = "127.0.0.1"; publicHost = "mcp-test.zxc66.asia"; toolCount = 41 } | ConvertTo-Json -Compress
+    [pscustomobject]@{ status = "test-ready"; port = 3001; host = "127.0.0.1"; publicHost = "mcp-test.zxc66.asia"; toolCount = 42 } | ConvertTo-Json -Compress
     exit 0
 }
 
@@ -88,7 +88,7 @@ $server = [System.Diagnostics.Process]::Start($startInfo)
 try {
     $deadline = (Get-Date).AddSeconds(30)
     $headers = @{ Authorization = "Bearer $testToken" }
-    do { try { $health = Invoke-RestMethod -Uri "http://127.0.0.1:3001/health" -Headers $headers -TimeoutSec 2 } catch {}; if ($health.status -eq "ok" -and @($health.tools).Count -eq 41) { break }; Start-Sleep -Milliseconds 300 } while ((Get-Date) -lt $deadline)
+    do { try { $health = Invoke-RestMethod -Uri "http://127.0.0.1:3001/health" -Headers $headers -TimeoutSec 2 } catch {}; if ($health.status -eq "ok" -and @($health.tools).Count -eq 42) { break }; Start-Sleep -Milliseconds 300 } while ((Get-Date) -lt $deadline)
     if (-not $health) {
         if (-not $server.HasExited) { $server.Kill() }
         $stdout = $server.StandardOutput.ReadToEnd()

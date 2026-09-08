@@ -28,8 +28,8 @@ const EXPECTED_TOOLS = [
   "get_development_task", "list_development_tasks", "read_development_task_logs", "cancel_development_task",
   "inspect_development_environment", "plan_environment_changes", "apply_environment_plan",
   "android_development",
-  "windows_development", "node_development",
-"manage_development_project", "list_local_workspaces", "run_local_workflow", "local_dev_server", "staging_android_verify",
+  "windows_development", "node_development", "python_development",
+  "manage_development_project", "list_local_workspaces", "run_local_workflow", "local_dev_server", "staging_android_verify",
   "workspace_context",
 ];
 
@@ -37,7 +37,7 @@ function body(result) {
   return JSON.parse(result.content[0].text);
 }
 
-test("development tools E2E: 41-tool inventory and owner isolation", async () => {
+test("development tools E2E: 42-tool inventory and owner isolation", async () => {
   const root = await mkdtemp(path.join(os.tmpdir(), "dev-e2e-"));
   const approvalDir = path.join(root, "approvals");
   const taskRoot = path.join(approvalDir, "tasks");
@@ -68,7 +68,7 @@ test("development tools E2E: 41-tool inventory and owner isolation", async () =>
     });
     const listed = (await fixture.rpc("tools/list")).tools.map((t) => t.name);
     assert.deepEqual(listed, EXPECTED_TOOLS);
-    assert.equal(listed.length, 41);
+    assert.equal(listed.length, 42);
 
     // Non-owner callers are rejected with OWNER_REQUIRED for every new tool.
     for (const [name, args] of NEW_TOOL_CALLS) {
@@ -86,7 +86,7 @@ test("development tools E2E: 41-tool inventory and owner isolation", async () =>
 
     // Health exposes aggregate data without secrets, paths, or task IDs.
     const health = await (await fetch(`${fixture.baseUrl}/health`)).json();
-    assert.equal(health.toolCount, 41);
+    assert.equal(health.toolCount, 42);
     const serialized = JSON.stringify(health);
     assert.doesNotMatch(serialized, /planId|environmentDigest|catalogDigest|brokerKey|ownerSid|pipePath|realPath|fileIdentity/i);
     assert.doesNotMatch(serialized, /taskId|ownerKey/i);

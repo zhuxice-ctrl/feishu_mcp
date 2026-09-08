@@ -76,7 +76,7 @@ npm start
 Invoke-RestMethod http://127.0.0.1:3000/health
 ```
 
-正常时应返回 `status: ok`，并报告 41 个工具。若你使用 Clash Fake-IP，对公网
+正常时应返回 `status: ok`，并报告 42 个工具。若你使用 Clash Fake-IP，对公网
 `/health` 的回访失败只说明反向探测受限；本地服务和连接器仍可正常工作。
 
 ### 4. 先选择公网传输
@@ -187,7 +187,7 @@ MCP，`Authorization` 应使用**固定值**，其参数值为 `Bearer <your-own
 检查这个 Windows 原生项目需要的 MSVC、Windows SDK 和 CMake 环境。
 ```
 
-## 能力概览：41 个工具
+## 能力概览：42 个工具
 
 工具清单由服务在 `tools/list` 中实际返回；Aily 的文字总结可能合并或漏列工具，
 应以该响应和 `/health` 为准。
@@ -199,7 +199,7 @@ MCP，`Authorization` 应使用**固定值**，其参数值为 `Bearer <your-own
 | 命令与 Git | `execute_command`、`git_status`、`git_diff` |
 | 结构化 Git | `git_workflow`（固定 Git 工作流 action） |
 | 网络与任务 | `web_fetch`、`todo_write`、`todo_read`、`ask_user` |
-| 开发环境 | `get_development_task`、`list_development_tasks`、`read_development_task_logs`、`cancel_development_task`、`inspect_development_environment`、`plan_environment_changes`、`apply_environment_plan`、`android_development`、`windows_development`、`node_development`、`java_development`、`manage_development_project` |
+| 开发环境 | `get_development_task`、`list_development_tasks`、`read_development_task_logs`、`cancel_development_task`、`inspect_development_environment`、`plan_environment_changes`、`apply_environment_plan`、`android_development`、`windows_development`、`node_development`、`python_development`、`java_development`、`manage_development_project` |
 | 本地工作流 | `list_local_workspaces`（列出受保护目录中的工作空间和配方）、`run_local_workflow`（异步执行已登记的受控验证配方） |
 | 本地开发服务 | `local_dev_server`（仅 owner；启动、查询日志或停止 catalog 声明的本机/LAN 开发服务；不接受任意命令，也不会自动通过 Cloudflare 公开） |
 | 工作区路由 | `workspace_context`（owner 专用：选择/恢复受信任工作区，返回确定性的 `route.recommended`：Android 走 `android_development`、固定 Node 校验走 `run_local_workflow`，并提供 `error.nextAction`） |
@@ -212,13 +212,16 @@ MCP，`Authorization` 应使用**固定值**，其参数值为 `Bearer <your-own
 它不提供任意二进制执行或解压能力。二进制构建产物通常应放在制品存储或 Release，
 而不是提交到 Git。
 
+`python_development` 用于受控的 Python 版本检查、脚本运行和 pytest 验证。它会优先选择工作目录下的 `.venv`，再回退到系统 launcher，不接受任意 shell 字符串或原始 pytest flags。
+
 ## 构建与测试命令
 
 结构化开发工具遵循 context-first 流程：
 `workspace_context bootstrap/select` → 阅读声明的指令文件 →
 `workspace_context mark_instructions_read` → 使用 `git_workflow`、
-`java_development` 或 `node_development`。Node 工具还提供固定的
-`npm_ci`、`npm_test`、`npm_build`、`npm_lint`、`npm_typecheck` action；
+`java_development`、`node_development` 或 `python_development`。Node 工具还提供固定的
+`npm_ci`、`npm_test`、`npm_build`、`npm_lint`、`npm_typecheck` action；Python 工具提供固定的
+`python_version`、`script_run`、`pytest_run` action；
 调用方不得用任意 shell 命令替代这些结构化 action。
 
 `execute_command` 是本地 MCP 的通用命令工具；Aily 可能不会把任意 Shell 执行能力
@@ -232,6 +235,7 @@ Windows 上会以完全固定的 `pnpm.cmd` 命令片段启动包管理器；调
 
 ```text
 请调用 node_development，action 为 typecheck，workdir 为已授权 Node 项目目录。
+如果要做 Python 校验，请调用 python_development，action 为 pytest_run，workdir 为已授权 Python 项目目录。
 如需审批，请在当前窗口展示审批卡；不要改用任意 shell 命令。
 ```
 
@@ -274,9 +278,10 @@ OWNER_COMMAND_POLICY=direct
 
 ### Aily 的文字回答只列出一部分工具
 
-服务的 `/health` 与 `tools/list` 当前应返回 41 个工具。Aily 可能因平台安全策略只把
+服务的 `/health` 与 `tools/list` 当前应返回 42 个工具。Aily 可能因平台安全策略只把
 其中一部分交给智能体；如果没有 `execute_command`，请使用 `node_development` 完成四个
-受限的 PNPM 操作，而不要要求智能体改用任意 Shell。
+受限的 PNPM 操作；如果要验证 Python 脚本或 pytest，请使用 `python_development`，而不要
+要求智能体改用任意 Shell。
 
 ### 启动器报告公网 health 超时
 

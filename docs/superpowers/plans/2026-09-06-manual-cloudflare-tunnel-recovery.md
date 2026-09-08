@@ -204,7 +204,7 @@ cloudflared tunnel info feishu-mcp
 Invoke-RestMethod https://mcp.zxc66.asia/health | Select-Object status,toolCount
 ```
 
-Expected: `OK_CONNECTOR_CHECK`, at least one active connector, `status = ok`, and `toolCount = 41`.
+Expected: `OK_CONNECTOR_CHECK`, at least one active connector, `status = ok`, and `toolCount = 42`.
 
 ### Task 6: Regression and controlled recovery proof
 

@@ -16,7 +16,7 @@ function Wait-LocalHealth([int]$Seconds = 45) {
     while ((Get-Date) -lt $deadline) {
         try {
             $health = Invoke-RestMethod -Uri "http://127.0.0.1:$Port/health" -TimeoutSec 3
-            if ($health.status -eq "ok" -and @($health.tools).Count -ge 41) {
+            if ($health.status -eq "ok" -and @($health.tools).Count -ge 42) {
                 return $health
             }
         } catch {

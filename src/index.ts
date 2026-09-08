@@ -77,6 +77,7 @@ import {
 } from "./tools/developmentEnvironment.js";
 import { registerAndroidDevelopmentTool } from "./tools/androidDevelopment.js";
 import { registerNodeDevelopmentTool } from "./tools/nodeDevelopment.js";
+import { registerPythonDevelopmentTool } from "./tools/pythonDevelopment.js";
 import { registerWindowsDevelopmentTool } from "./tools/windowsDevelopment.js";
 import { registerDevelopmentProjectTool } from "./tools/developmentProjects.js";
 import { registerLocalWorkflowTools } from "./tools/localWorkflows.js";
@@ -120,6 +121,7 @@ const TOOL_NAMES = [
   "android_development",
   "windows_development",
   "node_development",
+  "python_development",
   "manage_development_project",
   "manage_binary_artifact",
   "manage_text_transfer",
@@ -301,6 +303,7 @@ function createMcpServer(): McpServer {
     credentialStore: windowsCredentialStore,
   });
   registerNodeDevelopmentTool(server);
+  registerPythonDevelopmentTool(server);
   registerDevelopmentProjectTool(server, { registry: projectRegistry });
   registerLocalWorkflowTools(server, developmentTaskCoordinator);
   registerLocalDevServerTool(server, developmentTaskCoordinator);

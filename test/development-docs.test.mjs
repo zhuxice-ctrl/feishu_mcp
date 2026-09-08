@@ -23,8 +23,8 @@ const ALL_TOOLS = [
   "manage_binary_artifact", "todo_write", "todo_read", "ask_user",
   "get_development_task", "read_development_task_logs", "cancel_development_task",
   "inspect_development_environment", "plan_environment_changes", "apply_environment_plan",
-  "android_development", "windows_development", "node_development",   "manage_development_project",
-"list_local_workspaces",
+  "android_development", "windows_development", "node_development", "python_development", "manage_development_project",
+  "list_local_workspaces",
   "run_local_workflow", "staging_android_verify",
   "list_development_tasks",
   "workspace_context", "manage_text_transfer",
@@ -34,7 +34,7 @@ const ALL_TOOLS = [
 const NEW_TOOLS = [
   "get_development_task", "read_development_task_logs", "cancel_development_task",
   "inspect_development_environment", "plan_environment_changes", "apply_environment_plan",
-  "android_development", "windows_development", "node_development",   "manage_development_project",
+  "android_development", "windows_development", "node_development", "python_development", "manage_development_project",
   "list_local_workspaces",
   "run_local_workflow",
   "list_development_tasks",
@@ -44,13 +44,13 @@ const NEW_TOOLS = [
 ];
 
 // ---------------------------------------------------------------------------
-// 1. All 37 tool names appear in README
+// 1. All documented tool names appear in README
 // ---------------------------------------------------------------------------
 test("README contains all documented tool names", () => {
   for (const name of ALL_TOOLS) {
     assert.ok(README.includes(name), `README missing tool name: ${name}`);
   }
-  assert.equal(ALL_TOOLS.length, 39, "expected documented tool inventory");
+  assert.equal(ALL_TOOLS.length, 40, "expected documented tool inventory");
 });
 
 // ---------------------------------------------------------------------------
@@ -186,10 +186,10 @@ test("all scripts referenced in docs actually exist", () => {
 // ---------------------------------------------------------------------------
 // 9. Tool inventory number is 37 in README
 // ---------------------------------------------------------------------------
-test("README states 41 tools and documents resumable text transfer", () => {
+test("README states 42 tools and documents resumable text transfer", () => {
   assert.ok(
-    /41\s*(个|tools?|工具)/i.test(README),
-    "README should state 41 tools",
+    /42\s*(个|tools?|工具)/i.test(README),
+    "README should state 42 tools",
   );
   assert.match(README, /manage_text_transfer/);
   assert.match(README, /48\s*KiB/);

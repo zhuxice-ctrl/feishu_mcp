@@ -42,7 +42,7 @@ Expected: FAIL because the isolated launcher does not exist.
 
 - [ ] **Step 3: Implement the strict test launcher and example file**
 
-Implement `start-test-mcp.ps1` with `-CheckOnly` and `-EnvFile` parameters. It must require an existing filename ending in `.env.test`, parse it as UTF-8, enforce the six boundary values from Step 1, and reject any normalized state path outside `TEST_DATA_ROOT`. On normal execution it builds once, starts only `dist/index.js` on `127.0.0.1:3001`, verifies `/health` reports 41 tools, and stops only its captured Node process when the launcher ends.
+Implement `start-test-mcp.ps1` with `-CheckOnly` and `-EnvFile` parameters. It must require an existing filename ending in `.env.test`, parse it as UTF-8, enforce the six boundary values from Step 1, and reject any normalized state path outside `TEST_DATA_ROOT`. On normal execution it builds once, starts only `dist/index.js` on `127.0.0.1:3001`, verifies `/health` reports 42 tools, and stops only its captured Node process when the launcher ends.
 
 Use `.env.test.example` with placeholder token values only:
 

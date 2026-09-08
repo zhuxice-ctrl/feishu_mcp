@@ -47,7 +47,7 @@ curl -X POST https://mcp.example.com/mcp \
 | 名称 | 本地文件助手 |
 | 描述 | 完整本地开发环境，支持文件、Git、受限 PNPM 操作、补丁、网页和对话确认 |
 | 图标 | 选择一个文件夹图标 |
-| 介绍 | 提供 32 个本地开发工具，内置路径防护、审批、有界并发和审计。Node/PNPM 使用受限的 `node_development` action，不接受任意 Shell 命令。 |
+| 介绍 | 提供 33 个本地开发工具，内置路径防护、审批、有界并发和审计。Node/PNPM 使用受限的 `node_development` action，Python 验证使用 `python_development`，都不接受任意 Shell 命令。 |
 
 ### 3. 配置请求地址
 
@@ -95,11 +95,11 @@ GIT_COMMAND_POLICY=soft_owner
 如果飞书客户端返回 `DIRECTORY_APPROVAL_REQUIRED`，智能体应展示响应中的目录和
 四种决定，等待 owner 明确选择，然后把签名 challenge 与决定提交给现有 `auth`
 工具。auth 成功后必须立即重试原工具。不要建议修改 `ALLOWED_DIRS` 或重启服务。
-该兼容通道只对固定 owner 生效，默认配置仍为 `deny`，公开工具总数为 37。
+该兼容通道只对固定 owner 生效，默认配置仍为 `deny`，公开工具总数会随版本更新变化。
 
 同时在 Aily 为该 MCP 固定配置 `x-aily-user=owner` 请求头，并仅让所有者看见该
 MCP 工具。该固定身份是 `F:\` 默认目录只对 owner 生效的前提；其他用户不能共享
-或继承此范围。目录授权不会新增工具，`tools/list` 始终保持 37 个工具。
+或继承此范围。目录授权不会新增工具，`tools/list` 只会随着服务版本变化。
 
 当 `GIT_COMMAND_POLICY=soft_owner` 时，owner 在已授权目录内调用普通 Git 命令
 （例如 `git add`、`git commit`、`git merge`、普通 `git push` 与 `git status`）会直接
@@ -156,11 +156,13 @@ manage-feishu-mcp-approvals.bat -ClearDirectories
 
 ### 5.5. 开发环境工具（owner 专用）
 
-10 个开发环境工具（`get_development_task`、`read_development_task_logs`、`cancel_development_task`、`inspect_development_environment`、`plan_environment_changes`、`apply_environment_plan`、`android_development`、`windows_development`、`manage_development_project`、`local_dev_server`）仅对配置的 owner 可见。非 owner 调用返回 `OWNER_REQUIRED`，不会降级为普通工具。
+11 个开发环境工具（`get_development_task`、`read_development_task_logs`、`cancel_development_task`、`inspect_development_environment`、`plan_environment_changes`、`apply_environment_plan`、`android_development`、`windows_development`、`python_development`、`manage_development_project`、`local_dev_server`）仅对配置的 owner 可见。非 owner 调用返回 `OWNER_REQUIRED`，不会降级为普通工具。
 
 长操作（构建、测试、打包）返回 task ID，客户端可在同一会话中查询进度、读取日志或请求取消。需要审批的操作（项目创建、环境变更、设备写入）返回 `input_required`，客户端必须用相同参数重试。不支持 elicitation 的客户端始终被拒绝。
 
 `local_dev_server` 用于已在受保护 workspace catalog 中声明的开发服务。它只接收服务 ID、端口和 `local`/`lan` 范围，不接受任何 shell 或命令参数；不会自动发布到 Cloudflare。
+
+`python_development` 用于受限的 Python 校验工作流，支持 `python_version`、`script_run` 和 `pytest_run`。它只接受结构化的 `workdir`、脚本/模块和 pytest 目标，不接受任意 shell 字符串。
 
 不要在飞书对话或配置截图中粘贴密钥、PIN、签名密钥或凭据密码。凭据通过 `manage-development-credentials.bat` 在本机管理，工具调用仅使用凭据别名。详细使用方法见 [本地开发环境使用指南](local-development-environment.md)。
 
@@ -192,7 +194,8 @@ manage-feishu-mcp-approvals.bat -ClearDirectories
 - [ ] `edit_file` 成功编辑文件
 - [ ] `execute_command` 对明确只读命令直接执行，对高风险命令返回确认卡片
 - [ ] `node_development` 只接受 `pnpm_version`、`test_run`、`build`、`typecheck` 和必填的 `workdir`
-- [ ] Aily 未挂载 `execute_command` 时，使用 `node_development` 执行相应的受限 PNPM 操作
+- [ ] `python_development` 只接受 `python_version`、`script_run`、`pytest_run` 和必填的 `workdir`
+- [ ] Aily 未挂载 `execute_command` 时，使用 `node_development` 执行相应的受限 PNPM 操作；Python 校验走 `python_development`
 - [ ] `search_content` 返回带文件和行号的匹配
 - [ ] `git_status` / `git_diff` 不启动外部 pager 或 diff helper
 - [ ] `compare_files` 返回 unified diff
