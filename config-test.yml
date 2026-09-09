@@ -1,0 +1,15 @@
+# feishu-mcp 测试隧道配置（方案 B：独立隧道，与生产 config.yml 完全分离）
+# 生产隧道的配置在 C:\Users\Lenovo\.cloudflared\config.yml，本文件不共享任何内容。
+#
+# ⚠️ 启用前两步（用户侧操作，见 docs/dual-channel-plan-20260908.md Phase 3）:
+#   1. cloudflared tunnel create feishu-mcp-test
+#      → 输出 Tunnel UUID，并生成 C:\Users\Lenovo\.cloudflared\<UUID>.json 凭证
+#   2. 把下面的 <TUNNEL_UUID> 两处全部替换成该 UUID
+#   3. cloudflared tunnel route dns feishu-mcp-test mcp-test.zxc66.asia
+tunnel: 20c74439-6bdb-4fcf-a979-16ff8202a602
+credentials-file: C:\Users\Lenovo\.cloudflared\20c74439-6bdb-4fcf-a979-16ff8202a602.json
+metrics: 127.0.0.1:20242
+ingress:
+  - hostname: mcp-test.zxc66.asia
+    service: http://127.0.0.1:3100
+  - service: http_status:404

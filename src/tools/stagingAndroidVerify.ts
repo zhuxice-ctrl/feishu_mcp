@@ -30,6 +30,14 @@ export interface StagingAndroidVerifyOptions {
   readonly registry: ProfileRegistry;
   readonly stateStoreDir: string;
   readonly evidenceDir: string;
+  /**
+   * Optional hook that refreshes Profile definitions before each run.
+   *
+   * FMCP-ANDROID-20260908-001: a long-lived process caches the startup-time
+   * Profile; wiring this hook lets the tool re-read edited Profile files
+   * without a server restart. When omitted the registry stays static.
+   */
+  readonly reloadProfiles?: () => Promise<void>;
 }
 
 async function computeSha256(filePath: string): Promise<string> {
@@ -41,7 +49,7 @@ export function registerStagingAndroidVerifyTool(
   server: McpServer,
   options: StagingAndroidVerifyOptions,
 ): void {
-  const { registry, stateStoreDir, evidenceDir } = options;
+  const { registry, stateStoreDir, evidenceDir, reloadProfiles } = options;
   const tunnelAdapter = new OpenSshTunnelAdapter();
   const deviceAdapter = new AdbDeviceAdapter();
   const stateStore = new StateStore(stateStoreDir);
@@ -87,6 +95,20 @@ export function registerStagingAndroidVerifyTool(
             request = parseRunRequest(args);
           } catch (err) {
             return toolError("INVALID_ARGUMENT", err instanceof Error ? err.message : String(err));
+          }
+
+          // FMCP-ANDROID-20260908-001: refresh Profile definitions before
+          // resolving, so an edited Profile file takes effect without a
+          // server restart. Optional hook; omitted = static registry.
+          if (reloadProfiles) {
+            try {
+              await reloadProfiles();
+            } catch (err) {
+              return toolError(
+                "INTERNAL_ERROR",
+                `profile reload failed: ${err instanceof Error ? err.message : String(err)}`,
+              );
+            }
           }
 
           if (!registry.has(request.profileId)) {
