@@ -45,7 +45,7 @@ const nodes: ProfileNode[] = [
     id: "verify_binding",
     type: "assert_text",
     label: "Verify binding screen is visible",
-    assertion: { kind: "text_present", value: "绑定设备", timeoutMs: 15_000 },
+    assertion: { kind: "text_present", value: "内容", timeoutMs: 15_000 },
     fromState: "scenario_started",
     onSuccess: "scenario_passed",
     onFailure: "tunnel_interrupted",
@@ -61,7 +61,7 @@ const nodes: ProfileNode[] = [
     id: "recover_binding",
     type: "assert_text",
     label: "Re-verify binding after recovery",
-    assertion: { kind: "text_present", value: "绑定设备", timeoutMs: 15_000 },
+    assertion: { kind: "text_present", value: "内容", timeoutMs: 15_000 },
     fromState: "tunnel_reconnected",
     onSuccess: "recovery_passed",
   },
@@ -70,8 +70,8 @@ const nodes: ProfileNode[] = [
 export const zeroxcoreProfile: AndroidAppProfile = {
   id: "zeroxcore",
   version: 1,
-  packageName: "tech.zeroxcore.app",
-  activity: "tech.zeroxcore.app.MainActivity",
+  packageName: "tech.zeroxcore.nativeapp",
+  activity: "tech.zeroxcore.nativeapp.MainActivity",
   tunnel: { remotePort: 3100, localPort: 3100 },
   graph: {
     entryState: "tunnel_connected",
