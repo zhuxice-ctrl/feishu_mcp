@@ -2,7 +2,7 @@
 // prod-supervisor.mjs — feishu-mcp 生产实例守护（node + cloudflared 双进程看护）
 // 职责：
 //  1) 启动/接管：杀掉 :3000 上的孤儿进程，拉起 node dist/index.js（env=系统基础键+.env）
-//  2) cloudflared 看护：无 cloudflared.exe 进程时拉起隧道；退出后自动重启
+//  2) cloudflared 看护：生产隧道不在时拉起（按 UUID 匹配命令行，测试隧道在场不误判）；退出后自动重启
 //  3) node 健康看门狗：本地 /health 连续 3 次失败 → 重启 node
 //  4) 命令队列看门狗：每 180s 经 MCP 调 execute_command echo 探针；
 //     QUEUE_TIMEOUT 或传输失败连续 2 次 → 重启 node（自愈 2026-09-09 两次队列死锁）
@@ -69,7 +69,14 @@ function pidsOnPort(port) {
 }
 
 function cloudflaredRunning() {
-  try { return /cloudflared\.exe/i.test(execSync('tasklist', { encoding: 'utf8', timeout: 10000 })); } catch { return false; }
+  // 按生产隧道 UUID 匹配命令行：避免测试隧道的 cloudflared.exe 在场时被误判为「生产隧道已存活」
+  // （旧实现用 tasklist 任意匹配，测试隧道在场而生产隧道掉线时会跳过拉起 → 公网 502/530）
+  try {
+    const ps = `Get-CimInstance Win32_Process -Filter "Name='cloudflared.exe'" | Select-Object -ExpandProperty CommandLine`;
+    const b64 = Buffer.from(ps, 'utf16le').toString('base64');
+    const out = execSync(`powershell -NoProfile -EncodedCommand ${b64}`, { encoding: 'utf8', timeout: 15000 });
+    return out.includes(TUNNEL_UUID);
+  } catch { return false; }
 }
 
 // ---- node 子进程 ----

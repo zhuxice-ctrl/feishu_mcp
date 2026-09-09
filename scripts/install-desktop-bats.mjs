@@ -7,7 +7,8 @@ const desktop = execSync('powershell -NoProfile -Command "[Environment]::GetFold
 if (!desktop) throw new Error('Desktop path not resolved');
 console.log('Desktop = ' + desktop);
 
-const START = `@echo off
+// String.raw：路径里的 \n、\f 等必须按字面反斜杠写入 bat，不能被 JS 转义
+const START = String.raw`@echo off
 chcp 65001 >nul
 title feishu-mcp 生产服务 - 启动
 
@@ -29,7 +30,7 @@ echo.
 pause
 `;
 
-const STOP = `@echo off
+const STOP = String.raw`@echo off
 chcp 65001 >nul
 title feishu-mcp 生产服务 - 关闭
 
