@@ -84,6 +84,7 @@ import { registerLocalWorkflowTools } from "./tools/localWorkflows.js";
 import { registerLocalDevServerTool } from "./tools/localDevServer.js";
 import { registerStagingAndroidVerifyTool } from "./tools/stagingAndroidVerify.js";
 import { registerWorkspaceContextTool } from "./tools/workspaceContext.js";
+import { registerRestartTool } from "./tools/restart.js";
 import { WorkspaceContextStore } from "./development/workspaces/context.js";
 import { ProfileRegistry } from "./android-workflow/profileRegistry.js";
 import { zeroxcoreProfile } from "./android-workflow/profiles/zeroxcore.js";
@@ -109,7 +110,7 @@ import { ArtifactUploadService } from "./artifacts/uploads.js";
 import { TextTransferService } from "./textTransfers/service.js";
 import { registerTextTransferTool } from "./tools/textTransfer.js";
 
-const TOOL_NAMES = [
+const BASE_TOOL_NAMES = [
   "ping", "read_file", "write_file", "edit_file", "create_directory",
   "list_directory", "move_file", "search_files", "get_file_info",
   "list_allowed_directories", "auth", "execute_command", "search_content",
@@ -132,6 +133,13 @@ const TOOL_NAMES = [
   "workspace_context",
   "local_dev_server",
 ] as const;
+
+// Managed-launch marker: only the isolation launcher (start-test-mcp.mjs) injects it.
+// restart_service registers and advertises only on managed instances; production inventory stays 42.
+const MANAGED_LAUNCH = process.env["FEISHU_MCP_MANAGED_LAUNCH"] === "1";
+const TOOL_NAMES = MANAGED_LAUNCH
+  ? [...BASE_TOOL_NAMES, "restart_service"]
+  : BASE_TOOL_NAMES;
 
 const SERVER_INSTRUCTIONS =
   "Complete local development MCP for Feishu. When a tool returns " +
@@ -216,6 +224,25 @@ const windowsCredentialStore = new LocalCredentialStore(APPROVAL_DATA_DIR);
 
 const androidWorkflowRegistry = new ProfileRegistry();
 androidWorkflowRegistry.register(zeroxcoreProfile);
+
+/**
+ * FMCP-ANDROID-20260908-001: hot-reload the ZeroXCore Profile definition
+ * before each staging_android_verify run.
+ *
+ * Uses a cache-busting query string so the ESM loader re-reads the built
+ * module from disk instead of returning the startup-time cached export.
+ * replace() re-validates the new definition; on failure the previously
+ * registered Profile stays in place, so a broken edit cannot wedge the
+ * workflow — the run surfaces a clear INTERNAL_ERROR instead.
+ */
+let profileReloadCounter = 0;
+async function reloadAndroidWorkflowProfiles(): Promise<void> {
+  const counter = ++profileReloadCounter;
+  const mod = (await import(
+    `./android-workflow/profiles/zeroxcore.js?reload=${counter}`
+  )) as typeof import("./android-workflow/profiles/zeroxcore.js");
+  androidWorkflowRegistry.replace(mod.zeroxcoreProfile);
+}
 
 // ---------------------------------------------------------------------------
 // MCP server factory — one fresh instance per request
@@ -311,7 +338,11 @@ registerStagingAndroidVerifyTool(server, {
     registry: androidWorkflowRegistry,
     stateStoreDir: APPROVAL_DATA_DIR,
     evidenceDir: path.join(APPROVAL_DATA_DIR, "staging-evidence"),
+    reloadProfiles: reloadAndroidWorkflowProfiles,
   });
+  if (MANAGED_LAUNCH) {
+    registerRestartTool(server);
+  }
   registerWorkspaceContextTool(server, {
     store: workspaceContextStore,
     ownerKey: developmentOwnerKey,

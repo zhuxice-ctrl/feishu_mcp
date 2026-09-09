@@ -46,14 +46,39 @@ export class ProfileRegistry {
    * - every ProfileNode.fromState must be a known workflow state
    */
   register(profile: AndroidAppProfile): void {
+    this.validateProfile(profile);
+    if (this.profiles.has(profile.id)) {
+      throw new Error(`Profile ${profile.id} is already registered`);
+    }
+    this.profiles.set(profile.id, profile);
+  }
+
+  /**
+   * Replace an already-registered Profile with a newer definition.
+   *
+   * Runs the full register() validation first; the existing entry is only
+   * overwritten after validation succeeds, so a failed replacement leaves
+   * the previously registered (working) Profile untouched.
+   *
+   * Ref: FMCP-ANDROID-20260908-001 — long-lived processes cached the
+   * startup-time Profile; replace() lets callers hot-reload an edited
+   * Profile definition without restarting the server process.
+   */
+  replace(profile: AndroidAppProfile): void {
+    this.validateProfile(profile);
+    this.profiles.set(profile.id, profile);
+  }
+
+  /**
+   * Shared validation for register() and replace().
+   * Mutates nothing — throws before any state changes.
+   */
+  private validateProfile(profile: AndroidAppProfile): void {
     if (!profile.id || typeof profile.id !== "string") {
       throw new Error("Profile.id is required");
     }
     if (!Number.isInteger(profile.version) || profile.version <= 0) {
       throw new Error(`Profile ${profile.id}: version must be a positive integer`);
-    }
-    if (this.profiles.has(profile.id)) {
-      throw new Error(`Profile ${profile.id} is already registered`);
     }
     for (const cap of profile.capabilities) {
       if (!ALLOWED_CAPABILITIES.has(cap)) {
@@ -76,7 +101,6 @@ export class ProfileRegistry {
         }
       }
     }
-    this.profiles.set(profile.id, profile);
   }
 
   /** Resolve a Profile by id.  Throws if unknown. */

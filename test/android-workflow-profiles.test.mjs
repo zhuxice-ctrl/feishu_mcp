@@ -29,11 +29,11 @@ test("registry loads ZeroXCore without leaking its package into core contracts",
   const registry = new ProfileRegistry();
   registry.register(zeroxcoreProfile);
   const profile = registry.get("zeroxcore");
-  assert.equal(profile.packageName, "tech.zeroxcore.app");
+  assert.equal(profile.packageName, "tech.zeroxcore.nativeapp");
   assert.equal(profile.tunnel.localPort, 3100);
   assert.equal(profile.tunnel.remotePort, 3100);
   // coreSchema must not contain the app-specific package name.
-  assert.equal(registry.coreSchema().includes("tech.zeroxcore.app"), false);
+  assert.equal(registry.coreSchema().includes("tech.zeroxcore.nativeapp"), false);
 });
 
 test("a second dummy profile can be registered without coordinator changes", () => {
@@ -102,3 +102,30 @@ test("ZeroXCore profile graph declares an offline recovery branch", () => {
   const verify = profile.graph.nodes.find((n) => n.id === "verify_binding");
   assert.equal(verify.onFailure, "tunnel_interrupted");
 });
+
+test("replace() hot-swaps an already-registered profile (FMCP-ANDROID-20260908-001)", () => {
+  const registry = new ProfileRegistry();
+  registry.register(zeroxcoreProfile);
+  const updated = { ...zeroxcoreProfile, version: 2, packageName: "tech.zeroxcore.app.v2" };
+  registry.replace(updated);
+  const profile = registry.get("zeroxcore");
+  assert.equal(profile.version, 2);
+  assert.equal(profile.packageName, "tech.zeroxcore.app.v2");
+});
+
+test("replace() rejects an invalid replacement and keeps the previous profile", () => {
+  const registry = new ProfileRegistry();
+  registry.register(zeroxcoreProfile);
+  const bad = { ...zeroxcoreProfile, tunnel: { remotePort: 8080, localPort: 8080 } };
+  assert.throws(() => registry.replace(bad), /ports must be 3100/);
+  const profile = registry.get("zeroxcore");
+  assert.equal(profile.version, zeroxcoreProfile.version);
+  assert.equal(profile.packageName, "tech.zeroxcore.nativeapp");
+});
+
+test("replace() can also register a brand-new profile id", () => {
+  const registry = new ProfileRegistry();
+  registry.replace(makeDummyProfile());
+  assert.equal(registry.has("dummy"), true);
+});
+

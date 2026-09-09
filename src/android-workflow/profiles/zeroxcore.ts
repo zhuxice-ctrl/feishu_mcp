@@ -84,3 +84,4 @@ export const zeroxcoreProfile: AndroidAppProfile = {
     }
   },
 };
+
